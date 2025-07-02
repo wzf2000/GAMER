@@ -4,7 +4,7 @@ sft_prompt = (
 )
 
 
-all_prompt = {}
+all_prompt: dict[str, list[dict[str, str]]] = {}
 
 # =====================================================
 # Task 1 -- Sequential Recommendation -- 17 Prompt

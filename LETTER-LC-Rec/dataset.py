@@ -2,39 +2,40 @@ import os
 import copy
 import json
 import random
+import argparse
 import numpy as np
+import torch
 from torch.utils.data import Dataset
+from typing import Callable
+from transformers import LlamaTokenizer
 
 from prompt import sft_prompt, all_prompt
 
 
 class BaseDataset(Dataset):
-
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace):
         super().__init__()
 
         self.args = args
-        self.dataset = args.dataset
+        self.dataset: str = args.dataset
         self.data_path = os.path.join(args.data_path, self.dataset)
 
-        self.max_his_len = args.max_his_len
-        self.his_sep = args.his_sep
-        self.index_file = args.index_file
-        self.add_prefix = args.add_prefix
+        self.max_his_len: int = args.max_his_len
+        self.his_sep: str = args.his_sep
+        self.index_file: str = args.index_file
+        self.add_prefix: bool = args.add_prefix
 
         self.new_tokens = None
         self.allowed_tokens = None
         self.all_items = None
 
     def _load_data(self):
-
         with open(
             os.path.join(self.data_path, self.dataset + self.index_file), "r"
         ) as f:
-            self.indices = json.load(f)
+            self.indices: dict[str, list[str]] = json.load(f)
 
     def get_new_tokens(self):
-
         if self.new_tokens is not None:
             return self.new_tokens
 
@@ -47,7 +48,6 @@ class BaseDataset(Dataset):
         return self.new_tokens
 
     def get_all_items(self):
-
         if self.all_items is not None:
             return self.all_items
 
@@ -57,8 +57,7 @@ class BaseDataset(Dataset):
 
         return self.all_items
 
-    def get_prefix_allowed_tokens_fn(self, tokenizer):
-
+    def get_prefix_allowed_tokens_fn(self, tokenizer: LlamaTokenizer) -> Callable[[int, torch.Tensor], list[int]]:
         if self.allowed_tokens is None:
             self.allowed_tokens = {}
             for index in self.indices.values():
@@ -72,7 +71,7 @@ class BaseDataset(Dataset):
             )
         sep = tokenizer("Response:")["input_ids"][1:]
 
-        def prefix_allowed_tokens_fn(batch_id, sentence):
+        def prefix_allowed_tokens_fn(batch_id: int, sentence: torch.Tensor) -> list[int]:
             sentence = sentence.tolist()
             reversed_sent = sentence[::-1]
             for i in range(len(reversed_sent)):
@@ -83,14 +82,17 @@ class BaseDataset(Dataset):
         return prefix_allowed_tokens_fn
 
     def _process_data(self):
-
         raise NotImplementedError
 
 
 class SeqRecDataset(BaseDataset):
-
     def __init__(
-        self, args, mode="train", prompt_sample_num=1, prompt_id=0, sample_num=-1
+        self,
+        args: argparse.Namespace,
+        mode: str = "train",
+        prompt_sample_num: int = 1,
+        prompt_id: int = 0,
+        sample_num: int = -1
     ):
         super().__init__(args)
 
@@ -109,8 +111,8 @@ class SeqRecDataset(BaseDataset):
         if self.mode == "train":
             self.inter_data = self._process_train_data()
         elif self.mode == "valid":
-            self.sample_valid = args.sample_valid
-            self.valid_prompt_id = args.valid_prompt_id
+            self.sample_valid: bool = args.sample_valid
+            self.valid_prompt_id: int = args.valid_prompt_id
             self.inter_data = self._process_valid_data()
             self._construct_valid_text()
         elif self.mode == "test":
@@ -119,29 +121,25 @@ class SeqRecDataset(BaseDataset):
             raise NotImplementedError
 
     def _load_data(self):
-
         with open(os.path.join(self.data_path, self.dataset + ".inter.json"), "r") as f:
-            self.inters = json.load(f)
+            self.inters: dict[str, list[int]] = json.load(f)
         with open(
             os.path.join(self.data_path, self.dataset + self.index_file), "r"
         ) as f:
-            self.indices = json.load(f)
+            self.indices: dict[str, list[str]] = json.load(f)
 
     def _remap_items(self):
-
-        self.remapped_inters = dict()
+        self.remapped_inters: dict[str, list[str]] = dict()
         for uid, items in self.inters.items():
             new_items = ["".join(self.indices[str(i)]) for i in items]
             self.remapped_inters[uid] = new_items
 
-    def _process_train_data(self):
-
+    def _process_train_data(self) -> list[dict[str, str]]:
         inter_data = []
         for uid in self.remapped_inters:
             items = self.remapped_inters[uid][:-2]
             for i in range(1, len(items)):
                 one_data = dict()
-                # one_data["user"] = uid
                 one_data["item"] = items[i]
                 history = items[:i]
                 if self.max_his_len > 0:
@@ -156,13 +154,11 @@ class SeqRecDataset(BaseDataset):
 
         return inter_data
 
-    def _process_valid_data(self):
-
+    def _process_valid_data(self) -> list[dict[str, str]]:
         inter_data = []
         for uid in self.remapped_inters:
             items = self.remapped_inters[uid]
             one_data = dict()
-            # one_data["user"] = uid
             one_data["item"] = items[-2]
             history = items[:-2]
             if self.max_his_len > 0:
@@ -176,13 +172,11 @@ class SeqRecDataset(BaseDataset):
 
         return inter_data
 
-    def _process_test_data(self):
-
+    def _process_test_data(self) -> list[dict[str, str]]:
         inter_data = []
         for uid in self.remapped_inters:
             items = self.remapped_inters[uid]
             one_data = dict()
-            # one_data["user"] = uid
             one_data["item"] = items[-1]
             history = items[:-1]
             if self.max_his_len > 0:
@@ -201,11 +195,10 @@ class SeqRecDataset(BaseDataset):
 
         return inter_data
 
-    def set_prompt(self, prompt_id):
-
+    def set_prompt(self, prompt_id: int):
         self.prompt_id = prompt_id
 
-    def __len__(self):
+    def __len__(self) -> int:
         if self.mode == "train":
             return len(self.inter_data) * self.prompt_sample_num
         elif self.mode == "valid":
@@ -236,8 +229,7 @@ class SeqRecDataset(BaseDataset):
                 input, output = self._get_text_data(d, prompt)
                 self.valid_text_data.append({"input_ids": input, "labels": output})
 
-    def _get_text_data(self, data, prompt):
-
+    def _get_text_data(self, data: dict[str, str], prompt: dict[str, str]) -> tuple[str, str]:
         instruction = prompt["instruction"].format(**data)
         response = prompt["response"].format(**data)
 
@@ -249,14 +241,12 @@ class SeqRecDataset(BaseDataset):
 
         return input, output
 
-    def __getitem__(self, index):
-
+    def __getitem__(self, index: int) -> dict[str, str]:
         if self.mode == "valid":
             return self.valid_text_data[index]
 
         idx = index // self.prompt_sample_num
         d = self.inter_data[idx]
-        # print(index, idx)
 
         if self.mode == "train":
             prompt_id = random.randint(0, len(self.prompts) - 1)
@@ -264,10 +254,7 @@ class SeqRecDataset(BaseDataset):
             prompt_id = self.prompt_id
 
         prompt = self.prompts[prompt_id]
-
         input, output = self._get_text_data(d, prompt)
-
-        # print({"input": input, "output": output})
 
         return dict(input_ids=input, labels=output)
 
@@ -275,7 +262,9 @@ class SeqRecDataset(BaseDataset):
 class FusionSeqRecDataset(BaseDataset):
 
     def __init__(
-        self, args, mode="train", prompt_sample_num=1, prompt_id=0, sample_num=-1
+        self,
+        args: argparse.Namespace,
+        mode: str = "train", prompt_sample_num: int = 1, prompt_id: int = 0, sample_num: int = -1
     ):
         super().__init__(args)
 
@@ -288,14 +277,13 @@ class FusionSeqRecDataset(BaseDataset):
 
         # load data
         self._load_data()
-        # self._remap_items()
 
         # load data
         if self.mode == "train":
             self.inter_data = self._process_train_data()
         elif self.mode == "valid":
-            self.sample_valid = args.sample_valid
-            self.valid_prompt_id = args.valid_prompt_id
+            self.sample_valid: bool = args.sample_valid
+            self.valid_prompt_id: int = args.valid_prompt_id
             self.inter_data = self._process_valid_data()
             self._construct_valid_text()
         elif self.mode == "test":
@@ -304,18 +292,16 @@ class FusionSeqRecDataset(BaseDataset):
             raise NotImplementedError
 
     def _load_data(self):
-
         with open(os.path.join(self.data_path, self.dataset + ".inter.json"), "r") as f:
-            self.inters = json.load(f)
+            self.inters: dict[str, list[int]] = json.load(f)
         with open(
             os.path.join(self.data_path, self.dataset + self.index_file), "r"
         ) as f:
-            self.indices = json.load(f)
+            self.indices: dict[str, list[str]] = json.load(f)
         with open(os.path.join(self.data_path, self.dataset + ".item.json"), "r") as f:
-            self.item_feat = json.load(f)
+            self.item_feat: dict[str, str | list[str] | dict] = json.load(f)
 
-    def _process_train_data(self):
-
+    def _process_train_data(self) -> list[dict[str, str]]:
         inter_data = []
         for uid in self.inters:
             items = self.inters[uid][:-2]
@@ -357,8 +343,7 @@ class FusionSeqRecDataset(BaseDataset):
 
         return inter_data
 
-    def _process_valid_data(self):
-
+    def _process_valid_data(self) -> list[dict[str, str]]:
         inter_data = []
         for uid in self.inters:
             items = self.inters[uid]
@@ -398,8 +383,7 @@ class FusionSeqRecDataset(BaseDataset):
 
         return inter_data
 
-    def _process_test_data(self):
-
+    def _process_test_data(self) -> list[dict[str, str]]:
         inter_data = []
         for uid in self.inters:
             items = self.inters[uid]
@@ -439,11 +423,10 @@ class FusionSeqRecDataset(BaseDataset):
 
         return inter_data
 
-    def set_prompt(self, prompt_id):
-
+    def set_prompt(self, prompt_id: int):
         self.prompt_id = prompt_id
 
-    def __len__(self):
+    def __len__(self) -> int:
         if self.mode == "train":
             return len(self.inter_data) * self.prompt_sample_num
         elif self.mode == "valid":
@@ -474,8 +457,7 @@ class FusionSeqRecDataset(BaseDataset):
                 input, output = self._get_text_data(d, prompt)
                 self.valid_text_data.append({"input_ids": input, "labels": output})
 
-    def _get_text_data(self, data, prompt):
-
+    def _get_text_data(self, data: dict[str, str], prompt: dict[str, str]) -> tuple[str, str]:
         instruction = prompt["instruction"].format(**data)
         response = prompt["response"].format(**data)
 
@@ -487,7 +469,7 @@ class FusionSeqRecDataset(BaseDataset):
 
         return input, output
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> dict[str, str]:
 
         if self.mode == "valid":
             return self.valid_text_data[index]
@@ -508,8 +490,13 @@ class FusionSeqRecDataset(BaseDataset):
 
 
 class ItemFeatDataset(BaseDataset):
-
-    def __init__(self, args, task="item2index", prompt_sample_num=1, sample_num=-1):
+    def __init__(
+        self,
+        args: argparse.Namespace,
+        task: str = "item2index",
+        prompt_sample_num: int = 1,
+        sample_num: int = -1
+    ):
         super().__init__(args)
 
         self.task = task.lower()
@@ -523,16 +510,14 @@ class ItemFeatDataset(BaseDataset):
         self.feat_data = self._process_data()
 
     def _load_data(self):
-
         with open(
             os.path.join(self.data_path, self.dataset + self.index_file), "r"
         ) as f:
-            self.indices = json.load(f)
+            self.indices: dict[str, list[str]] = json.load(f)
         with open(os.path.join(self.data_path, self.dataset + ".item.json"), "r") as f:
-            self.item_feat = json.load(f)
+            self.item_feat: dict[str, str | list[str] | dict] = json.load(f)
 
-    def _process_data(self):
-
+    def _process_data(self) -> list[dict[str, str]]:
         feat_data = []
         for iid in self.item_feat:
             feat = self.item_feat[iid]
@@ -549,11 +534,10 @@ class ItemFeatDataset(BaseDataset):
 
         return feat_data
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.feat_data) * self.prompt_sample_num
 
-    def _get_text_data(self, data, prompt):
-
+    def _get_text_data(self, data: dict[str, str], prompt: dict[str, str]) -> tuple[str, str]:
         instruction = prompt["instruction"].format(**data)
         response = prompt["response"].format(**data)
 
@@ -562,15 +546,12 @@ class ItemFeatDataset(BaseDataset):
 
         return input, output
 
-    def __getitem__(self, index):
-
+    def __getitem__(self, index: int) -> dict[str, str]:
         idx = index // self.prompt_sample_num
         d = self.feat_data[idx]
 
         prompt_id = random.randint(0, len(self.prompts) - 1)
-
         prompt = self.prompts[prompt_id]
-
         input, output = self._get_text_data(d, prompt)
 
         return dict(input_ids=input, labels=output)
@@ -579,7 +560,12 @@ class ItemFeatDataset(BaseDataset):
 class ItemSearchDataset(BaseDataset):
 
     def __init__(
-        self, args, mode="train", prompt_sample_num=1, prompt_id=0, sample_num=-1
+        self,
+        args: argparse.Namespace,
+        mode: str = "train",
+        prompt_sample_num: int = 1,
+        prompt_id: int = 0,
+        sample_num: int = -1
     ):
         super().__init__(args)
 
@@ -595,16 +581,14 @@ class ItemSearchDataset(BaseDataset):
         self.search_data = self._process_data()
 
     def _load_data(self):
-
         with open(
             os.path.join(self.data_path, self.dataset + self.index_file), "r"
         ) as f:
-            self.indices = json.load(f)
+            self.indices: dict[str, list[str]] = json.load(f)
         with open(os.path.join(self.data_path, self.dataset + ".user.json"), "r") as f:
-            self.user_info = json.load(f)
+            self.user_info: dict[str, dict] = json.load(f)
 
-    def _process_data(self):
-
+    def _process_data(self) -> list[dict[str, str]]:
         search_data = []
         user_explicit_preference = self.user_info["user_explicit_preference"]
         user_vague_intention = self.user_info["user_vague_intention"]
@@ -649,10 +633,10 @@ class ItemSearchDataset(BaseDataset):
 
         return search_data
 
-    def set_prompt(self, prompt_id):
+    def set_prompt(self, prompt_id: int):
         self.prompt_id = prompt_id
 
-    def __len__(self):
+    def __len__(self) -> int:
         if self.mode == "train":
             return len(self.search_data) * self.prompt_sample_num
         elif self.mode == "test":
@@ -660,8 +644,7 @@ class ItemSearchDataset(BaseDataset):
         else:
             return len(self.search_data)
 
-    def _get_text_data(self, data, prompt):
-
+    def _get_text_data(self, data: dict[str, str], prompt: dict[str, str]) -> tuple[str, str]:
         instruction = prompt["instruction"].format(**data)
         response = prompt["response"].format(**data)
 
@@ -673,8 +656,7 @@ class ItemSearchDataset(BaseDataset):
 
         return input, output
 
-    def __getitem__(self, index):
-
+    def __getitem__(self, index: int) -> dict[str, str]:
         idx = index // self.prompt_sample_num
 
         d = self.search_data[idx]
@@ -698,7 +680,7 @@ class ItemSearchDataset(BaseDataset):
 
 class PreferenceObtainDataset(BaseDataset):
 
-    def __init__(self, args, prompt_sample_num=1, sample_num=-1):
+    def __init__(self, args: argparse.Namespace, prompt_sample_num: int = 1, sample_num: int = -1):
         super().__init__(args)
 
         self.prompt_sample_num = prompt_sample_num
@@ -713,25 +695,22 @@ class PreferenceObtainDataset(BaseDataset):
         self.preference_data = self._process_data()
 
     def _load_data(self):
-
         with open(os.path.join(self.data_path, self.dataset + ".user.json"), "r") as f:
-            self.user_info = json.load(f)
+            self.user_info: dict[str, dict] = json.load(f)
         with open(os.path.join(self.data_path, self.dataset + ".inter.json"), "r") as f:
-            self.inters = json.load(f)
+            self.inters: dict[str, list[int]] = json.load(f)
         with open(
             os.path.join(self.data_path, self.dataset + self.index_file), "r"
         ) as f:
-            self.indices = json.load(f)
+            self.indices: dict[str, list[str]] = json.load(f)
 
     def _remap_items(self):
-
-        self.remapped_inters = dict()
+        self.remapped_inters: dict[str, list[str]] = dict()
         for uid, items in self.inters.items():
             new_items = ["".join(self.indices[str(i)]) for i in items]
             self.remapped_inters[uid] = new_items
 
-    def _process_data(self):
-
+    def _process_data(self) -> list[dict[str, str]]:
         preference_data = []
         user_explicit_preference = self.user_info["user_explicit_preference"]
 
@@ -760,14 +739,13 @@ class PreferenceObtainDataset(BaseDataset):
 
         return preference_data
 
-    def set_prompt(self, prompt_id):
+    def set_prompt(self, prompt_id: int):
         self.prompt_id = prompt_id
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.preference_data) * self.prompt_sample_num
 
-    def _get_text_data(self, data, prompt):
-
+    def _get_text_data(self, data: dict[str, str], prompt: dict[str, str]) -> tuple[str, str]:
         instruction = prompt["instruction"].format(**data)
         response = prompt["response"].format(**data)
 
@@ -776,7 +754,7 @@ class PreferenceObtainDataset(BaseDataset):
 
         return input, output
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> dict[str, str]:
 
         idx = index // self.prompt_sample_num
 
@@ -796,7 +774,7 @@ class PreferenceObtainDataset(BaseDataset):
 
 class SeqRecTestDataset(BaseDataset):
 
-    def __init__(self, args, prompt_id=0, sample_num=-1):
+    def __init__(self, args: argparse.Namespace, prompt_id: int = 0, sample_num: int = -1):
         super().__init__(args)
 
         self.prompt_id = prompt_id
@@ -811,23 +789,20 @@ class SeqRecTestDataset(BaseDataset):
         self.inter_data = self._process_test_data()
 
     def _load_data(self):
-
         with open(os.path.join(self.data_path, self.dataset + ".inter.json"), "r") as f:
-            self.inters = json.load(f)
+            self.inters: dict[str, list[int]] = json.load(f)
         with open(
             os.path.join(self.data_path, self.dataset + self.index_file), "r"
         ) as f:
-            self.indices = json.load(f)
+            self.indices: dict[str, list[str]] = json.load(f)
 
     def _remap_items(self):
-
-        self.remapped_inters = dict()
+        self.remapped_inters: dict[str, list[str]] = dict()
         for uid, items in self.inters.items():
             new_items = ["".join(self.indices[str(i)]) for i in items]
             self.remapped_inters[uid] = new_items
 
-    def _process_test_data(self):
-
+    def _process_test_data(self) -> list[dict[str, str]]:
         inter_data = []
         for uid in self.remapped_inters:
             items = self.remapped_inters[uid]
@@ -852,17 +827,16 @@ class SeqRecTestDataset(BaseDataset):
 
         return inter_data
 
-    def set_prompt(self, prompt_id):
+    def set_prompt(self, prompt_id: int):
         self.prompt_id = prompt_id
 
         self.prompt = all_prompt["seqrec"][self.prompt_id]
 
-    def __len__(self):
+    def __len__(self) -> int:
 
         return len(self.inter_data)
 
-    def _get_text_data(self, data, prompt):
-
+    def _get_text_data(self, data: dict[str, str], prompt: dict[str, str]) -> tuple[str, str]:
         instruction = prompt["instruction"].format(**data)
         response = prompt["response"].format(**data)
 
@@ -870,8 +844,7 @@ class SeqRecTestDataset(BaseDataset):
 
         return input, response
 
-    def __getitem__(self, index):
-
+    def __getitem__(self, index: int) -> dict[str, str]:
         d = self.inter_data[index]
         input, target = self._get_text_data(d, self.prompt)
 

@@ -1,20 +1,18 @@
 import copy
 import torch
-from transformers import LlamaTokenizer
+import argparse
+from transformers import LlamaTokenizer, BatchEncoding
 
 
-class Collator(object):
-
-    def __init__(self, args, tokenizer):
+class Collator:
+    def __init__(self, args: argparse.Namespace, tokenizer: LlamaTokenizer):
         self.args = args
-        self.only_train_response = args.only_train_response
+        self.only_train_response: bool = args.only_train_response
         self.tokenizer = tokenizer
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.unk_token_id
-        # print(self.tokenizer.model_max_length)
 
-    def __call__(self, batch):
-
+    def __call__(self, batch: list[dict]) -> BatchEncoding:
         input_texts = [d["input_ids"] for d in batch]
         full_texts = [d["labels"] + self.tokenizer.eos_token for d in batch]
 
@@ -35,13 +33,11 @@ class Collator(object):
             labels[torch.where(inputs["labels"] != self.tokenizer.pad_token_id)] = -100
 
         inputs["labels"] = labels
-
         return inputs
 
 
-class TestCollator(object):
-
-    def __init__(self, args, tokenizer):
+class TestCollator:
+    def __init__(self, args: argparse.Namespace, tokenizer: LlamaTokenizer):
         self.args = args
         self.tokenizer = tokenizer
         if self.tokenizer.pad_token_id is None:
@@ -51,8 +47,7 @@ class TestCollator(object):
             # Allow batched inference
             self.tokenizer.padding_side = "left"
 
-    def __call__(self, batch):
-
+    def __call__(self, batch: list[dict]) -> tuple[BatchEncoding, list[int]]:
         input_texts = [d["input_ids"] for d in batch]
         targets = [d["labels"] for d in batch]
         inputs = self.tokenizer(

@@ -284,7 +284,6 @@ def load_test_dataset(args):
 
     if args.test_task.lower() == "seqrec":
         test_data = SeqRecDataset(args, mode="test", sample_num=args.sample_num)
-        # test_data = SeqRecTestDataset(args, sample_num=args.sample_num)
     elif args.test_task.lower() == "itemsearch":
         test_data = ItemSearchDataset(args, mode="test", sample_num=args.sample_num)
     elif args.test_task.lower() == "fusionseqrec":
