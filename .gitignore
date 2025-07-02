@@ -1,0 +1,13 @@
+__pycache__
+.DS_Store
+*.npy
+results
+wandb
+ckpt
+data/**/*.json
+data/**/test*
+!data/**/*.index.json
+!data/**/*.inter.json
+!data/**/*.item.json
+*.pth
+*.ipynb
