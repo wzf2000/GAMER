@@ -1,10 +1,11 @@
 import math
 
+
 def get_topk_results(predictions, scores, targets, k, all_items=None):
     results = []
     B = len(targets)
     predictions = [_.split("Response:")[-1] for _ in predictions]
-    predictions = [_.strip().replace(" ","") for _ in predictions]
+    predictions = [_.strip().replace(" ", "") for _ in predictions]
 
     if all_items is not None:
         for i, seq in enumerate(predictions):
@@ -12,8 +13,8 @@ def get_topk_results(predictions, scores, targets, k, all_items=None):
                 scores[i] = -1000
 
     for b in range(B):
-        batch_seqs = predictions[b * k: (b + 1) * k]
-        batch_scores = scores[b * k: (b + 1) * k]
+        batch_seqs = predictions[b * k : (b + 1) * k]
+        batch_scores = scores[b * k : (b + 1) * k]
 
         pairs = [(a, b) for a, b in zip(batch_seqs, batch_scores)]
         sorted_pairs = sorted(pairs, key=lambda x: x[1], reverse=True)
@@ -28,6 +29,7 @@ def get_topk_results(predictions, scores, targets, k, all_items=None):
         results.append(one_results)
 
     return results
+
 
 def get_metrics_results(topk_results, metrics):
     res = {}
@@ -63,4 +65,3 @@ def hit_k(topk_results, k):
         if sum(res) > 0:
             hit += 1
     return hit
-

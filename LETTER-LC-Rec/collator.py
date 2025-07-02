@@ -1,13 +1,6 @@
-import torch
 import copy
-import argparse
-from dataclasses import dataclass
-
-import transformers
-import math
-from torch.utils.data import Sampler
-import torch.distributed as dist
-from transformers import LlamaForCausalLM, LlamaTokenizer, LlamaConfig, T5Tokenizer, T5Config, T5ForConditionalGeneration
+import torch
+from transformers import LlamaTokenizer
 
 
 class Collator(object):
@@ -26,8 +19,8 @@ class Collator(object):
         full_texts = [d["labels"] + self.tokenizer.eos_token for d in batch]
 
         inputs = self.tokenizer(
-            text = full_texts,
-            text_target = input_texts,
+            text=full_texts,
+            text_target=input_texts,
             return_tensors="pt",
             padding="longest",
             max_length=self.tokenizer.model_max_length,
@@ -43,9 +36,7 @@ class Collator(object):
 
         inputs["labels"] = labels
 
-
         return inputs
-
 
 
 class TestCollator(object):
@@ -74,4 +65,3 @@ class TestCollator(object):
         )
 
         return (inputs, targets)
-

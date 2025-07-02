@@ -1,26 +1,25 @@
+import os
 import argparse
 import json
-import os
-import sys
-
 import torch
-import transformers
 import torch.distributed as dist
-from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel
-from peft import PeftModel
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+from transformers import LlamaForCausalLM, LlamaTokenizer
+from peft import PeftModel
 from tqdm import tqdm
-from transformers import LlamaForCausalLM, LlamaTokenizer, LlamaConfig
 
-from utils import *
+from utils import (
+    set_seed,
+    parse_global_args,
+    parse_dataset_args,
+    parse_test_args,
+    load_test_dataset,
+)
 from collator import TestCollator
 from prompt import all_prompt
 from evaluate import get_topk_results, get_metrics_results
-# import os
-
-# os.environ['MASTER_ADDR'] = 'localhost'
-# os.environ['MASTER_PORT'] = '5678'
 
 
 def test_ddp(args):
@@ -35,7 +34,7 @@ def test_ddp(args):
     dist.init_process_group(backend="nccl", world_size=world_size, rank=local_rank)
 
     device_map = {"": local_rank}
-    device = torch.device("cuda",local_rank)
+    device = torch.device("cuda", local_rank)
 
     tokenizer = LlamaTokenizer.from_pretrained(args.ckpt_path)
     if args.lora:
@@ -55,7 +54,7 @@ def test_ddp(args):
     else:
         model = LlamaForCausalLM.from_pretrained(
             args.ckpt_path,
-            torch_dtype=torch.bfloat16,              
+            torch_dtype=torch.bfloat16,
             load_in_8bit=True,
             low_cpu_mem_usage=True,
             device_map=device_map,
@@ -74,18 +73,24 @@ def test_ddp(args):
         prompt_ids = [int(_) for _ in args.test_prompt_ids.split(",")]
 
     test_data = load_test_dataset(args)
-    ddp_sampler = DistributedSampler(test_data, num_replicas=world_size, rank=local_rank, drop_last=True)
+    ddp_sampler = DistributedSampler(
+        test_data, num_replicas=world_size, rank=local_rank, drop_last=True
+    )
 
     test_data = load_test_dataset(args)
     collator = TestCollator(args, tokenizer)
     all_items = test_data.get_all_items()
 
-
     prefix_allowed_tokens = test_data.get_prefix_allowed_tokens_fn(tokenizer)
 
-
-    test_loader = DataLoader(test_data, batch_size=args.test_batch_size, collate_fn=collator,
-                             sampler=ddp_sampler, num_workers=2, pin_memory=True)
+    test_loader = DataLoader(
+        test_data,
+        batch_size=args.test_batch_size,
+        collate_fn=collator,
+        sampler=ddp_sampler,
+        num_workers=2,
+        pin_memory=True,
+    )
 
     if local_rank == 0:
         print("data num:", len(test_data))
@@ -99,7 +104,7 @@ def test_ddp(args):
         for prompt_id in prompt_ids:
 
             if local_rank == 0:
-                print("Start prompt: ",prompt_id)
+                print("Start prompt: ", prompt_id)
 
             test_loader.dataset.set_prompt(prompt_id)
             metrics_results = {}
@@ -126,7 +131,7 @@ def test_ddp(args):
                         break
                     except torch.cuda.OutOfMemoryError as e:
                         print("Out of memory!")
-                        num_beams = num_beams -1
+                        num_beams = num_beams - 1
                         print("Beam:", num_beams)
                     except Exception:
                         raise RuntimeError
@@ -134,12 +139,15 @@ def test_ddp(args):
                 output_ids = output["sequences"]
                 scores = output["sequences_scores"]
 
-                output = tokenizer.batch_decode(
-                    output_ids, skip_special_tokens=True
-                )
+                output = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
 
-                topk_res = get_topk_results(output, scores, targets, num_beams,
-                                            all_items=all_items if args.filter_items else None)
+                topk_res = get_topk_results(
+                    output,
+                    scores,
+                    targets,
+                    num_beams,
+                    all_items=all_items if args.filter_items else None,
+                )
 
                 bs_gather_list = [None for _ in range(world_size)]
                 dist.all_gather_object(obj=bs, object_list=bs_gather_list)
@@ -147,12 +155,13 @@ def test_ddp(args):
                 res_gather_list = [None for _ in range(world_size)]
                 dist.all_gather_object(obj=topk_res, object_list=res_gather_list)
 
-
                 if local_rank == 0:
                     all_device_topk_res = []
                     for ga_res in res_gather_list:
                         all_device_topk_res += ga_res
-                    batch_metrics_res = get_metrics_results(all_device_topk_res, metrics)
+                    batch_metrics_res = get_metrics_results(
+                        all_device_topk_res, metrics
+                    )
                     for m, res in batch_metrics_res.items():
                         if m not in metrics_results:
                             metrics_results[m] = res
@@ -188,7 +197,7 @@ def test_ddp(args):
 
         for m in metrics:
             all_res = [_[m] for _ in all_prompt_results]
-            mean_results[m] = sum(all_res)/len(all_res)
+            mean_results[m] = sum(all_res) / len(all_res)
             min_results[m] = min(all_res)
             max_results[m] = max(all_res)
 
@@ -198,8 +207,7 @@ def test_ddp(args):
         print("Max results: ", max_results)
         print("======================================================")
 
-
-        save_data={}
+        save_data = {}
         save_data["test_prompt_ids"] = args.test_prompt_ids
         save_data["mean_results"] = mean_results
         save_data["min_results"] = min_results
@@ -209,7 +217,6 @@ def test_ddp(args):
         with open(args.results_file, "w") as f:
             json.dump(save_data, f, indent=4)
         print("Save file: ", args.results_file)
-
 
 
 if __name__ == "__main__":

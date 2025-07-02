@@ -1,31 +1,21 @@
-import argparse
 import os
 import sys
-from typing import List
-# import wandb
 import torch
-
-from modeling_letter import LETTER
-from fastchat.train.llama2_flash_attn_monkey_patch import (
-    replace_llama_attn_with_flash_attn,
-)
-
-replace_llama_attn_with_flash_attn()
-
+import argparse
 import transformers
-
-
 from peft import (
     TaskType,
     LoraConfig,
     get_peft_model,
-    prepare_model_for_int8_training,
+    prepare_model_for_kbit_training,
     set_peft_model_state_dict,
 )
-from transformers import LlamaForCausalLM, LlamaTokenizer, LlamaConfig
+from transformers import LlamaTokenizer, LlamaConfig
 
-from utils import *
+from utils import set_seed, ensure_dir, parse_global_args, parse_train_args, parse_dataset_args, load_datasets
 from collator import Collator
+from modeling_letter import LETTER
+
 
 def train(args):
 
@@ -69,7 +59,7 @@ def train(args):
     model.set_hyper(args.temperature)
     model.resize_token_embeddings(len(tokenizer))
 
-    model = prepare_model_for_int8_training(model)
+    model = prepare_model_for_kbit_training(model)
     config = LoraConfig(
         r=args.lora_r,
         lora_alpha=args.lora_alpha,
@@ -86,7 +76,9 @@ def train(args):
         checkpoint_name = os.path.join(
             args.resume_from_checkpoint, "adapter_model.bin"
         )  # only LoRA model - LoRA config above has to fit
-        args.resume_from_checkpoint = False  # So the trainer won't try loading its state
+        args.resume_from_checkpoint = (
+            False  # So the trainer won't try loading its state
+        )
         # The two files above have a different name depending on how they were saved, but are actually the same.
         if os.path.exists(checkpoint_name):
             if local_rank == 0:
@@ -98,12 +90,13 @@ def train(args):
                 print(f"Checkpoint {checkpoint_name} not found")
 
     for n, p in model.named_parameters():
-        if "original_module" in n and any(module_name in n for module_name in config.modules_to_save):
+        if "original_module" in n and any(
+            module_name in n for module_name in config.modules_to_save
+        ):
             p.requires_grad = False
 
     if local_rank == 0:
         model.print_trainable_parameters()
-
 
     if not ddp and torch.cuda.device_count() > 1:
         model.is_parallelizable = True
@@ -123,7 +116,7 @@ def train(args):
             learning_rate=args.learning_rate,
             weight_decay=args.weight_decay,
             lr_scheduler_type=args.lr_scheduler_type,
-            report_to=['wandb'],
+            report_to=["wandb"],
             fp16=args.fp16,
             bf16=args.bf16,
             logging_steps=args.logging_step,
@@ -139,7 +132,7 @@ def train(args):
             deepspeed=args.deepspeed,
             ddp_find_unused_parameters=False if ddp else None,
             # report_to=None,
-            eval_delay=1 if args.save_and_eval_strategy=="epoch" else 2000,
+            eval_delay=1 if args.save_and_eval_strategy == "epoch" else 2000,
         ),
         tokenizer=tokenizer,
         data_collator=collator,
@@ -158,7 +151,7 @@ def train(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='LLMRec')
+    parser = argparse.ArgumentParser(description="LLMRec")
     parser = parse_global_args(parser)
     parser = parse_train_args(parser)
     parser = parse_dataset_args(parser)

@@ -1,19 +1,11 @@
-import copy
-import random
-import argparse
 import os
-import torch
-import torch.nn as nn
-from torch.utils.data import Dataset
-from tqdm import tqdm
-from collections import defaultdict
-import torch.distributed as dist
-import logging
-import re
-import pdb
+import copy
 import json
-from prompt import sft_prompt, all_prompt
+import random
 import numpy as np
+from torch.utils.data import Dataset
+
+from prompt import sft_prompt, all_prompt
 
 
 class BaseDataset(Dataset):
@@ -34,10 +26,11 @@ class BaseDataset(Dataset):
         self.allowed_tokens = None
         self.all_items = None
 
-
     def _load_data(self):
 
-        with open(os.path.join(self.data_path, self.dataset + self.index_file), 'r') as f:
+        with open(
+            os.path.join(self.data_path, self.dataset + self.index_file), "r"
+        ) as f:
             self.indices = json.load(f)
 
     def get_new_tokens(self):
@@ -66,7 +59,6 @@ class BaseDataset(Dataset):
 
     def get_prefix_allowed_tokens_fn(self, tokenizer):
 
-
         if self.allowed_tokens is None:
             self.allowed_tokens = {}
             for index in self.indices.values():
@@ -75,14 +67,16 @@ class BaseDataset(Dataset):
                     if i not in self.allowed_tokens.keys():
                         self.allowed_tokens[i] = set()
                     self.allowed_tokens[i].add(token_id)
-            self.allowed_tokens[len(self.allowed_tokens.keys())] = set([tokenizer.eos_token_id])
+            self.allowed_tokens[len(self.allowed_tokens.keys())] = set(
+                [tokenizer.eos_token_id]
+            )
         sep = tokenizer("Response:")["input_ids"][1:]
 
         def prefix_allowed_tokens_fn(batch_id, sentence):
             sentence = sentence.tolist()
             reversed_sent = sentence[::-1]
             for i in range(len(reversed_sent)):
-                if reversed_sent[i:i + len(sep)] == sep[::-1]:
+                if reversed_sent[i : i + len(sep)] == sep[::-1]:
                     # print(list(self.allowed_tokens[i]))
                     return list(self.allowed_tokens[i])
 
@@ -93,11 +87,11 @@ class BaseDataset(Dataset):
         raise NotImplementedError
 
 
-
 class SeqRecDataset(BaseDataset):
-        
-    def __init__(self, args, mode="train",
-                 prompt_sample_num=1, prompt_id=0, sample_num=-1):
+
+    def __init__(
+        self, args, mode="train", prompt_sample_num=1, prompt_id=0, sample_num=-1
+    ):
         super().__init__(args)
 
         self.mode = mode
@@ -107,33 +101,31 @@ class SeqRecDataset(BaseDataset):
 
         self.prompts = all_prompt["seqrec"]
 
-
         # load data
         self._load_data()
         self._remap_items()
-        
+
         # load data
-        if self.mode == 'train':
+        if self.mode == "train":
             self.inter_data = self._process_train_data()
-        elif self.mode == 'valid':
+        elif self.mode == "valid":
             self.sample_valid = args.sample_valid
             self.valid_prompt_id = args.valid_prompt_id
             self.inter_data = self._process_valid_data()
             self._construct_valid_text()
-        elif self.mode == 'test':
+        elif self.mode == "test":
             self.inter_data = self._process_test_data()
         else:
             raise NotImplementedError
 
-
-
     def _load_data(self):
 
-        with open(os.path.join(self.data_path, self.dataset + ".inter.json"), 'r') as f:
+        with open(os.path.join(self.data_path, self.dataset + ".inter.json"), "r") as f:
             self.inters = json.load(f)
-        with open(os.path.join(self.data_path, self.dataset + self.index_file), 'r') as f:
+        with open(
+            os.path.join(self.data_path, self.dataset + self.index_file), "r"
+        ) as f:
             self.indices = json.load(f)
-
 
     def _remap_items(self):
 
@@ -142,11 +134,10 @@ class SeqRecDataset(BaseDataset):
             new_items = ["".join(self.indices[str(i)]) for i in items]
             self.remapped_inters[uid] = new_items
 
-
     def _process_train_data(self):
 
         inter_data = []
-        for uid  in self.remapped_inters:
+        for uid in self.remapped_inters:
             items = self.remapped_inters[uid][:-2]
             for i in range(1, len(items)):
                 one_data = dict()
@@ -154,14 +145,17 @@ class SeqRecDataset(BaseDataset):
                 one_data["item"] = items[i]
                 history = items[:i]
                 if self.max_his_len > 0:
-                    history = history[-self.max_his_len:]
+                    history = history[-self.max_his_len :]
                 if self.add_prefix:
-                    history = [str(k+1) + ". " + item_idx for k, item_idx in enumerate(history)]
+                    history = [
+                        str(k + 1) + ". " + item_idx
+                        for k, item_idx in enumerate(history)
+                    ]
                 one_data["inters"] = self.his_sep.join(history)
                 inter_data.append(one_data)
 
         return inter_data
-    
+
     def _process_valid_data(self):
 
         inter_data = []
@@ -172,9 +166,11 @@ class SeqRecDataset(BaseDataset):
             one_data["item"] = items[-2]
             history = items[:-2]
             if self.max_his_len > 0:
-                history = history[-self.max_his_len:]
+                history = history[-self.max_his_len :]
             if self.add_prefix:
-                history = [str(k + 1) + ". " + item_idx for k, item_idx in enumerate(history)]
+                history = [
+                    str(k + 1) + ". " + item_idx for k, item_idx in enumerate(history)
+                ]
             one_data["inters"] = self.his_sep.join(history)
             inter_data.append(one_data)
 
@@ -190,9 +186,11 @@ class SeqRecDataset(BaseDataset):
             one_data["item"] = items[-1]
             history = items[:-1]
             if self.max_his_len > 0:
-                history = history[-self.max_his_len:]
+                history = history[-self.max_his_len :]
             if self.add_prefix:
-                history = [str(k + 1) + ". " + item_idx for k, item_idx in enumerate(history)]
+                history = [
+                    str(k + 1) + ". " + item_idx for k, item_idx in enumerate(history)
+                ]
             one_data["inters"] = self.his_sep.join(history)
             inter_data.append(one_data)
 
@@ -208,216 +206,11 @@ class SeqRecDataset(BaseDataset):
         self.prompt_id = prompt_id
 
     def __len__(self):
-        if self.mode == 'train':
+        if self.mode == "train":
             return len(self.inter_data) * self.prompt_sample_num
-        elif self.mode == 'valid':
+        elif self.mode == "valid":
             return len(self.valid_text_data)
-        elif self.mode == 'test':
-            return len(self.inter_data)
-        else:
-            raise NotImplementedError
-                    
-    def _construct_valid_text(self):
-        self.valid_text_data = []
-        if self.sample_valid:
-            all_prompt_ids = range(len(self.prompts))
-            for i in range(len(self.inter_data)):
-                d = self.inter_data[i]
-                prompt_ids = np.random.choice(all_prompt_ids, self.prompt_sample_num, replace=False)
-                for prompt_id in prompt_ids:
-                    prompt = self.prompts[prompt_id]
-                    input, output = self._get_text_data(d, prompt)
-                    self.valid_text_data.append({"input_ids": input, "labels": output})
-        else:
-            self.prompt_sample_num = 1
-            prompt = self.prompts[self.valid_prompt_id]
-            for i in range(len(self.inter_data)):
-                d = self.inter_data[i]
-                input, output = self._get_text_data(d, prompt)
-                self.valid_text_data.append({"input_ids": input, "labels": output})
-
-    def _get_text_data(self, data, prompt):
-
-        instruction = prompt["instruction"].format(**data)
-        response = prompt["response"].format(**data)
-
-        input = sft_prompt.format(instruction = instruction, response = "")
-        output = sft_prompt.format(instruction = instruction, response = response)
-
-        if self.mode == 'test':
-            return input, response
-
-        return input, output
-
-    def __getitem__(self, index):
-
-        if self.mode == 'valid':
-            return self.valid_text_data[index]
-
-        idx = index // self.prompt_sample_num
-        d = self.inter_data[idx]
-        # print(index, idx)
-
-        if self.mode == 'train':
-            prompt_id = random.randint(0, len(self.prompts) - 1)
-        elif self.mode == 'test':
-            prompt_id = self.prompt_id
-
-        prompt = self.prompts[prompt_id]
-
-        input, output = self._get_text_data(d, prompt)
-
-        # print({"input": input, "output": output})
-
-        return dict(input_ids=input, labels=output)
-
-
-class FusionSeqRecDataset(BaseDataset):
-
-    def __init__(self, args, mode="train",
-                 prompt_sample_num=1, prompt_id=0, sample_num=-1):
-        super().__init__(args)
-
-        self.mode = mode
-        self.prompt_sample_num = prompt_sample_num
-        self.prompt_id = prompt_id
-        self.sample_num = sample_num
-
-        self.prompts = all_prompt["fusionseqrec"]
-
-        # load data
-        self._load_data()
-        # self._remap_items()
-
-        # load data
-        if self.mode == 'train':
-            self.inter_data = self._process_train_data()
-        elif self.mode == 'valid':
-            self.sample_valid = args.sample_valid
-            self.valid_prompt_id = args.valid_prompt_id
-            self.inter_data = self._process_valid_data()
-            self._construct_valid_text()
-        elif self.mode == 'test':
-            self.inter_data = self._process_test_data()
-        else:
-            raise NotImplementedError
-
-
-    def _load_data(self):
-
-        with open(os.path.join(self.data_path, self.dataset + ".inter.json"), 'r') as f:
-            self.inters = json.load(f)
-        with open(os.path.join(self.data_path, self.dataset + self.index_file), 'r') as f:
-            self.indices = json.load(f)
-        with open(os.path.join(self.data_path, self.dataset + ".item.json"), 'r') as f:
-            self.item_feat = json.load(f)
-
-    def _process_train_data(self):
-
-        inter_data = []
-        for uid in self.inters:
-            items = self.inters[uid][:-2]
-            for i in range(1, len(items)):
-                one_data = dict()
-                # one_data["user"] = uid
-                one_data["item"] = "".join(self.indices[str(items[i])])
-                one_data["title"] = self.item_feat[str(items[i])]["title"].strip().strip(".!?,;:`")
-                one_data["description"] = self.item_feat[str(items[i])]["description"]
-                history = items[:i]
-                if self.max_his_len > 0:
-                    history = history[-self.max_his_len:]
-                inters = ["".join(self.indices[str(j)]) for j in history]
-                inter_titles = ["\"" + self.item_feat[str(j)]["title"].strip().strip(".!?,;:`") + "\"" for j in history]
-
-
-                if self.add_prefix:
-                    inters = [str(k + 1) + ". " + item_idx for k, item_idx in enumerate(inters)]
-                    inter_titles = [str(k + 1) + ". " + item_title for k, item_title in enumerate(inter_titles)]
-
-                one_data["inters"] = self.his_sep.join(inters)
-                one_data["inter_titles"] = self.his_sep.join(inter_titles)
-                inter_data.append(one_data)
-
-        if self.sample_num > 0:
-            all_inter_idx = range(len(inter_data))
-            sample_idx = np.random.choice(all_inter_idx, self.sample_num, replace=False)
-            inter_data = np.array(inter_data)[sample_idx].tolist()
-
-        return inter_data
-
-    def _process_valid_data(self):
-
-        inter_data = []
-        for uid in self.inters:
-            items = self.inters[uid]
-            one_data = dict()
-            one_data["item"] = "".join(self.indices[str(items[-2])])
-            one_data["title"] = self.item_feat[str(items[-2])]["title"].strip().strip(".!?,;:`")
-            one_data["description"] = self.item_feat[str(items[-2])]["description"]
-
-
-            history = items[:-2]
-            if self.max_his_len > 0:
-                history = history[-self.max_his_len:]
-            inters = ["".join(self.indices[str(j)]) for j in history]
-            inter_titles = ["\"" + self.item_feat[str(j)]["title"].strip().strip(".!?,;:`") + "\"" for j in history]
-
-            if self.add_prefix:
-                inters = [str(k + 1) + ". " + item_idx for k, item_idx in enumerate(inters)]
-                inter_titles = [str(k + 1) + ". " + item_title for k, item_title in enumerate(inter_titles)]
-
-            one_data["inters"] = self.his_sep.join(inters)
-            one_data["inter_titles"] = self.his_sep.join(inter_titles)
-            inter_data.append(one_data)
-
-        if self.sample_num > 0:
-            all_inter_idx = range(len(inter_data))
-            sample_idx = np.random.choice(all_inter_idx, self.sample_num, replace=False)
-            inter_data = np.array(inter_data)[sample_idx].tolist()
-
-        return inter_data
-
-    def _process_test_data(self):
-
-        inter_data = []
-        for uid in self.inters:
-            items = self.inters[uid]
-            one_data = dict()
-            one_data["item"] = "".join(self.indices[str(items[-1])])
-            one_data["title"] = self.item_feat[str(items[-1])]["title"].strip().strip(".!?,;:`")
-            one_data["description"] = self.item_feat[str(items[-1])]["description"]
-
-            history = items[:-1]
-            if self.max_his_len > 0:
-                history = history[-self.max_his_len:]
-            inters = ["".join(self.indices[str(j)]) for j in history]
-            inter_titles = ["\"" + self.item_feat[str(j)]["title"].strip().strip(".!?,;:`") + "\"" for j in history]
-
-            if self.add_prefix:
-                inters = [str(k + 1) + ". " + item_idx for k, item_idx in enumerate(inters)]
-                inter_titles = [str(k + 1) + ". " + item_title for k, item_title in enumerate(inter_titles)]
-
-            one_data["inters"] = self.his_sep.join(inters)
-            one_data["inter_titles"] = self.his_sep.join(inter_titles)
-            inter_data.append(one_data)
-
-        if self.sample_num > 0:
-            all_inter_idx = range(len(inter_data))
-            sample_idx = np.random.choice(all_inter_idx, self.sample_num, replace=False)
-            inter_data = np.array(inter_data)[sample_idx].tolist()
-
-        return inter_data
-
-    def set_prompt(self, prompt_id):
-
-        self.prompt_id = prompt_id
-
-    def __len__(self):
-        if self.mode == 'train':
-            return len(self.inter_data) * self.prompt_sample_num
-        elif self.mode == 'valid':
-            return len(self.valid_text_data)
-        elif self.mode == 'test':
+        elif self.mode == "test":
             return len(self.inter_data)
         else:
             raise NotImplementedError
@@ -428,7 +221,9 @@ class FusionSeqRecDataset(BaseDataset):
             all_prompt_ids = range(len(self.prompts))
             for i in range(len(self.inter_data)):
                 d = self.inter_data[i]
-                prompt_ids = np.random.choice(all_prompt_ids, self.prompt_sample_num, replace=False)
+                prompt_ids = np.random.choice(
+                    all_prompt_ids, self.prompt_sample_num, replace=False
+                )
                 for prompt_id in prompt_ids:
                     prompt = self.prompts[prompt_id]
                     input, output = self._get_text_data(d, prompt)
@@ -449,28 +244,265 @@ class FusionSeqRecDataset(BaseDataset):
         input = sft_prompt.format(instruction=instruction, response="")
         output = sft_prompt.format(instruction=instruction, response=response)
 
-        if self.mode == 'test':
+        if self.mode == "test":
             return input, response
 
         return input, output
 
     def __getitem__(self, index):
 
-        if self.mode == 'valid':
+        if self.mode == "valid":
             return self.valid_text_data[index]
 
         idx = index // self.prompt_sample_num
         d = self.inter_data[idx]
+        # print(index, idx)
 
-        if self.mode == 'train':
+        if self.mode == "train":
             prompt_id = random.randint(0, len(self.prompts) - 1)
-        elif self.mode == 'test':
+        elif self.mode == "test":
             prompt_id = self.prompt_id
 
         prompt = self.prompts[prompt_id]
 
         input, output = self._get_text_data(d, prompt)
 
+        # print({"input": input, "output": output})
+
+        return dict(input_ids=input, labels=output)
+
+
+class FusionSeqRecDataset(BaseDataset):
+
+    def __init__(
+        self, args, mode="train", prompt_sample_num=1, prompt_id=0, sample_num=-1
+    ):
+        super().__init__(args)
+
+        self.mode = mode
+        self.prompt_sample_num = prompt_sample_num
+        self.prompt_id = prompt_id
+        self.sample_num = sample_num
+
+        self.prompts = all_prompt["fusionseqrec"]
+
+        # load data
+        self._load_data()
+        # self._remap_items()
+
+        # load data
+        if self.mode == "train":
+            self.inter_data = self._process_train_data()
+        elif self.mode == "valid":
+            self.sample_valid = args.sample_valid
+            self.valid_prompt_id = args.valid_prompt_id
+            self.inter_data = self._process_valid_data()
+            self._construct_valid_text()
+        elif self.mode == "test":
+            self.inter_data = self._process_test_data()
+        else:
+            raise NotImplementedError
+
+    def _load_data(self):
+
+        with open(os.path.join(self.data_path, self.dataset + ".inter.json"), "r") as f:
+            self.inters = json.load(f)
+        with open(
+            os.path.join(self.data_path, self.dataset + self.index_file), "r"
+        ) as f:
+            self.indices = json.load(f)
+        with open(os.path.join(self.data_path, self.dataset + ".item.json"), "r") as f:
+            self.item_feat = json.load(f)
+
+    def _process_train_data(self):
+
+        inter_data = []
+        for uid in self.inters:
+            items = self.inters[uid][:-2]
+            for i in range(1, len(items)):
+                one_data = dict()
+                # one_data["user"] = uid
+                one_data["item"] = "".join(self.indices[str(items[i])])
+                one_data["title"] = (
+                    self.item_feat[str(items[i])]["title"].strip().strip(".!?,;:`")
+                )
+                one_data["description"] = self.item_feat[str(items[i])]["description"]
+                history = items[:i]
+                if self.max_his_len > 0:
+                    history = history[-self.max_his_len :]
+                inters = ["".join(self.indices[str(j)]) for j in history]
+                inter_titles = [
+                    '"' + self.item_feat[str(j)]["title"].strip().strip(".!?,;:`") + '"'
+                    for j in history
+                ]
+
+                if self.add_prefix:
+                    inters = [
+                        str(k + 1) + ". " + item_idx
+                        for k, item_idx in enumerate(inters)
+                    ]
+                    inter_titles = [
+                        str(k + 1) + ". " + item_title
+                        for k, item_title in enumerate(inter_titles)
+                    ]
+
+                one_data["inters"] = self.his_sep.join(inters)
+                one_data["inter_titles"] = self.his_sep.join(inter_titles)
+                inter_data.append(one_data)
+
+        if self.sample_num > 0:
+            all_inter_idx = range(len(inter_data))
+            sample_idx = np.random.choice(all_inter_idx, self.sample_num, replace=False)
+            inter_data = np.array(inter_data)[sample_idx].tolist()
+
+        return inter_data
+
+    def _process_valid_data(self):
+
+        inter_data = []
+        for uid in self.inters:
+            items = self.inters[uid]
+            one_data = dict()
+            one_data["item"] = "".join(self.indices[str(items[-2])])
+            one_data["title"] = (
+                self.item_feat[str(items[-2])]["title"].strip().strip(".!?,;:`")
+            )
+            one_data["description"] = self.item_feat[str(items[-2])]["description"]
+
+            history = items[:-2]
+            if self.max_his_len > 0:
+                history = history[-self.max_his_len :]
+            inters = ["".join(self.indices[str(j)]) for j in history]
+            inter_titles = [
+                '"' + self.item_feat[str(j)]["title"].strip().strip(".!?,;:`") + '"'
+                for j in history
+            ]
+
+            if self.add_prefix:
+                inters = [
+                    str(k + 1) + ". " + item_idx for k, item_idx in enumerate(inters)
+                ]
+                inter_titles = [
+                    str(k + 1) + ". " + item_title
+                    for k, item_title in enumerate(inter_titles)
+                ]
+
+            one_data["inters"] = self.his_sep.join(inters)
+            one_data["inter_titles"] = self.his_sep.join(inter_titles)
+            inter_data.append(one_data)
+
+        if self.sample_num > 0:
+            all_inter_idx = range(len(inter_data))
+            sample_idx = np.random.choice(all_inter_idx, self.sample_num, replace=False)
+            inter_data = np.array(inter_data)[sample_idx].tolist()
+
+        return inter_data
+
+    def _process_test_data(self):
+
+        inter_data = []
+        for uid in self.inters:
+            items = self.inters[uid]
+            one_data = dict()
+            one_data["item"] = "".join(self.indices[str(items[-1])])
+            one_data["title"] = (
+                self.item_feat[str(items[-1])]["title"].strip().strip(".!?,;:`")
+            )
+            one_data["description"] = self.item_feat[str(items[-1])]["description"]
+
+            history = items[:-1]
+            if self.max_his_len > 0:
+                history = history[-self.max_his_len :]
+            inters = ["".join(self.indices[str(j)]) for j in history]
+            inter_titles = [
+                '"' + self.item_feat[str(j)]["title"].strip().strip(".!?,;:`") + '"'
+                for j in history
+            ]
+
+            if self.add_prefix:
+                inters = [
+                    str(k + 1) + ". " + item_idx for k, item_idx in enumerate(inters)
+                ]
+                inter_titles = [
+                    str(k + 1) + ". " + item_title
+                    for k, item_title in enumerate(inter_titles)
+                ]
+
+            one_data["inters"] = self.his_sep.join(inters)
+            one_data["inter_titles"] = self.his_sep.join(inter_titles)
+            inter_data.append(one_data)
+
+        if self.sample_num > 0:
+            all_inter_idx = range(len(inter_data))
+            sample_idx = np.random.choice(all_inter_idx, self.sample_num, replace=False)
+            inter_data = np.array(inter_data)[sample_idx].tolist()
+
+        return inter_data
+
+    def set_prompt(self, prompt_id):
+
+        self.prompt_id = prompt_id
+
+    def __len__(self):
+        if self.mode == "train":
+            return len(self.inter_data) * self.prompt_sample_num
+        elif self.mode == "valid":
+            return len(self.valid_text_data)
+        elif self.mode == "test":
+            return len(self.inter_data)
+        else:
+            raise NotImplementedError
+
+    def _construct_valid_text(self):
+        self.valid_text_data = []
+        if self.sample_valid:
+            all_prompt_ids = range(len(self.prompts))
+            for i in range(len(self.inter_data)):
+                d = self.inter_data[i]
+                prompt_ids = np.random.choice(
+                    all_prompt_ids, self.prompt_sample_num, replace=False
+                )
+                for prompt_id in prompt_ids:
+                    prompt = self.prompts[prompt_id]
+                    input, output = self._get_text_data(d, prompt)
+                    self.valid_text_data.append({"input_ids": input, "labels": output})
+        else:
+            self.prompt_sample_num = 1
+            prompt = self.prompts[self.valid_prompt_id]
+            for i in range(len(self.inter_data)):
+                d = self.inter_data[i]
+                input, output = self._get_text_data(d, prompt)
+                self.valid_text_data.append({"input_ids": input, "labels": output})
+
+    def _get_text_data(self, data, prompt):
+
+        instruction = prompt["instruction"].format(**data)
+        response = prompt["response"].format(**data)
+
+        input = sft_prompt.format(instruction=instruction, response="")
+        output = sft_prompt.format(instruction=instruction, response=response)
+
+        if self.mode == "test":
+            return input, response
+
+        return input, output
+
+    def __getitem__(self, index):
+
+        if self.mode == "valid":
+            return self.valid_text_data[index]
+
+        idx = index // self.prompt_sample_num
+        d = self.inter_data[idx]
+
+        if self.mode == "train":
+            prompt_id = random.randint(0, len(self.prompts) - 1)
+        elif self.mode == "test":
+            prompt_id = self.prompt_id
+
+        prompt = self.prompts[prompt_id]
+
+        input, output = self._get_text_data(d, prompt)
 
         return dict(input_ids=input, labels=output)
 
@@ -490,15 +522,14 @@ class ItemFeatDataset(BaseDataset):
         self._load_data()
         self.feat_data = self._process_data()
 
-
-
     def _load_data(self):
 
-        with open(os.path.join(self.data_path, self.dataset + self.index_file), 'r') as f:
+        with open(
+            os.path.join(self.data_path, self.dataset + self.index_file), "r"
+        ) as f:
             self.indices = json.load(f)
-        with open(os.path.join(self.data_path, self.dataset + ".item.json"), 'r') as f:
+        with open(os.path.join(self.data_path, self.dataset + ".item.json"), "r") as f:
             self.item_feat = json.load(f)
-
 
     def _process_data(self):
 
@@ -518,7 +549,6 @@ class ItemFeatDataset(BaseDataset):
 
         return feat_data
 
-
     def __len__(self):
         return len(self.feat_data) * self.prompt_sample_num
 
@@ -527,8 +557,8 @@ class ItemFeatDataset(BaseDataset):
         instruction = prompt["instruction"].format(**data)
         response = prompt["response"].format(**data)
 
-        input = sft_prompt.format(instruction = instruction, response = "")
-        output = sft_prompt.format(instruction = instruction, response = response)
+        input = sft_prompt.format(instruction=instruction, response="")
+        output = sft_prompt.format(instruction=instruction, response=response)
 
         return input, output
 
@@ -548,8 +578,9 @@ class ItemFeatDataset(BaseDataset):
 
 class ItemSearchDataset(BaseDataset):
 
-    def __init__(self, args, mode="train",
-                 prompt_sample_num=1, prompt_id=0, sample_num=-1):
+    def __init__(
+        self, args, mode="train", prompt_sample_num=1, prompt_id=0, sample_num=-1
+    ):
         super().__init__(args)
 
         self.mode = mode
@@ -563,24 +594,23 @@ class ItemSearchDataset(BaseDataset):
         self._load_data()
         self.search_data = self._process_data()
 
-
-
     def _load_data(self):
 
-        with open(os.path.join(self.data_path, self.dataset + self.index_file), 'r') as f:
+        with open(
+            os.path.join(self.data_path, self.dataset + self.index_file), "r"
+        ) as f:
             self.indices = json.load(f)
-        with open(os.path.join(self.data_path, self.dataset + ".user.json"), 'r') as f:
+        with open(os.path.join(self.data_path, self.dataset + ".user.json"), "r") as f:
             self.user_info = json.load(f)
-
 
     def _process_data(self):
 
         search_data = []
         user_explicit_preference = self.user_info["user_explicit_preference"]
         user_vague_intention = self.user_info["user_vague_intention"]
-        if self.mode == 'train':
+        if self.mode == "train":
             user_vague_intention = user_vague_intention["train"]
-        elif self.mode == 'test':
+        elif self.mode == "test":
             user_vague_intention = user_vague_intention["test"]
         else:
             raise NotImplementedError
@@ -600,10 +630,12 @@ class ItemSearchDataset(BaseDataset):
             one_data["item"] = index
 
             if self.max_his_len > 0:
-                inters = inters[-self.max_his_len:]
+                inters = inters[-self.max_his_len :]
             inters = ["".join(self.indices[str(i)]) for i in inters]
             if self.add_prefix:
-                inters = [str(k + 1) + ". " + item_idx for k, item_idx in enumerate(inters)]
+                inters = [
+                    str(k + 1) + ". " + item_idx for k, item_idx in enumerate(inters)
+                ]
 
             one_data["inters"] = self.his_sep.join(inters)
 
@@ -621,23 +653,22 @@ class ItemSearchDataset(BaseDataset):
         self.prompt_id = prompt_id
 
     def __len__(self):
-        if self.mode == 'train':
+        if self.mode == "train":
             return len(self.search_data) * self.prompt_sample_num
-        elif self.mode == 'test':
+        elif self.mode == "test":
             return len(self.search_data)
         else:
             return len(self.search_data)
-
 
     def _get_text_data(self, data, prompt):
 
         instruction = prompt["instruction"].format(**data)
         response = prompt["response"].format(**data)
 
-        input = sft_prompt.format(instruction = instruction, response = "")
-        output = sft_prompt.format(instruction = instruction, response = response)
+        input = sft_prompt.format(instruction=instruction, response="")
+        output = sft_prompt.format(instruction=instruction, response=response)
 
-        if self.mode == 'test':
+        if self.mode == "test":
             return input, response
 
         return input, output
@@ -647,21 +678,22 @@ class ItemSearchDataset(BaseDataset):
         idx = index // self.prompt_sample_num
 
         d = self.search_data[idx]
-        if self.mode == 'train':
+        if self.mode == "train":
             prompt_id = random.randint(0, len(self.prompts) - 1)
-        elif self.mode == 'test':
+        elif self.mode == "test":
             prompt_id = self.prompt_id
 
         prompt = self.prompts[prompt_id]
 
-        d["explicit_preference"] = copy.deepcopy(random.choice(d["explicit_preferences"]))
+        d["explicit_preference"] = copy.deepcopy(
+            random.choice(d["explicit_preferences"])
+        )
         all_querys = [d["user_related_intention"], d["item_related_intention"]]
         d["query"] = random.choice(all_querys)
 
         input, output = self._get_text_data(d, prompt)
 
         return dict(input_ids=input, labels=output)
-
 
 
 class PreferenceObtainDataset(BaseDataset):
@@ -680,17 +712,16 @@ class PreferenceObtainDataset(BaseDataset):
 
         self.preference_data = self._process_data()
 
-
-
     def _load_data(self):
 
-        with open(os.path.join(self.data_path, self.dataset + ".user.json"), 'r') as f:
+        with open(os.path.join(self.data_path, self.dataset + ".user.json"), "r") as f:
             self.user_info = json.load(f)
-        with open(os.path.join(self.data_path, self.dataset + ".inter.json"), 'r') as f:
+        with open(os.path.join(self.data_path, self.dataset + ".inter.json"), "r") as f:
             self.inters = json.load(f)
-        with open(os.path.join(self.data_path, self.dataset + self.index_file), 'r') as f:
+        with open(
+            os.path.join(self.data_path, self.dataset + self.index_file), "r"
+        ) as f:
             self.indices = json.load(f)
-
 
     def _remap_items(self):
 
@@ -710,9 +741,11 @@ class PreferenceObtainDataset(BaseDataset):
             user_ep = user_explicit_preference[uid]
 
             if self.max_his_len > 0:
-                inters = inters[-self.max_his_len:]
+                inters = inters[-self.max_his_len :]
             if self.add_prefix:
-                inters = [str(k + 1) + ". " + item_idx for k, item_idx in enumerate(inters)]
+                inters = [
+                    str(k + 1) + ". " + item_idx for k, item_idx in enumerate(inters)
+                ]
 
             one_data["explicit_preferences"] = user_ep
             one_data["inters"] = self.his_sep.join(inters)
@@ -733,14 +766,13 @@ class PreferenceObtainDataset(BaseDataset):
     def __len__(self):
         return len(self.preference_data) * self.prompt_sample_num
 
-
     def _get_text_data(self, data, prompt):
 
         instruction = prompt["instruction"].format(**data)
         response = prompt["response"].format(**data)
 
-        input = sft_prompt.format(instruction = instruction, response = "")
-        output = sft_prompt.format(instruction = instruction, response = response)
+        input = sft_prompt.format(instruction=instruction, response="")
+        output = sft_prompt.format(instruction=instruction, response=response)
 
         return input, output
 
@@ -753,14 +785,13 @@ class PreferenceObtainDataset(BaseDataset):
 
         prompt = self.prompts[prompt_id]
 
-        d["explicit_preference"] = copy.deepcopy(random.choice(d["explicit_preferences"]))
+        d["explicit_preference"] = copy.deepcopy(
+            random.choice(d["explicit_preferences"])
+        )
 
         input, output = self._get_text_data(d, prompt)
 
         return dict(input_ids=input, labels=output)
-
-
-
 
 
 class SeqRecTestDataset(BaseDataset):
@@ -781,11 +812,12 @@ class SeqRecTestDataset(BaseDataset):
 
     def _load_data(self):
 
-        with open(os.path.join(self.data_path, self.dataset + ".inter.json"), 'r') as f:
+        with open(os.path.join(self.data_path, self.dataset + ".inter.json"), "r") as f:
             self.inters = json.load(f)
-        with open(os.path.join(self.data_path, self.dataset + self.index_file), 'r') as f:
+        with open(
+            os.path.join(self.data_path, self.dataset + self.index_file), "r"
+        ) as f:
             self.indices = json.load(f)
-
 
     def _remap_items(self):
 
@@ -804,9 +836,11 @@ class SeqRecTestDataset(BaseDataset):
             one_data["item"] = items[-1]
             history = items[:-1]
             if self.max_his_len > 0:
-                history = history[-self.max_his_len:]
+                history = history[-self.max_his_len :]
             if self.add_prefix:
-                history = [str(k + 1) + ". " + item_idx for k, item_idx in enumerate(history)]
+                history = [
+                    str(k + 1) + ". " + item_idx for k, item_idx in enumerate(history)
+                ]
             one_data["inters"] = self.his_sep.join(history)
             inter_data.append(one_data)
 
