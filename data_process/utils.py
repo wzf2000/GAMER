@@ -1,76 +1,11 @@
-import os
 import re
-import time
 import html
 import json
 import torch
-import pickle
-import openai
-import collections
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, PreTrainedTokenizer, PreTrainedModel
 
 
-def get_res_batch(model_name, prompt_list, max_tokens, api_info):
-
-    while True:
-        try:
-            res = openai.Completion.create(
-                model=model_name,
-                prompt=prompt_list,
-                temperature=0.4,
-                max_tokens=max_tokens,
-                top_p=1,
-                frequency_penalty=0,
-                presence_penalty=0,
-            )
-            output_list = []
-            for choice in res["choices"]:
-                output = choice["text"].strip()
-                output_list.append(output)
-
-            return output_list
-
-        except openai.error.AuthenticationError as e:
-            print(e)
-            openai.api_key = api_info["api_key_list"].pop()
-            time.sleep(10)
-        except openai.error.RateLimitError as e:
-            print(e)
-            if (
-                str(e)
-                == "You exceeded your current quota, please check your plan and billing details."
-            ):
-                openai.api_key = api_info["api_key_list"].pop()
-                time.sleep(10)
-            else:
-                print("\nopenai.error.RateLimitError\nRetrying...")
-                time.sleep(10)
-        except openai.error.ServiceUnavailableError as e:
-            print(e)
-            print("\nopenai.error.ServiceUnavailableError\nRetrying...")
-            time.sleep(10)
-        except openai.error.Timeout:
-            print("\nopenai.error.Timeout\nRetrying...")
-            time.sleep(10)
-        except openai.error.APIError as e:
-            print(e)
-            print("\nopenai.error.APIError\nRetrying...")
-            time.sleep(10)
-        except openai.error.APIConnectionError as e:
-            print(e)
-            print("\nopenai.error.APIConnectionError\nRetrying...")
-            time.sleep(10)
-        except Exception as e:
-            print(e)
-            return None
-
-
-def check_path(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-
-def set_device(gpu_id):
+def set_device(gpu_id: int) -> torch.device:
     if gpu_id == -1:
         return torch.device("cpu")
     else:
@@ -79,12 +14,10 @@ def set_device(gpu_id):
         )
 
 
-def load_plm(model_path="bert-base-uncased"):
-
+def load_plm(model_path: str = "bert-base-uncased") -> tuple[PreTrainedTokenizer, PreTrainedModel]:
     tokenizer = AutoTokenizer.from_pretrained(
         model_path,
     )
-
     print("Load Model:", model_path)
 
     model = AutoModel.from_pretrained(
@@ -94,13 +27,13 @@ def load_plm(model_path="bert-base-uncased"):
     return tokenizer, model
 
 
-def load_json(file):
+def load_json(file: str) -> dict:
     with open(file, "r") as f:
         data = json.load(f)
     return data
 
 
-def clean_text(raw_text):
+def clean_text(raw_text: str | list[str] | dict) -> str:
     if isinstance(raw_text, list):
         new_raw_text = []
         for raw in raw_text:
@@ -128,37 +61,6 @@ def clean_text(raw_text):
     if len(cleaned_text) >= 2000:
         cleaned_text = ""
     return cleaned_text
-
-
-def load_pickle(filename):
-    with open(filename, "rb") as f:
-        return pickle.load(f)
-
-
-def make_inters_in_order(inters):
-    user2inters, new_inters = collections.defaultdict(list), list()
-    for inter in inters:
-        user, item, rating, timestamp = inter
-        user2inters[user].append((user, item, rating, timestamp))
-    for user in user2inters:
-        user_inters = user2inters[user]
-        user_inters.sort(key=lambda d: d[3])
-        for inter in user_inters:
-            new_inters.append(inter)
-    return new_inters
-
-
-def write_json_file(dic, file):
-    print("Writing json file: ", file)
-    with open(file, "w") as fp:
-        json.dump(dic, fp, indent=4)
-
-
-def write_remap_index(unit2index, file):
-    print("Writing remap file: ", file)
-    with open(file, "w") as fp:
-        for unit in unit2index:
-            fp.write(unit + "\t" + str(unit2index[unit]) + "\n")
 
 
 intention_prompt = (

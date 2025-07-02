@@ -1,21 +1,22 @@
-import argparse
 import os
 import random
 import torch
+import argparse
 import numpy as np
 from utils import set_device, load_json, load_plm, clean_text
+from transformers import PreTrainedTokenizer, PreTrainedModel, BatchEncoding
+from transformers.utils import ModelOutput
 
 
-def load_data(args):
-
+def load_data(args: argparse.Namespace) -> dict[str, dict[str, str | list[str] | dict]]:
     item2feature_path = os.path.join(args.root, f"{args.dataset}.item.json")
     item2feature = load_json(item2feature_path)
 
     return item2feature
 
 
-def generate_text(item2feature, features):
-    item_text_list = []
+def generate_text(item2feature: dict[str, dict[str, str | list[str] | dict]], features: list[str]) -> list[tuple[int, list[str]]]:
+    item_text_list: list[tuple[int, list[str]]] = []
 
     for item in item2feature:
         data = item2feature[item]
@@ -25,12 +26,12 @@ def generate_text(item2feature, features):
                 meta_value = clean_text(data[meta_key])
                 text.append(meta_value.strip())
 
-        item_text_list.append([int(item), text])
+        item_text_list.append((int(item), text))
 
     return item_text_list
 
 
-def preprocess_text(args):
+def preprocess_text(args: argparse.Namespace) -> list[tuple[int, list[str]]]:
     print("Process text data: ")
     print(" Dataset: ", args.dataset)
 
@@ -42,16 +43,25 @@ def preprocess_text(args):
     return item_text_list
 
 
-def generate_item_embedding(args, item_text_list, tokenizer, model, word_drop_ratio=-1):
+def generate_item_embedding(
+    args: argparse.Namespace,
+    item_text_list: list[tuple[int, list[str]]],
+    tokenizer: PreTrainedTokenizer,
+    model: PreTrainedModel,
+    word_drop_ratio: float = -1,
+):
     print("Generate Text Embedding: ")
     print(" Dataset: ", args.dataset)
 
     items, texts = zip(*item_text_list)
+    items: list[int]
+    texts: list[list[str]]
     order_texts = [[0]] * len(items)
     for item, text in zip(items, texts):
         order_texts[item] = text
     for text in order_texts:
         assert text != [0]
+    order_texts: list[list[str]]
 
     embeddings = []
     start, batch_size = 0, 1
@@ -60,15 +70,13 @@ def generate_item_embedding(args, item_text_list, tokenizer, model, word_drop_ra
         if (start + 1) % 100 == 0:
             print("==>", start + 1)
         field_texts = order_texts[start : start + batch_size]
-        # print(field_texts)
         field_texts = zip(*field_texts)
 
         field_embeddings = []
         for sentences in field_texts:
-            sentences = list(sentences)
-            # print(sentences)
+            sentences: list[str] = list(sentences)
             if word_drop_ratio > 0:
-                print(f"Word drop with p={word_drop_ratio}")
+                print(f"Word drop with p = {word_drop_ratio}")
                 new_sentences = []
                 for sent in sentences:
                     new_sent = []
@@ -80,7 +88,7 @@ def generate_item_embedding(args, item_text_list, tokenizer, model, word_drop_ra
                     new_sent = " ".join(new_sent)
                     new_sentences.append(new_sent)
                 sentences = new_sentences
-            encoded_sentences = tokenizer(
+            encoded_sentences: BatchEncoding = tokenizer(
                 sentences,
                 max_length=args.max_sent_len,
                 truncation=True,
@@ -88,15 +96,14 @@ def generate_item_embedding(args, item_text_list, tokenizer, model, word_drop_ra
                 padding="longest",
             ).to(args.device)
             with torch.no_grad():
-                outputs = model(
+                outputs: ModelOutput = model(
                     input_ids=encoded_sentences.input_ids,
                     attention_mask=encoded_sentences.attention_mask,
                 )
-                # print("Start:", str(start))
-            masked_output = outputs.last_hidden_state * encoded_sentences[
+            masked_output: torch.Tensor = outputs.last_hidden_state * encoded_sentences[
                 "attention_mask"
             ].unsqueeze(-1)
-            mean_output = masked_output.sum(dim=1) / encoded_sentences[
+            mean_output: torch.Tensor = masked_output.sum(dim=1) / encoded_sentences[
                 "attention_mask"
             ].sum(dim=-1, keepdim=True)
             mean_output = mean_output.detach().cpu()
@@ -115,7 +122,7 @@ def generate_item_embedding(args, item_text_list, tokenizer, model, word_drop_ra
     np.save(file, embeddings)
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--dataset", type=str, default="Instruments", help="Instruments / Arts / Games"
