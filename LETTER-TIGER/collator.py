@@ -1,21 +1,16 @@
-# from transformers import (
-#     LlamaForCausalLM, LlamaTokenizer, LlamaConfig,
-#     T5Tokenizer, T5Config, T5ForConditionalGeneration
-# )
+import argparse
+from transformers import T5Tokenizer, BatchEncoding
 
 
-class Collator(object):
-
-    def __init__(self, args, tokenizer):
+class Collator:
+    def __init__(self, args: argparse.Namespace, tokenizer: T5Tokenizer):
         self.args = args
         self.only_train_response = args.only_train_response
         self.tokenizer = tokenizer
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = 0
-        # print(self.tokenizer.model_max_length)
 
-    def __call__(self, batch):
-
+    def __call__(self, batch: list[dict]) -> BatchEncoding:
         input_texts = [d["input_ids"] for d in batch]
         label_texts = [d["labels"] for d in batch]
 
@@ -42,19 +37,16 @@ class Collator(object):
         return inputs
 
 
-class TestCollator(object):
-
-    def __init__(self, args, tokenizer):
+class TestCollator:
+    def __init__(self, args: argparse.Namespace, tokenizer: T5Tokenizer):
         self.args = args
         self.tokenizer = tokenizer
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = 0
 
-    def __call__(self, batch):
-
+    def __call__(self, batch: list[dict]) -> tuple[BatchEncoding, list[str]]:
         input_texts = [d["input_ids"] for d in batch]
         targets = [d["labels"] for d in batch]
-
         inputs = self.tokenizer(
             text=input_texts,
             return_tensors="pt",

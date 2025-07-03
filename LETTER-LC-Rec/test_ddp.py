@@ -24,7 +24,6 @@ from evaluate import get_topk_results, get_metrics_results
 
 
 def test_ddp(args: argparse.Namespace):
-
     set_seed(args.seed)
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     local_rank = int(os.environ.get("LOCAL_RANK") or 0)
@@ -172,7 +171,7 @@ def test_ddp(args: argparse.Namespace):
                         temp: dict[str, float] = {}
                         for m in metrics_results:
                             temp[m] = metrics_results[m] / total
-                        print(temp)
+                        print(f'Step {step} results: {temp}')
 
                 dist.barrier()
 
@@ -220,7 +219,7 @@ def test_ddp(args: argparse.Namespace):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="LLMRec_test")
+    parser = argparse.ArgumentParser(description="LETTER-LC-Rec-Test-DDP")
     parser = parse_global_args(parser)
     parser = parse_dataset_args(parser)
     parser = parse_test_args(parser)

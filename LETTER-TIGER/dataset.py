@@ -1,36 +1,37 @@
 import os
-from torch.utils.data import Dataset
 import json
+import argparse
 import numpy as np
+import torch
+from torch.utils.data import Dataset
+from transformers import T5Tokenizer
+from typing import Callable
 
 
 class BaseDataset(Dataset):
-
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace):
         super().__init__()
 
         self.args = args
-        self.dataset = args.dataset
+        self.dataset: str = args.dataset
         self.data_path = os.path.join(args.data_path, self.dataset)
 
-        self.max_his_len = args.max_his_len
-        self.his_sep = args.his_sep
-        self.index_file = args.index_file
-        self.add_prefix = args.add_prefix
+        self.max_his_len: int = args.max_his_len
+        self.his_sep: str = args.his_sep
+        self.index_file: str = args.index_file
+        self.add_prefix: bool = args.add_prefix
 
         self.new_tokens = None
         self.allowed_tokens = None
         self.all_items = None
 
     def _load_data(self):
-
         with open(
             os.path.join(self.data_path, self.dataset + self.index_file), "r"
         ) as f:
-            self.indices = json.load(f)
+            self.indices: dict[str, list[str]] = json.load(f)
 
-    def get_new_tokens(self):
-
+    def get_new_tokens(self) -> list[str]:
         if self.new_tokens is not None:
             return self.new_tokens
 
@@ -43,11 +44,10 @@ class BaseDataset(Dataset):
         return self.new_tokens
 
     def get_all_items(self):
-
         if self.all_items is not None:
             return self.all_items
 
-        self.all_items = set()
+        self.all_items: set[str] = set()
         for index in self.indices.values():
             self.all_items.add("".join(index))
 
@@ -63,8 +63,7 @@ class BaseDataset(Dataset):
 
         return self.all_items
 
-    def get_prefix_allowed_tokens_fn(self, tokenizer):
-
+    def get_prefix_allowed_tokens_fn(self, tokenizer: T5Tokenizer) -> Callable[[int, torch.Tensor], list[int]]:
         if self.allowed_tokens is None:
             self.allowed_tokens = {}
             for index in self.indices.values():
@@ -78,7 +77,7 @@ class BaseDataset(Dataset):
             )
         sep = [0]
 
-        def prefix_allowed_tokens_fn(batch_id, sentence):
+        def prefix_allowed_tokens_fn(batch_id: int, sentence: torch.Tensor) -> list[int]:
             sentence = sentence.tolist()
             reversed_sent = sentence[::-1]
             for i in range(len(reversed_sent)):
@@ -89,14 +88,17 @@ class BaseDataset(Dataset):
         return prefix_allowed_tokens_fn
 
     def _process_data(self):
-
         raise NotImplementedError
 
 
 class SeqRecDataset(BaseDataset):
-
     def __init__(
-        self, args, mode="train", prompt_sample_num=1, prompt_id=0, sample_num=-1
+        self,
+        args: argparse.Namespace,
+        mode: str = "train",
+        prompt_sample_num: int = 1,
+        prompt_id: int = 0,
+        sample_num: int = -1
     ):
         super().__init__(args)
 
@@ -121,29 +123,25 @@ class SeqRecDataset(BaseDataset):
             raise NotImplementedError
 
     def _load_data(self):
-
         with open(os.path.join(self.data_path, self.dataset + ".inter.json"), "r") as f:
-            self.inters = json.load(f)
+            self.inters: dict[str, list[int]] = json.load(f)
         with open(
             os.path.join(self.data_path, self.dataset + self.index_file), "r"
         ) as f:
-            self.indices = json.load(f)
+            self.indices: dict[str, list[str]] = json.load(f)
 
     def _remap_items(self):
-
-        self.remapped_inters = dict()
+        self.remapped_inters: dict[str, list[str]] = dict()
         for uid, items in self.inters.items():
             new_items = ["".join(self.indices[str(i)]) for i in items]
             self.remapped_inters[uid] = new_items
 
-    def _process_train_data(self):
-
+    def _process_train_data(self) -> list[dict[str, str]]:
         inter_data = []
         for uid in self.remapped_inters:
             items = self.remapped_inters[uid][:-2]
             for i in range(1, len(items)):
                 one_data = dict()
-                # one_data["user"] = uid
                 one_data["item"] = items[i]
                 history = items[:i]
                 if self.max_his_len > 0:
@@ -158,13 +156,11 @@ class SeqRecDataset(BaseDataset):
 
         return inter_data
 
-    def _process_valid_data(self):
-
+    def _process_valid_data(self) -> list[dict[str, str]]:
         inter_data = []
         for uid in self.remapped_inters:
             items = self.remapped_inters[uid]
             one_data = dict()
-            # one_data["user"] = uid
             one_data["item"] = items[-2]
             history = items[:-2]
             if self.max_his_len > 0:
@@ -178,14 +174,11 @@ class SeqRecDataset(BaseDataset):
 
         return inter_data
 
-    def _process_test_data(self):
-
+    def _process_test_data(self) -> list[dict[str, str]]:
         inter_data = []
         for uid in self.remapped_inters:
-            # if uid not in cold_user:
             items = self.remapped_inters[uid]
             one_data = dict()
-            # one_data["user"] = uid
             one_data["item"] = items[-1]
             history = items[:-1]
             if self.max_his_len > 0:
@@ -200,48 +193,35 @@ class SeqRecDataset(BaseDataset):
         if self.sample_num > 0:
             all_inter_idx = range(len(inter_data))
             sample_idx = np.random.choice(all_inter_idx, self.sample_num, replace=False)
-            # print(sample_idx[:10])##################
             inter_data = np.array(inter_data)[sample_idx].tolist()
 
         return inter_data
 
-    def _process_test_data_ids(self):
-
+    def _process_test_data_ids(self) -> list[dict[str, list[int] | int]]:
         inter_data = []
         for uid in self.inters:
-            # if uid not in cold_user:
             items = self.inters[uid]
             one_data = dict()
-            # one_data["user"] = uid
             one_data["item"] = items[-1]
             history = items[:-1]
             if self.max_his_len > 0:
                 history = history[-self.max_his_len :]
-            if self.add_prefix:
-                history = [
-                    str(k + 1) + ". " + item_idx for k, item_idx in enumerate(history)
-                ]
             one_data["inters"] = history
             inter_data.append(one_data)
 
         if self.sample_num > 0:
             all_inter_idx = range(len(inter_data))
             sample_idx = np.random.choice(all_inter_idx, self.sample_num, replace=False)
-            # print(sample_idx[:10])##################
             inter_data = np.array(inter_data)[sample_idx].tolist()
 
         return inter_data
 
-    def set_prompt(self, prompt_id):
-
+    def set_prompt(self, prompt_id: int):
         self.prompt_id = prompt_id
 
-    def __len__(self):
-
+    def __len__(self) -> int:
         return len(self.inter_data)
 
-    def __getitem__(self, index):
-
+    def __getitem__(self, index: int) -> dict[str, str | list[int]]:
         d = self.inter_data[index]
-
         return dict(input_ids=d["inters"], labels=d["item"])

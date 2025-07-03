@@ -1,15 +1,16 @@
-import json
 import os
+import json
 import random
 import datetime
-
+import argparse
 import numpy as np
 import torch
 from torch.utils.data import ConcatDataset
+
 from dataset import SeqRecDataset
 
 
-def parse_global_args(parser):
+def parse_global_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument(
         "--base_model", type=str, default="./ckpt/TIGER", help="basic model path"
@@ -21,7 +22,7 @@ def parse_global_args(parser):
     return parser
 
 
-def parse_dataset_args(parser):
+def parse_dataset_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         "--data_path", type=str, default="../data", help="data directory"
     )
@@ -97,8 +98,7 @@ def parse_dataset_args(parser):
     return parser
 
 
-def parse_train_args(parser):
-
+def parse_train_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         "--optim", type=str, default="adamw_torch", help="The name of the optimizer"
     )
@@ -130,8 +130,7 @@ def parse_train_args(parser):
     return parser
 
 
-def parse_test_args(parser):
-
+def parse_test_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument(
         "--ckpt_path", type=str, default="./ckpt", help="The checkpoint path"
     )
@@ -180,11 +179,10 @@ def parse_test_args(parser):
 def get_local_time():
     cur = datetime.datetime.now()
     cur = cur.strftime("%b-%d-%Y_%H-%M-%S")
-
     return cur
 
 
-def set_seed(seed):
+def set_seed(seed: int):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -194,14 +192,12 @@ def set_seed(seed):
     torch.backends.cudnn.enabled = False
 
 
-def ensure_dir(dir_path):
-
+def ensure_dir(dir_path: str):
     os.makedirs(dir_path, exist_ok=True)
 
 
-def load_datasets(args):
-
-    tasks = args.tasks.split(",")
+def load_datasets(args: argparse.Namespace) -> tuple[ConcatDataset, SeqRecDataset]:
+    tasks: list[str] = args.tasks.split(",")
 
     train_prompt_sample_num = [int(_) for _ in args.train_prompt_sample_num.split(",")]
     assert len(tasks) == len(
@@ -228,14 +224,12 @@ def load_datasets(args):
         train_datasets.append(dataset)
 
     train_data = ConcatDataset(train_datasets)
-
     valid_data = SeqRecDataset(args, "valid", args.valid_prompt_sample_num)
 
     return train_data, valid_data
 
 
-def load_test_dataset(args):
-
+def load_test_dataset(args: argparse.Namespace) -> SeqRecDataset:
     if args.test_task.lower() == "seqrec":
         # test_data = SeqRecDataset(args, mode="test_ranking", sample_num=args.sample_num)
         test_data = SeqRecDataset(args, mode="test", sample_num=args.sample_num)
@@ -245,16 +239,7 @@ def load_test_dataset(args):
     return test_data
 
 
-def prefix_allowed_tokens_fn(candidate_trie):
-    def prefix_allowed_tokens(batch_id, sentence):
-        sentence = sentence.tolist()
-        trie_out = candidate_trie.get(sentence)
-        return trie_out
-
-    return prefix_allowed_tokens
-
-
-def load_json(file):
+def load_json(file: str):
     with open(file, "r") as f:
         data = json.load(f)
     return data

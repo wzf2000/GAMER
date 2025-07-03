@@ -7,18 +7,16 @@ from transformers import EarlyStoppingCallback, T5Tokenizer, T5Config
 from modeling_letter import LETTER
 from utils import set_seed, ensure_dir, load_datasets, parse_global_args, parse_train_args, parse_dataset_args
 from collator import Collator
+from dataset import BaseDataset
 
 
-def train(args):
-    print(torch.cuda.is_available())
-
+def train(args: argparse.Namespace):
     set_seed(args.seed)
     ensure_dir(args.output_dir)
 
     device_map = "auto"
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     ddp = world_size != 1
-    # ddp = True
     local_rank = int(os.environ.get("LOCAL_RANK") or 0)
     if local_rank == 0:
         print(vars(args))
@@ -27,8 +25,8 @@ def train(args):
         device_map = {"": local_rank}
     device = torch.device("cuda", local_rank)
 
-    config = T5Config.from_pretrained(args.base_model)
-    tokenizer = T5Tokenizer.from_pretrained(
+    config: T5Config = T5Config.from_pretrained(args.base_model)
+    tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
         args.base_model,
         model_max_length=512,
     )
@@ -36,7 +34,8 @@ def train(args):
     gradient_checkpointing = False
 
     train_data, valid_data = load_datasets(args)
-    add_num = tokenizer.add_tokens(train_data.datasets[0].get_new_tokens())
+    first_dataset: BaseDataset = train_data.datasets[0]
+    add_num = tokenizer.add_tokens(first_dataset.get_new_tokens())
     config.vocab_size = len(tokenizer)
     if local_rank == 0:
         print("add {} new token.".format(add_num))
@@ -54,9 +53,9 @@ def train(args):
     if local_rank == 0:
         print(model)
 
-    # if not ddp and torch.cuda.device_count() > 1:
-    #     model.is_parallelizable = True
-    #     model.model_parallel = True
+    if not ddp and torch.cuda.device_count() > 1:
+        model.is_parallelizable = True
+        model.model_parallel = True
 
     trainer = transformers.Trainer(
         model=model,
@@ -72,11 +71,11 @@ def train(args):
             learning_rate=args.learning_rate,
             weight_decay=args.weight_decay,
             lr_scheduler_type=args.lr_scheduler_type,
-            # fp16=args.fp16,
-            # bf16=args.bf16,
+            fp16=args.fp16,
+            bf16=args.bf16,
             logging_steps=args.logging_step,
             optim=args.optim,
-            # gradient_checkpointing=gradient_checkpointing,
+            gradient_checkpointing=gradient_checkpointing,
             evaluation_strategy=args.save_and_eval_strategy,
             save_strategy=args.save_and_eval_strategy,
             eval_steps=args.save_and_eval_steps,
@@ -84,9 +83,8 @@ def train(args):
             output_dir=args.output_dir,
             save_total_limit=2,
             load_best_model_at_end=True,
-            # deepspeed=args.deepspeed,
+            deepspeed=args.deepspeed,
             ddp_find_unused_parameters=False if ddp else None,
-            # report_to=['wandb'],
             eval_delay=1 if args.save_and_eval_strategy == "epoch" else 2000,
         ),
         tokenizer=tokenizer,
@@ -104,11 +102,10 @@ def train(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="LLMRec")
+    parser = argparse.ArgumentParser(description="LETTER-TIGER")
     parser = parse_global_args(parser)
     parser = parse_train_args(parser)
     parser = parse_dataset_args(parser)
 
     args = parser.parse_args()
-
     train(args)

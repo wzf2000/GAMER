@@ -1,67 +1,59 @@
-from transformers.models.t5.configuration_t5 import T5Config
-from transformers.models.t5.modeling_t5 import T5ForConditionalGeneration
 import torch
 from torch.nn import CrossEntropyLoss
-
+from transformers.models.t5.configuration_t5 import T5Config
+from transformers.models.t5.modeling_t5 import T5ForConditionalGeneration
 from transformers.modeling_outputs import (
     BaseModelOutput,
     Seq2SeqLMOutput,
 )
-
-
-def sigmoid(x):
-    return 1 / (1 + torch.exp(-x))
+from typing import Any
 
 
 class LETTER(T5ForConditionalGeneration):
-
     def __init__(self, config: T5Config):
-
         super().__init__(config)
 
         # You can add parameters out here.
         self.temperature = 1.0
 
-    def set_hyper(self, temperature):
+    def set_hyper(self, temperature: float):
         self.temperature = temperature
 
-    def ranking_loss(self, lm_logits, labels):
-        if labels is not None:
-            t_logits = lm_logits / self.temperature
-            loss_fct = CrossEntropyLoss(ignore_index=-100)
-            # move labels to correct device to enable PP
-            labels = labels.to(lm_logits.device)
-            loss = loss_fct(t_logits.view(-1, t_logits.size(-1)), labels.view(-1))
+    def ranking_loss(self, lm_logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        t_logits = lm_logits / self.temperature
+        loss_fct = CrossEntropyLoss(ignore_index=-100)
+        # move labels to correct device to enable PP
+        labels = labels.to(lm_logits.device)
+        loss = loss_fct(t_logits.view(-1, t_logits.size(-1)), labels.view(-1))
         return loss
 
-    def total_loss(self, lm_logits, labels, decoder_input_ids):
+    def total_loss(self, lm_logits: torch.Tensor, labels: torch.Tensor, decoder_input_ids: torch.Tensor) -> torch.Tensor:
         loss = self.ranking_loss(lm_logits, labels)
         return loss
 
     def forward(
         self,
-        input_ids=None,
-        whole_word_ids=None,
-        attention_mask=None,
-        encoder_outputs=None,
-        decoder_input_ids=None,
-        decoder_attention_mask=None,
-        cross_attn_head_mask=None,
-        past_key_values=None,
-        use_cache=None,
-        labels=None,
-        inputs_embeds=None,
-        decoder_inputs_embeds=None,
-        head_mask=None,
-        decoder_head_mask=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        return_dict=None,
-        reduce_loss=False,
-        return_hidden_state=False,
-        **kwargs,
-    ):
-        r""" """
+        input_ids: torch.Tensor | None = None,
+        whole_word_ids: Any | None = None,
+        attention_mask: torch.Tensor | None = None,
+        encoder_outputs: Any | None = None,
+        decoder_input_ids: torch.Tensor | None = None,
+        decoder_attention_mask: torch.Tensor | None = None,
+        cross_attn_head_mask: torch.Tensor | None = None,
+        past_key_values: Any | None = None,
+        use_cache: bool | None = None,
+        labels: torch.Tensor | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+        decoder_inputs_embeds: torch.Tensor | None = None,
+        head_mask: torch.Tensor | None = None,
+        decoder_head_mask: torch.Tensor | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        reduce_loss: bool = False,
+        return_hidden_state: bool = False,
+        **kwargs: Any,
+    ) -> Seq2SeqLMOutput:
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = (
             return_dict if return_dict is not None else self.config.use_return_dict

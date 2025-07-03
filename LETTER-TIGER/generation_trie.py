@@ -1,42 +1,36 @@
-from typing import Dict, List
-
+import torch
+from typing import Callable, Generator
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 
 
-class Trie(object):
-    def __init__(self, sequences: List[List[int]] = []):
-        self.trie_dict = {}
+class Trie:
+    def __init__(self, sequences: list[list[int]] = []):
+        self.trie_dict: dict[int, dict] = {}
         self.len = 0
-        if sequences:
-            for sequence in sequences:
-                Trie._add_to_trie(sequence, self.trie_dict)
-                self.len += 1
+        for sequence in sequences:
+            self.add(sequence)
 
-        self.append_trie = None
+        self.append_trie: "Trie" | None = None
         self.bos_token_id = None
 
-    def append(self, trie, bos_token_id):
-        self.append_trie = trie
-        self.bos_token_id = bos_token_id
-
-    def add(self, sequence: List[int]):
+    def add(self, sequence: list[int]):
         Trie._add_to_trie(sequence, self.trie_dict)
         self.len += 1
 
-    def get(self, prefix_sequence: List[int]):
+    def get(self, prefix_sequence: list[int]) -> list[int]:
         return Trie._get_from_trie(
             prefix_sequence, self.trie_dict, self.append_trie, self.bos_token_id
         )
 
     @staticmethod
-    def load_from_dict(trie_dict):
+    def load_from_dict(trie_dict: dict[int, dict]) -> "Trie":
         trie = Trie()
         trie.trie_dict = trie_dict
         trie.len = sum(1 for _ in trie)
         return trie
 
     @staticmethod
-    def _add_to_trie(sequence: List[int], trie_dict: Dict):
+    def _add_to_trie(sequence: list[int], trie_dict: dict[int, dict]):
         if sequence:
             if sequence[0] not in trie_dict:
                 trie_dict[sequence[0]] = {}
@@ -44,11 +38,11 @@ class Trie(object):
 
     @staticmethod
     def _get_from_trie(
-        prefix_sequence: List[int],
-        trie_dict: Dict,
-        append_trie=None,
+        prefix_sequence: list[int],
+        trie_dict: dict[int, dict],
+        append_trie: "Trie" | None = None,
         bos_token_id: int = None,
-    ):
+    ) -> list[int]:
         if len(prefix_sequence) == 0:
             output = list(trie_dict.keys())
             if append_trie and bos_token_id in output:
@@ -68,8 +62,8 @@ class Trie(object):
             else:
                 return []
 
-    def __iter__(self):
-        def _traverse(prefix_sequence, trie_dict):
+    def __iter__(self) -> Generator[list[int], None, None]:
+        def _traverse(prefix_sequence: list[int], trie_dict: dict[int, dict]) -> Generator[list[int], None, None]:
             if trie_dict:
                 for next_token in trie_dict:
                     yield from _traverse(
@@ -80,15 +74,15 @@ class Trie(object):
 
         return _traverse([], self.trie_dict)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.len
 
-    def __getitem__(self, value):
+    def __getitem__(self, value: list[int]) -> list[int]:
         return self.get(value)
 
 
-def prefix_allowed_tokens_fn(candidate_trie):
-    def prefix_allowed_tokens(batch_id, sentence):
+def prefix_allowed_tokens_fn(candidate_trie: Trie) -> Callable[[int, torch.Tensor], list[int]]:
+    def prefix_allowed_tokens(batch_id: int, sentence: torch.Tensor) -> list[int]:
         sentence = sentence.tolist()
         trie_out = candidate_trie.get(sentence)
         return trie_out
@@ -97,7 +91,7 @@ def prefix_allowed_tokens_fn(candidate_trie):
 
 
 if __name__ == "__main__":
-    tokenizer = T5Tokenizer.from_pretrained("t5-small")
+    tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained("t5-small")
     model = T5ForConditionalGeneration.from_pretrained("t5-small")
     candidates = [
         "3560",

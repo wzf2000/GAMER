@@ -1,25 +1,23 @@
 import math
+import torch
 
 
-def get_topk_results(predictions, scores, targets, k, all_items=None):
+def get_topk_results(predictions: list[str], scores: torch.Tensor, targets: list[str], k: int, all_items: set[str] | None = None) -> list[list[int]]:
     results = []
     B = len(targets)
-    # predictions = [_.split("Response:")[-1] for _ in predictions]
     predictions = [_.strip().replace(" ", "") for _ in predictions]
-    # print(predictions)##################
+
     if all_items is not None:
         for i, seq in enumerate(predictions):
             if seq not in all_items:
                 scores[i] = -1000
 
-    # print(scores)
     for b in range(B):
         batch_seqs = predictions[b * k : (b + 1) * k]
         batch_scores = scores[b * k : (b + 1) * k]
 
         pairs = [(a, b) for a, b in zip(batch_seqs, batch_scores)]
-        # print(pairs)
-        sorted_pairs = sorted(pairs, key=lambda x: x[1], reverse=True)
+        sorted_pairs: list[tuple[str, torch.Tensor]] = sorted(pairs, key=lambda x: x[1], reverse=True)
         target_item = targets[b]
         one_results = []
         for sorted_pred in sorted_pairs:
@@ -33,26 +31,7 @@ def get_topk_results(predictions, scores, targets, k, all_items=None):
     return results
 
 
-def get_topk_ranking_results(predictions, targets, k, all_items=None):
-    results = []
-    B = len(targets)
-
-    for b in range(B):
-        batch_seqs = predictions[b]
-        target_item = targets[b]
-        one_results = []
-        for sorted_pred in predictions:
-            if sorted_pred == target_item:
-                one_results.append(1)
-            else:
-                one_results.append(0)
-
-        results.append(one_results)
-
-    return results
-
-
-def get_metrics_results(topk_results, metrics):
+def get_metrics_results(topk_results: list[list[int]], metrics: list[str]) -> dict[str, float]:
     res = {}
     for m in metrics:
         if m.lower().startswith("hit"):
@@ -67,7 +46,7 @@ def get_metrics_results(topk_results, metrics):
     return res
 
 
-def ndcg_k(topk_results, k):
+def ndcg_k(topk_results: list[list[int]], k: int) -> float:
     """
     Since we apply leave-one-out, each user only have one ground truth item, so the idcg would be 1.0
     """
@@ -81,7 +60,7 @@ def ndcg_k(topk_results, k):
     return ndcg
 
 
-def hit_k(topk_results, k):
+def hit_k(topk_results: list[list[int]], k: int) -> float:
     hit = 0.0
     for row in topk_results:
         res = row[:k]

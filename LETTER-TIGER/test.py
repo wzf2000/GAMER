@@ -1,26 +1,24 @@
-import argparse
-import json
 import os
+import json
+import argparse
 import torch
-
-# from peft import PeftModel
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 from transformers import (
     T5Tokenizer,
     T5Config,
     T5ForConditionalGeneration,
 )
 from transformers.generation.utils import GenerateBeamOutput
+from tqdm import tqdm
 
-from utils import set_seed, load_datasets, load_test_dataset, parse_global_args, parse_dataset_args, parse_test_args, prefix_allowed_tokens_fn
+from utils import set_seed, load_datasets, load_test_dataset, parse_global_args, parse_dataset_args, parse_test_args
 from collator import TestCollator
 from evaluate import get_topk_results, get_metrics_results
-from generation_trie import Trie
+from generation_trie import Trie, prefix_allowed_tokens_fn
+from dataset import BaseDataset
 
 
-def test(args):
-
+def test(args: argparse.Namespace):
     set_seed(args.seed)
     print(vars(args))
 
@@ -33,13 +31,13 @@ def test(args):
         model_max_length=512,
     )
     train_data, valid_data = load_datasets(args)
-    add_num = tokenizer.add_tokens(train_data.datasets[0].get_new_tokens())
+    first_dataset: BaseDataset = train_data.datasets[0]
+    add_num = tokenizer.add_tokens(first_dataset.get_new_tokens())
     config.vocab_size = len(tokenizer)
 
     print("add {} new token.".format(add_num))
     print("data num:", len(train_data))
 
-    # tokenizer = T5Tokenizer.from_pretrained(args.ckpt_path)
     model = T5ForConditionalGeneration.from_pretrained(
         args.ckpt_path,
         low_cpu_mem_usage=True,
@@ -49,7 +47,6 @@ def test(args):
     prompt_ids = [0]
 
     test_data = load_test_dataset(args)
-
     collator = TestCollator(args, tokenizer)
     all_items = test_data.get_all_items()
 
@@ -71,13 +68,12 @@ def test(args):
 
     model.eval()
 
-    metrics = args.metrics.split(",")
-    all_prompt_results = []
+    metrics: list[str] = args.metrics.split(",")
+    all_prompt_results: list[dict[str, float]] = []
     with torch.no_grad():
         for prompt_id in prompt_ids:
-
             test_loader.dataset.set_prompt(prompt_id)
-            metrics_results = {}
+            metrics_results: dict[str, float] = {}
             total = 0
 
             for step, batch in enumerate(tqdm(test_loader)):
@@ -92,7 +88,6 @@ def test(args):
                     input_ids=inputs["input_ids"],
                     attention_mask=inputs["attention_mask"],
                     max_new_tokens=10,
-                    # max_length=10,
                     prefix_allowed_tokens_fn=prefix_allowed_tokens,
                     num_beams=args.num_beams,
                     num_return_sequences=args.num_beams,
@@ -114,19 +109,17 @@ def test(args):
                 )
 
                 batch_metrics_res = get_metrics_results(topk_res, metrics)
-                # print(batch_metrics_res)
 
                 for m, res in batch_metrics_res.items():
                     if m not in metrics_results:
                         metrics_results[m] = res
                     else:
                         metrics_results[m] += res
-
-                # if (step+1)%10 == 0:
-                temp = {}
-                for m in metrics_results:
-                    temp[m] = metrics_results[m] / total
-                print(temp)
+                if (step + 1) % 50 == 0:
+                    temp: dict[str, float] = {}
+                    for m in metrics_results:
+                        temp[m] = metrics_results[m] / total
+                    print(f'Step {step} results: {temp}')
 
             for m in metrics_results:
                 metrics_results[m] = metrics_results[m] / total
@@ -136,9 +129,9 @@ def test(args):
             print("======================================================")
             print("")
 
-    mean_results = {}
-    min_results = {}
-    max_results = {}
+    mean_results: dict[str, float] = {}
+    min_results: dict[str, float] = {}
+    max_results: dict[str, float] = {}
 
     for m in metrics:
         all_res = [_[m] for _ in all_prompt_results]
@@ -165,11 +158,10 @@ def test(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="LLMRec_test")
+    parser = argparse.ArgumentParser(description="LETTER-TIGER-Test")
     parser = parse_global_args(parser)
     parser = parse_dataset_args(parser)
     parser = parse_test_args(parser)
 
     args = parser.parse_args()
-
     test(args)

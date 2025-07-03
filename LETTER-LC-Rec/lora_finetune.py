@@ -152,7 +152,7 @@ def train(args: argparse.Namespace):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="LLMRec")
+    parser = argparse.ArgumentParser(description="LETTER-LC-Rec")
     parser = parse_global_args(parser)
     parser = parse_train_args(parser)
     parser = parse_dataset_args(parser)

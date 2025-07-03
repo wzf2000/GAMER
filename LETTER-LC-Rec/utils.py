@@ -100,7 +100,6 @@ def parse_dataset_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
 
 
 def parse_train_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-
     parser.add_argument(
         "--optim", type=str, default="adamw_torch", help="The name of the optimizer"
     )
@@ -149,7 +148,6 @@ def parse_train_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
 
 
 def parse_test_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-
     parser.add_argument("--ckpt_path", type=str, default="", help="The checkpoint path")
     parser.add_argument("--lora", action="store_true", default=True)
     parser.add_argument(
@@ -197,7 +195,6 @@ def parse_test_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 def get_local_time() -> str:
     cur = datetime.datetime.now()
     cur = cur.strftime("%b-%d-%Y_%H-%M-%S")
-
     return cur
 
 
