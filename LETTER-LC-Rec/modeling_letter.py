@@ -3,24 +3,22 @@ from torch.nn import CrossEntropyLoss
 import torch.nn.functional as F
 from typing import List, Optional, Tuple, Union
 from transformers.modeling_outputs import CausalLMOutputWithPast
-from transformers import LlamaForCausalLM
-
-
-_CONFIG_FOR_DOC = "LlamaConfig"
+from transformers import LlamaForCausalLM, LlamaConfig
 
 
 class LETTER(LlamaForCausalLM):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config):
+    def __init__(self, config: LlamaConfig):
         super().__init__(config)
 
+        self.config: LlamaConfig
         self.temperature = 1.0
 
-    def set_hyper(self, temperature):
+    def set_hyper(self, temperature: float):
         self.temperature = temperature
 
-    def ranking_loss(self, shift_logits, shift_labels):
+    def ranking_loss(self, shift_logits: torch.Tensor, shift_labels: torch.Tensor) -> torch.Tensor:
         loss_fct = CrossEntropyLoss()
         shift_logits = shift_logits.view(-1, self.config.vocab_size)
         shift_labels = shift_labels.view(-1)
@@ -29,10 +27,9 @@ class LETTER(LlamaForCausalLM):
         loss = loss_fct(shift_logits / self.temperature, shift_labels)
         return loss
 
-    def total_loss(self, shift_logits, shift_labels):
+    def total_loss(self, shift_logits: torch.Tensor, shift_labels: torch.Tensor) -> torch.Tensor:
         gen_loss = self.ranking_loss(shift_logits, shift_labels)
         loss = gen_loss
-
         return loss
 
     def forward(
@@ -115,7 +112,6 @@ class LETTER(LlamaForCausalLM):
         else:
             logits = self.lm_head(hidden_states)
         logits = logits.float()
-        # print(logits)
         loss = None
         if labels is not None:
             # Shift so that tokens < n predict n

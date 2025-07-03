@@ -47,7 +47,7 @@ class TestCollator:
             # Allow batched inference
             self.tokenizer.padding_side = "left"
 
-    def __call__(self, batch: list[dict]) -> tuple[BatchEncoding, list[int]]:
+    def __call__(self, batch: list[dict]) -> tuple[BatchEncoding, list[str]]:
         input_texts = [d["input_ids"] for d in batch]
         targets = [d["labels"] for d in batch]
         inputs = self.tokenizer(

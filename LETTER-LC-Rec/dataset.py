@@ -35,7 +35,7 @@ class BaseDataset(Dataset):
         ) as f:
             self.indices: dict[str, list[str]] = json.load(f)
 
-    def get_new_tokens(self):
+    def get_new_tokens(self) -> list[str]:
         if self.new_tokens is not None:
             return self.new_tokens
 
@@ -51,7 +51,7 @@ class BaseDataset(Dataset):
         if self.all_items is not None:
             return self.all_items
 
-        self.all_items = set()
+        self.all_items: set[str] = set()
         for index in self.indices.values():
             self.all_items.add("".join(index))
 

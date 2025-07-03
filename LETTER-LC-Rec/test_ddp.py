@@ -7,6 +7,7 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from transformers import LlamaForCausalLM, LlamaTokenizer
+from transformers.generation.utils import GenerateBeamOutput
 from peft import PeftModel
 from tqdm import tqdm
 
@@ -22,7 +23,7 @@ from prompt import all_prompt
 from evaluate import get_topk_results, get_metrics_results
 
 
-def test_ddp(args):
+def test_ddp(args: argparse.Namespace):
 
     set_seed(args.seed)
     world_size = int(os.environ.get("WORLD_SIZE", 1))
@@ -36,7 +37,7 @@ def test_ddp(args):
     device_map = {"": local_rank}
     device = torch.device("cuda", local_rank)
 
-    tokenizer = LlamaTokenizer.from_pretrained(args.ckpt_path)
+    tokenizer: LlamaTokenizer = LlamaTokenizer.from_pretrained(args.ckpt_path)
     if args.lora:
         model = LlamaForCausalLM.from_pretrained(
             args.base_model,
@@ -59,7 +60,6 @@ def test_ddp(args):
             low_cpu_mem_usage=True,
             device_map=device_map,
         )
-    # assert model.config.vocab_size == len(tokenizer)
     model = DistributedDataParallel(model, device_ids=[local_rank])
 
     if args.test_prompt_ids == "all":
@@ -69,6 +69,8 @@ def test_ddp(args):
             prompt_ids = range(len(all_prompt["itemsearch"]))
         elif args.test_task.lower() == "fusionseqrec":
             prompt_ids = range(len(all_prompt["fusionseqrec"]))
+        else:
+            raise ValueError("Unknown test task: {}".format(args.test_task))
     else:
         prompt_ids = [int(_) for _ in args.test_prompt_ids.split(",")]
 
@@ -97,17 +99,15 @@ def test_ddp(args):
 
     model.eval()
 
-    metrics = args.metrics.split(",")
-    all_prompt_results = []
+    metrics: list[str] = args.metrics.split(",")
+    all_prompt_results: list[dict[str, float]] = []
     with torch.no_grad():
-
         for prompt_id in prompt_ids:
-
             if local_rank == 0:
                 print("Start prompt: ", prompt_id)
 
             test_loader.dataset.set_prompt(prompt_id)
-            metrics_results = {}
+            metrics_results: dict[str, float] = {}
             total = 0
 
             for step, batch in enumerate(tqdm(test_loader)):
@@ -117,7 +117,7 @@ def test_ddp(args):
                 num_beams = args.num_beams
                 while True:
                     try:
-                        output = model.module.generate(
+                        output: GenerateBeamOutput = model.module.generate(
                             input_ids=inputs["input_ids"],
                             attention_mask=inputs["attention_mask"],
                             max_new_tokens=10,
@@ -136,13 +136,13 @@ def test_ddp(args):
                     except Exception:
                         raise RuntimeError
 
-                output_ids = output["sequences"]
-                scores = output["sequences_scores"]
+                output_ids = output.sequences
+                scores = output.sequences_scores
 
-                output = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+                output_str = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
 
                 topk_res = get_topk_results(
-                    output,
+                    output_str,
                     scores,
                     targets,
                     num_beams,
@@ -169,7 +169,7 @@ def test_ddp(args):
                             metrics_results[m] += res
 
                     if (step + 1) % 50 == 0:
-                        temp = {}
+                        temp: dict[str, float] = {}
                         for m in metrics_results:
                             temp[m] = metrics_results[m] / total
                         print(temp)
@@ -191,9 +191,9 @@ def test_ddp(args):
     dist.barrier()
 
     if local_rank == 0:
-        mean_results = {}
-        min_results = {}
-        max_results = {}
+        mean_results: dict[str, float] = {}
+        min_results: dict[str, float] = {}
+        max_results: dict[str, float] = {}
 
         for m in metrics:
             all_res = [_[m] for _ in all_prompt_results]

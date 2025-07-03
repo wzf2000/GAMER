@@ -1,7 +1,8 @@
 import math
+import torch
 
 
-def get_topk_results(predictions, scores, targets, k, all_items=None):
+def get_topk_results(predictions: list[str], scores: torch.Tensor, targets: list[str], k: int, all_items: set[str] | None = None) -> list[list[int]]:
     results = []
     B = len(targets)
     predictions = [_.split("Response:")[-1] for _ in predictions]
@@ -17,7 +18,7 @@ def get_topk_results(predictions, scores, targets, k, all_items=None):
         batch_scores = scores[b * k : (b + 1) * k]
 
         pairs = [(a, b) for a, b in zip(batch_seqs, batch_scores)]
-        sorted_pairs = sorted(pairs, key=lambda x: x[1], reverse=True)
+        sorted_pairs: list[tuple[str, torch.Tensor]] = sorted(pairs, key=lambda x: x[1], reverse=True)
         target_item = targets[b]
         one_results = []
         for sorted_pred in sorted_pairs:
@@ -31,7 +32,7 @@ def get_topk_results(predictions, scores, targets, k, all_items=None):
     return results
 
 
-def get_metrics_results(topk_results, metrics):
+def get_metrics_results(topk_results: list[list[int]], metrics: list[str]) -> dict[str, float]:
     res = {}
     for m in metrics:
         if m.lower().startswith("hit"):
@@ -46,8 +47,7 @@ def get_metrics_results(topk_results, metrics):
     return res
 
 
-def ndcg_k(topk_results, k):
-
+def ndcg_k(topk_results: list[list[int]], k: int) -> float:
     ndcg = 0.0
     for row in topk_results:
         res = row[:k]
@@ -58,7 +58,7 @@ def ndcg_k(topk_results, k):
     return ndcg
 
 
-def hit_k(topk_results, k):
+def hit_k(topk_results: list[list[int]], k: int) -> float:
     hit = 0.0
     for row in topk_results:
         res = row[:k]

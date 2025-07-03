@@ -11,6 +11,7 @@ from transformers import (
     T5Config,
     T5ForConditionalGeneration,
 )
+from transformers.generation.utils import GenerateBeamOutput
 
 from utils import set_seed, load_datasets, load_test_dataset, parse_global_args, parse_dataset_args, parse_test_args, prefix_allowed_tokens_fn
 from collator import TestCollator
@@ -26,8 +27,8 @@ def test(args):
     device_map = {"": args.gpu_id}
     device = torch.device("cuda", args.gpu_id)
 
-    config = T5Config.from_pretrained("t5-small")
-    tokenizer = T5Tokenizer.from_pretrained(
+    config: T5Config = T5Config.from_pretrained("t5-small")
+    tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
         "t5-small",
         model_max_length=512,
     )
@@ -87,7 +88,7 @@ def test(args):
                     print(inputs)
                     print(targets)
 
-                output = model.generate(
+                output: GenerateBeamOutput = model.generate(
                     input_ids=inputs["input_ids"],
                     attention_mask=inputs["attention_mask"],
                     max_new_tokens=10,
@@ -99,8 +100,8 @@ def test(args):
                     return_dict_in_generate=True,
                     early_stopping=True,
                 )
-                output_ids = output["sequences"]
-                scores = output["sequences_scores"]
+                output_ids = output.sequences
+                scores = output.sequences_scores
 
                 output = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
 

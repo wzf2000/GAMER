@@ -15,9 +15,10 @@ from transformers import LlamaTokenizer, LlamaConfig
 from utils import set_seed, ensure_dir, parse_global_args, parse_train_args, parse_dataset_args, load_datasets
 from collator import Collator
 from modeling_letter import LETTER
+from dataset import BaseDataset
 
 
-def train(args):
+def train(args: argparse.Namespace):
 
     set_seed(args.seed)
     ensure_dir(args.output_dir)
@@ -32,8 +33,8 @@ def train(args):
     if ddp:
         device_map = {"": local_rank}
 
-    config = LlamaConfig.from_pretrained(args.base_model)
-    tokenizer = LlamaTokenizer.from_pretrained(
+    config: LlamaConfig = LlamaConfig.from_pretrained(args.base_model)
+    tokenizer: LlamaTokenizer = LlamaTokenizer.from_pretrained(
         args.base_model,
         model_max_length=args.model_max_length,
         padding_side="right",
@@ -41,7 +42,8 @@ def train(args):
     tokenizer.pad_token_id = 0
 
     train_data, valid_data = load_datasets(args)
-    add_num = tokenizer.add_tokens(train_data.datasets[0].get_new_tokens())
+    first_dataset: BaseDataset = train_data.datasets[0]
+    add_num = tokenizer.add_tokens(first_dataset.get_new_tokens())
     config.vocab_size = len(tokenizer)
     if local_rank == 0:
         print("add {} new token.".format(add_num))
@@ -60,7 +62,7 @@ def train(args):
     model.resize_token_embeddings(len(tokenizer))
 
     model = prepare_model_for_kbit_training(model)
-    config = LoraConfig(
+    lora_config = LoraConfig(
         r=args.lora_r,
         lora_alpha=args.lora_alpha,
         target_modules=args.lora_target_modules.split(","),
@@ -70,7 +72,7 @@ def train(args):
         inference_mode=False,
         task_type=TaskType.CAUSAL_LM,
     )
-    model = get_peft_model(model, config)
+    model = get_peft_model(model, lora_config)
 
     if args.resume_from_checkpoint:
         checkpoint_name = os.path.join(
@@ -91,7 +93,7 @@ def train(args):
 
     for n, p in model.named_parameters():
         if "original_module" in n and any(
-            module_name in n for module_name in config.modules_to_save
+            module_name in n for module_name in lora_config.modules_to_save
         ):
             p.requires_grad = False
 
@@ -131,7 +133,6 @@ def train(args):
             load_best_model_at_end=True,
             deepspeed=args.deepspeed,
             ddp_find_unused_parameters=False if ddp else None,
-            # report_to=None,
             eval_delay=1 if args.save_and_eval_strategy == "epoch" else 2000,
         ),
         tokenizer=tokenizer,
@@ -157,5 +158,4 @@ if __name__ == "__main__":
     parser = parse_dataset_args(parser)
 
     args = parser.parse_args()
-
     train(args)
