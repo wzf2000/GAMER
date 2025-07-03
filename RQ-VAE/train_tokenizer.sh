@@ -1,9 +1,18 @@
-dataset=Yelp
+##!/bin/bash
+# This script trains the RQ-VAE model on a specified dataset with given hyperparameters.
+: ${dataset:=Beauty}
+: ${alpha:=0.02}
+: ${beta:=0.0001}
+: ${gpu:=0}
+: ${semantic_model:=llama-3.1}
+: ${cf_model:=sasrec}
+
+echo "Training RQ-VAE on ${dataset} with alpha=${alpha} and beta=${beta} using GPU ${gpu}, semantic model ${semantic_model}, and cf model ${cf_model}."
 
 python ./RQ-VAE/main.py \
-  --device cuda:1 \
-  --data_path ./data/${dataset}/${dataset}.emb-llama-3.1-td.npy\
-  --alpha 0.01 \
-  --beta 0.0001 \
-  --cf_emb ./RQ-VAE/ckpt/${dataset}-32d-sasrec.pt\
+  --device cuda:${gpu} \
+  --data_path ./data/${dataset}/${dataset}.emb-${semantic_model}-td.npy\
+  --alpha ${alpha} \
+  --beta ${beta} \
+  --cf_emb ./RQ-VAE/ckpt/${dataset}-32d-${cf_model}.pt\
   --ckpt_dir ./checkpoint/${dataset}

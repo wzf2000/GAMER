@@ -12,4 +12,4 @@ torchrun --nproc_per_node=4 --master_port=2314 ./finetune.py \
     --learning_rate 5e-4 \
     --epochs 200 \
     --index_file .index.epoch20000.alpha0.01-beta0.0001.json \
-    --temperature 1.0
+    --temperature 0.7

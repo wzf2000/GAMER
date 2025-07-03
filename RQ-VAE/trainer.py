@@ -13,8 +13,7 @@ from datasets import EmbDataset
 from models.rqvae import RQVAE
 
 
-class Trainer(object):
-
+class Trainer:
     def __init__(self, args: argparse.Namespace, model: RQVAE):
         self.args = args
         self.model = model
