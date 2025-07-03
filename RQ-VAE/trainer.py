@@ -62,10 +62,6 @@ class Trainer:
                 params, lr=learning_rate, weight_decay=weight_decay
             )
         elif learner.lower() == "adamw":
-            # optimizer = optim.AdamW([
-            # {'params': self.model.parameters(), 'lr': learning_rate, 'weight_decay':weight_decay},
-            # {'params': self.awl.parameters(), 'weight_decay':0}
-            # ])
             optimizer = optim.AdamW(params, lr=learning_rate, weight_decay=weight_decay)
         else:
             self.logger.warning(
