@@ -40,7 +40,7 @@ class Trie:
     def _get_from_trie(
         prefix_sequence: list[int],
         trie_dict: dict[int, dict],
-        append_trie: "Trie" | None = None,
+        append_trie: "Trie | None" = None,
         bos_token_id: int = None,
     ) -> list[int]:
         if len(prefix_sequence) == 0:

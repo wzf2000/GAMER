@@ -20,4 +20,3 @@ python test.py \
     --num_beams 20 \
     --test_prompt_ids 0 \
     --index_file .index.epoch${epoch}.alpha${alpha}-beta${beta}.json \
-    --temperature 0.7 \
