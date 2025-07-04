@@ -82,7 +82,6 @@ class BaseDataset(Dataset):
             reversed_sent = sentence[::-1]
             for i in range(len(reversed_sent)):
                 if reversed_sent[i : i + len(sep)] == sep[::-1]:
-                    # print(list(self.allowed_tokens[i]))
                     return list(self.allowed_tokens[i])
 
         return prefix_allowed_tokens_fn

@@ -80,9 +80,6 @@ def test(args: argparse.Namespace):
                 inputs = batch[0].to(device)
                 targets = batch[1]
                 total += len(targets)
-                if step == 0:
-                    print(inputs)
-                    print(targets)
 
                 output: GenerateBeamOutput = model.generate(
                     input_ids=inputs["input_ids"],
