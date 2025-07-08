@@ -169,7 +169,6 @@ if __name__ == "__main__":
             break
 
         collision_item_groups = get_collision_item(all_indices_str)
-        print(collision_item_groups)
         print(len(collision_item_groups))
         for collision_items in collision_item_groups:
             d = data[collision_items]

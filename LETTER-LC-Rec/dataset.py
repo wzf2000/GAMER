@@ -260,7 +260,6 @@ class SeqRecDataset(BaseDataset):
 
 
 class FusionSeqRecDataset(BaseDataset):
-
     def __init__(
         self,
         args: argparse.Namespace,
@@ -558,7 +557,6 @@ class ItemFeatDataset(BaseDataset):
 
 
 class ItemSearchDataset(BaseDataset):
-
     def __init__(
         self,
         args: argparse.Namespace,
@@ -679,7 +677,6 @@ class ItemSearchDataset(BaseDataset):
 
 
 class PreferenceObtainDataset(BaseDataset):
-
     def __init__(self, args: argparse.Namespace, prompt_sample_num: int = 1, sample_num: int = -1):
         super().__init__(args)
 
@@ -773,7 +770,6 @@ class PreferenceObtainDataset(BaseDataset):
 
 
 class SeqRecTestDataset(BaseDataset):
-
     def __init__(self, args: argparse.Namespace, prompt_id: int = 0, sample_num: int = -1):
         super().__init__(args)
 

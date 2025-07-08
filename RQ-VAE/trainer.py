@@ -104,7 +104,6 @@ class Trainer:
             shuffle=True,
             pin_memory=True,
         )
-        print(len(init_loader))
         iter_data = tqdm(
             init_loader,
             total=len(init_loader),
@@ -126,7 +125,6 @@ class Trainer:
         total_recon_loss = 0
         total_cf_loss = 0
         total_quant_loss = 0
-        print(len(train_data))
         iter_data = tqdm(
             train_data,
             total=len(train_data),
