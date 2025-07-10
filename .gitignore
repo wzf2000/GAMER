@@ -4,8 +4,7 @@ __pycache__
 results
 wandb
 ckpt
-data/**/*.json
-data/**/test*
+data/*
 !data/**/*.index.json
 !data/**/*.inter.json
 !data/**/*.item.json

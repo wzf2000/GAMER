@@ -38,17 +38,32 @@ def test(args: argparse.Namespace):
     print("add {} new token.".format(add_num))
     print("data num:", len(train_data))
 
-    model = T5ForConditionalGeneration.from_pretrained(
-        args.ckpt_path,
-        low_cpu_mem_usage=True,
-        device_map=device_map,
-    )
-
     prompt_ids = [0]
 
     test_data = load_test_dataset(args)
     collator = TestCollator(args, tokenizer)
     all_items = test_data.get_all_items()
+    collision_items = test_data.collision_items
+    collision_cnt = 0
+    new_inter_data = []
+    for i, test_sample in enumerate(test_data):
+        target_item = test_sample["labels"]
+        if target_item in collision_items:
+            collision_cnt += 1
+        else:
+            new_inter_data.append(test_data.inter_data[i])
+    print("Total test data num:", len(test_data))
+    print("Collision items num:", len(collision_items))
+    print("Collision sample num:", collision_cnt)
+    print("Collision items ratio:", collision_cnt / len(test_data))
+    test_data.inter_data = new_inter_data
+    print("Filtered test data num:", len(test_data))
+
+    model = T5ForConditionalGeneration.from_pretrained(
+        args.ckpt_path,
+        low_cpu_mem_usage=True,
+        device_map=device_map,
+    )
 
     candidate_trie = Trie(
         [[0] + tokenizer.encode(candidate) for candidate in all_items]

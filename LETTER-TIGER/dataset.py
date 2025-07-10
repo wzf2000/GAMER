@@ -48,8 +48,13 @@ class BaseDataset(Dataset):
             return self.all_items
 
         self.all_items: set[str] = set()
+        self.collision_items: set[str] = set()
         for index in self.indices.values():
-            self.all_items.add("".join(index))
+            item_str = "".join(index)
+            if item_str in self.all_items:
+                self.collision_items.add(item_str)
+            else:
+                self.all_items.add(item_str)
 
         return self.all_items
 
