@@ -1,4 +1,5 @@
 from SeqRec.tasks.base import Task
+from SeqRec.tasks.semantic_emb import SemanticEmbedding  # noqa: F401
 from SeqRec.tasks.RQVAE import TrainRQVAE  # noqa: F401
 from SeqRec.tasks.tokenize import Tokenize  # noqa: F401
 from SeqRec.tasks.train_decoder import TrainDecoder  # noqa: F401
