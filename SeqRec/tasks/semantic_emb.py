@@ -119,7 +119,7 @@ class SemanticEmbedding(Task):
             # Use SentenceTransformer for sentence embeddings
             self.model = SentenceTransformer(self.plm_checkpoint, device=self.device)
             embeddings = self.model.encode(flattened_texts, show_progress_bar=True, convert_to_tensor=True)
-            embeddings = embeddings.reshape(n_item, n_text, -1)
+            embeddings = embeddings.reshape(n_item, n_text, -1).cpu()
         else:
             self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(
                 self.plm_checkpoint,

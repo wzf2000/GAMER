@@ -25,6 +25,8 @@ class Trainer:
         eval_step: int,
         device: str,
         ckpt_dir: str,
+        num_workers: int,
+        data_path: str,
     ):
         self.model = model
         self.logger = logging.getLogger()
@@ -39,6 +41,8 @@ class Trainer:
         self.ckpt_dir: str = ckpt_dir
         saved_model_dir = "{}".format(get_local_time())
         self.ckpt_dir = os.path.join(self.ckpt_dir, saved_model_dir)
+        self.num_workers: int = num_workers
+        self.data_path: str = data_path
         ensure_dir(self.ckpt_dir)
         self.labels: dict[str, list[int]] = {"0": [], "1": [], "2": [], "3": [], "4": [], "5": []}
         self.best_loss = np.inf
@@ -105,10 +109,10 @@ class Trainer:
 
     def vq_init(self):
         self.model.eval()
-        original_data = EmbDataset(self.args.data_path)
+        original_data = EmbDataset(self.data_path)
         init_loader = DataLoader(
             original_data,
-            num_workers=self.args.num_workers,
+            num_workers=self.num_workers,
             batch_size=len(original_data),
             shuffle=True,
             pin_memory=True,
@@ -213,7 +217,6 @@ class Trainer:
             )
         )
         state = {
-            "args": self.args,
             "epoch": epoch,
             "best_loss": self.best_loss,
             "best_collision_rate": self.best_collision_rate,

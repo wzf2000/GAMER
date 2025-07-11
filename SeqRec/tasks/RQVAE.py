@@ -1,4 +1,6 @@
+import os
 import torch
+import numpy as np
 from loguru import logger
 from torch.utils.data import DataLoader
 
@@ -140,10 +142,15 @@ class TrainRQVAE(Task):
         # Implementation of the RQVAE task logic goes here.
         set_seed(seed)
         logger.warning("Unused parameters:", args, kwargs)
-        cf_emb_tensor: torch.Tensor = torch.load(cf_emb, map_location="cpu")
-        cf_emb = cf_emb_tensor.squeeze().detach().numpy()
 
         self.dataset = EmbDataset(data_path)
+
+        if os.path.exists(cf_emb):
+            cf_emb_tensor: torch.Tensor = torch.load(cf_emb, map_location="cpu")
+            cf_emb = cf_emb_tensor.squeeze().detach().numpy()
+        else:
+            cf_emb = np.zeros((len(self.dataset), e_dim), dtype=np.float32)
+
         self.model = RQVAE(
             in_dim=self.dataset.dim,
             num_emb_list=num_emb_list,
@@ -180,6 +187,8 @@ class TrainRQVAE(Task):
             eval_step=eval_step,
             device=device,
             ckpt_dir=ckpt_dir,
+            num_workers=num_workers,
+            data_path=data_path,
         )
         best_loss, best_collision_rate = self.trainer.fit(self.data_loader)
         logger.success(f"Best loss: {best_loss}, Best collision rate: {best_collision_rate}")
