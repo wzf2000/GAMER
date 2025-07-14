@@ -44,7 +44,6 @@ else
             index_file=.index.rq-kmeans-cf.json
             echo "Training LETTER-TIGER on ${dataset} using RQ-Kmeans with CF embeddings."
         else
-            echo "Using reduced CF embeddings."
             output_dir=./ckpt/${dataset}/rq-kmeans-cf-reduce/
             run_name=${dataset}/rq-kmeans-cf-reduce/
             index_file=.index.rq-kmeans-cf-reduce.json

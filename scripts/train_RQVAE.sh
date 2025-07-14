@@ -19,20 +19,20 @@ echo "Training RQ-VAE on ${dataset} with alpha=${alpha} and beta=${beta} using G
 # check if gpu_num is greater than 1
 if [ $gpu_num -gt 1 ]; then
   torchrun --nproc_per_node=${gpu_num} ./main.py RQVAE \
-    --data_path ./data/${dataset}/${dataset}.emb-${semantic_model}-td.npy\
+    --data_path ./data/${dataset}/${dataset}.emb-${semantic_model}-td.npy \
     --alpha ${alpha} \
     --beta ${beta} \
-    --cf_emb ./ckpt/cf-embs/ckpt/${dataset}-32d-${cf_model}.pt\
+    --cf_emb ./ckpt/cf-embs/ckpt/${dataset}-32d-${cf_model}.pt \
     --ckpt_dir ./checkpoint/RQ-VAE/${dataset} \
     --batch_size ${per_device_batch_size}
 else
   # if gpu_num is 1, use single GPU training
   python main.py RQVAE \
     --device cuda:${gpu} \
-    --data_path ./data/${dataset}/${dataset}.emb-${semantic_model}-td.npy\
+    --data_path ./data/${dataset}/${dataset}.emb-${semantic_model}-td.npy \
     --alpha ${alpha} \
     --beta ${beta} \
-    --cf_emb ./ckpt/cf-embs/ckpt/${dataset}-32d-${cf_model}.pt\
-    --ckpt_dir ./checkpoint/RQ-VAE/${dataset}
+    --cf_emb ./ckpt/cf-embs/ckpt/${dataset}-32d-${cf_model}.pt \
+    --ckpt_dir ./checkpoint/RQ-VAE/${dataset} \
     --batch_size ${per_device_batch_size}
 fi

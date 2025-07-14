@@ -1,5 +1,6 @@
-import numpy as np
 import torch
+import numpy as np
+from argparse import Namespace
 from torch import nn
 from torch.nn import functional as F
 
@@ -21,7 +22,7 @@ class RQVAE(nn.Module):
         kmeans_init: bool = False,
         kmeans_iters: int = 100,
         sk_epsilons: list[float] = [0.0, 0.0, 0.0, 0.003],
-        sk_iters: int = 100,
+        sk_iters: int = 50,
         alpha: float = 1.0,
         beta: float = 0.001,
         n_clusters: int = 10,
@@ -66,6 +67,27 @@ class RQVAE(nn.Module):
         self.decode_layer_dims = self.encode_layer_dims[::-1]
         self.decoder = MLPLayers(
             layers=self.decode_layer_dims, dropout=self.dropout_prob, bn=self.bn
+        )
+
+    @property
+    def args(self) -> Namespace:
+        return Namespace(
+            in_dim=self.in_dim,
+            num_emb_list=self.num_emb_list,
+            e_dim=self.e_dim,
+            layers=self.layers,
+            dropout_prob=self.dropout_prob,
+            bn=self.bn,
+            loss_type=self.loss_type,
+            quant_loss_weight=self.quant_loss_weight,
+            kmeans_init=self.kmeans_init,
+            kmeans_iters=self.kmeans_iters,
+            sk_epsilons=self.sk_epsilons,
+            sk_iters=self.sk_iters,
+            alpha=self.alpha,
+            beta=self.beta,
+            n_clusters=self.n_clusters,
+            sample_strategy=self.sample_strategy,
         )
 
     def forward(

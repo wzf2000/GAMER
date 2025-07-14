@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from loguru import logger
 
 from SeqRec.models.RQVAE.layers import sinkhorn_algorithm
+from SeqRec.utils.kmeans import constrained_km, center_distance_for_constraint
 
 
 class VectorQuantizer(nn.Module):
@@ -41,31 +42,9 @@ class VectorQuantizer(nn.Module):
         return self.embedding.weight
 
     def init_emb(self, data: torch.Tensor):
-        centers, _ = self.constrained_km(data, 256)
+        centers, _ = constrained_km(data, 256, init=True)
         self.embedding.weight.data.copy_(centers)
         self.initted = True
-
-    def constrained_km(self, data: torch.Tensor, n_clusters: int = 10) -> tuple[torch.Tensor, list[int]]:
-        from k_means_constrained import KMeansConstrained
-
-        x = data.cpu().detach().numpy()
-        size_min = min(
-            len(data) // (n_clusters * 2), 50
-        )  # 50 for the very first time, 10 the latter
-
-        clf = KMeansConstrained(
-            n_clusters=n_clusters,
-            size_min=size_min,
-            size_max=size_min * 4,
-            max_iter=10,
-            n_init=10,
-            n_jobs=10,
-            verbose=False,
-        )  # 'size_min * 4' for the very first time, 'n_clusters * 4' for the latter
-        clf.fit(x)
-        t_centers = torch.from_numpy(clf.cluster_centers_)
-        t_labels: list[int] = torch.from_numpy(clf.labels_).tolist()
-        return t_centers, t_labels
 
     def diversity_loss(self, x_q: torch.Tensor, indices, indices_cluster, indices_list) -> torch.Tensor:
         emb = self.embedding.weight
@@ -108,18 +87,6 @@ class VectorQuantizer(nn.Module):
         )
         return diversity_loss
 
-    @staticmethod
-    def center_distance_for_constraint(distances: torch.Tensor) -> torch.Tensor:
-        # distances: B, K
-        max_distance = distances.max()
-        min_distance = distances.min()
-
-        middle = (max_distance + min_distance) / 2
-        amplitude = max_distance - middle + 1e-5
-        assert amplitude > 0
-        centered_distances = (distances - middle) / amplitude
-        return centered_distances
-
     def vq_init(self, x: torch.Tensor, use_sk: bool = True) -> torch.Tensor:
         latent = x.view(-1, self.e_dim)
 
@@ -144,7 +111,7 @@ class VectorQuantizer(nn.Module):
             else:
                 indices = torch.argmax(d, dim=-1)
         else:
-            d = self.center_distance_for_constraint(d)
+            d = center_distance_for_constraint(d)
             d = d.double()
 
             Q = sinkhorn_algorithm(d, self.sk_epsilon, self.sk_iters)
@@ -187,7 +154,7 @@ class VectorQuantizer(nn.Module):
             else:
                 indices = torch.argmax(d, dim=-1)
         else:
-            d = self.center_distance_for_constraint(d)
+            d = center_distance_for_constraint(d)
             d = d.double()
 
             Q = sinkhorn_algorithm(d, self.sk_epsilon, self.sk_iters)

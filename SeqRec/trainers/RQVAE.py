@@ -7,10 +7,12 @@ from time import time
 from tqdm import tqdm
 from torch import optim
 from loguru import logger
+from argparse import Namespace
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from SeqRec.utils.futils import ensure_dir
+from SeqRec.utils.kmeans import constrained_km
 from SeqRec.utils.logging import set_color
 from SeqRec.utils.time import get_local_time
 from SeqRec.datasets.emb_dataset import EmbDataset
@@ -97,26 +99,6 @@ class Trainer:
         if torch.isnan(loss):
             raise ValueError("Training loss is nan")
 
-    def constrained_km(self, data: np.ndarray, n_clusters: int = 10) -> tuple[torch.Tensor, list[int]]:
-        from k_means_constrained import KMeansConstrained
-
-        x = data
-        size_min = min(len(data) // (n_clusters * 2), 10)
-        clf = KMeansConstrained(
-            n_clusters=n_clusters,
-            size_min=size_min,
-            size_max=n_clusters * 6,
-            max_iter=10,
-            n_init=10,
-            n_jobs=10,
-            verbose=False,
-        )
-        clf.fit(x)
-        t_centers = torch.from_numpy(clf.cluster_centers_)
-        t_labels = torch.from_numpy(clf.labels_).tolist()
-
-        return t_centers, t_labels
-
     def vq_init(self):
         self.model.eval()
         original_data = EmbDataset(self.data_path, self.local_rank)
@@ -195,7 +177,7 @@ class Trainer:
         ]
 
         for idx, emb in enumerate(embs):
-            centers, labels = self.constrained_km(emb)
+            centers, labels = constrained_km(emb)
             self.labels[str(idx)] = labels
 
         for batch in train_data:
@@ -227,7 +209,7 @@ class Trainer:
             for layer in (self.model.module.rq.vq_layers if isinstance(self.model, DDP) else self.model.rq.vq_layers)
         ]
         for idx, emb in enumerate(embs):
-            centers, labels = self.constrained_km(emb)
+            centers, labels = constrained_km(emb)
             self.labels[str(idx)] = labels
         for batch in valid_data:
             batch: tuple[torch.Tensor, torch.Tensor]
@@ -245,6 +227,19 @@ class Trainer:
         collision_rate = (num_sample - len(indices_set)) / num_sample
         return collision_rate
 
+    @property
+    def args(self) -> Namespace:
+        args = self.model.args if isinstance(self.model, RQVAE) else self.model.module.args
+        args.lr = self.lr
+        args.epochs = self.epochs
+        args.num_workers = self.num_workers
+        args.eval_step = self.eval_step
+        args.learner = self.learner
+        args.data_path = self.data_path
+        args.weight_decay = self.weight_decay
+        args.ckpt_dir = self.ckpt_dir
+        return args
+
     def _save_checkpoint(self, epoch: int, collision_rate: float = 1, ckpt_file: str | None = None):
         assert self.local_rank == 0, "Only the main process can save checkpoints"
         ckpt_path = (
@@ -256,10 +251,11 @@ class Trainer:
             )
         )
         state = {
+            "args": self.args,
             "epoch": epoch,
             "best_loss": self.best_loss,
             "best_collision_rate": self.best_collision_rate,
-            "state_dict": self.model.state_dict(),
+            "state_dict": self.model.module.state_dict() if isinstance(self.model, DDP) else self.model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
         }
         torch.save(state, ckpt_path, pickle_protocol=4)
