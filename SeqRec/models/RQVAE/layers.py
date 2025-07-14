@@ -91,7 +91,6 @@ def sinkhorn_algorithm(distances: torch.Tensor, epsilon: float, sinkhorn_iterati
     # make the matrix sums to 1
     sum_Q = Q.sum(-1, keepdim=True).sum(-2, keepdim=True)
     Q /= sum_Q
-    # print(Q.sum())
     for it in range(sinkhorn_iterations):
         # normalize each column: total weight per sample must be 1/B
         Q /= torch.sum(Q, dim=1, keepdim=True)

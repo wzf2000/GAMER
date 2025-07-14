@@ -1,11 +1,14 @@
 import os
-import logging
+import wandb
 import torch
 import numpy as np
+import torch.distributed as dist
 from time import time
 from tqdm import tqdm
 from torch import optim
+from loguru import logger
 from torch.utils.data import DataLoader
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.logging import set_color
@@ -17,32 +20,38 @@ from SeqRec.models.RQVAE.RQVAE import RQVAE
 class Trainer:
     def __init__(
         self,
-        model: RQVAE,
+        model: RQVAE | DDP,
         lr: float,
         learner: str,
         weight_decay: float,
         epochs: int,
         eval_step: int,
-        device: str,
+        device: torch.device | str,
         ckpt_dir: str,
         num_workers: int,
         data_path: str,
+        local_rank: int,
     ):
         self.model = model
-        self.logger = logging.getLogger()
+        self.logger = logger
 
         self.lr: float = lr
         self.learner: str = learner
         self.weight_decay: float = weight_decay
         self.epochs: int = epochs
         self.eval_step: int = min(eval_step, self.epochs)
-        self.device: str = device
-        self.device = torch.device(self.device)
+        if isinstance(device, str):
+            self.device = torch.device(device)
+        elif isinstance(device, torch.device):
+            self.device = device
+        else:
+            raise ValueError("Device must be a string or torch.device instance")
         self.ckpt_dir: str = ckpt_dir
         saved_model_dir = "{}".format(get_local_time())
         self.ckpt_dir = os.path.join(self.ckpt_dir, saved_model_dir)
         self.num_workers: int = num_workers
         self.data_path: str = data_path
+        self.local_rank: int = local_rank
         ensure_dir(self.ckpt_dir)
         self.labels: dict[str, list[int]] = {"0": [], "1": [], "2": [], "3": [], "4": [], "5": []}
         self.best_loss = np.inf
@@ -50,7 +59,7 @@ class Trainer:
         self.best_loss_ckpt = "best_loss_model.pth"
         self.best_collision_ckpt = "best_collision_model.pth"
         self.optimizer = self._build_optimizer()
-        self.model = self.model.to(self.device)
+        self.global_steps = 0
 
     def _build_optimizer(self) -> optim.Optimizer:
         params = self.model.parameters()
@@ -77,9 +86,10 @@ class Trainer:
         elif learner.lower() == "adamw":
             optimizer = optim.AdamW(params, lr=learning_rate, weight_decay=weight_decay)
         else:
-            self.logger.warning(
-                "Received unrecognized optimizer, set default Adam optimizer"
-            )
+            if self.local_rank == 0:
+                self.logger.warning(
+                    "Received unrecognized optimizer, set default Adam optimizer"
+                )
             optimizer = optim.Adam(params, lr=learning_rate)
         return optimizer
 
@@ -109,7 +119,7 @@ class Trainer:
 
     def vq_init(self):
         self.model.eval()
-        original_data = EmbDataset(self.data_path)
+        original_data = EmbDataset(self.data_path, self.local_rank)
         init_loader = DataLoader(
             original_data,
             num_workers=self.num_workers,
@@ -117,19 +127,60 @@ class Trainer:
             shuffle=True,
             pin_memory=True,
         )
-        iter_data = tqdm(
-            init_loader,
-            total=len(init_loader),
-            ncols=100,
-            desc=set_color("Initialization of vq", "pink"),
-        )
+        if self.local_rank == 0:
+            logger.info("Initializing of vq...")
         # Train
-        for batch_idx, batch in enumerate(iter_data):
+        for batch in init_loader:
             batch: tuple[torch.Tensor, torch.Tensor]
-            data, emb_idx = batch[0], batch[1]
+            data, _ = batch[0], batch[1]
             data = data.to(self.device)
 
-            self.model.vq_initialization(data)
+            if isinstance(self.model, DDP):
+                self.model.module.vq_initialization(data)
+            else:
+                self.model.vq_initialization(data)
+        if self.local_rank == 0:
+            logger.success("Initialization of vq finished.")
+
+    def _train_step(self, data: torch.Tensor, emb_idx: int) -> tuple[float, float, float, float]:
+        data = data.to(self.device)
+        self.optimizer.zero_grad()
+        out, rq_loss, indices, dense_out = self.model(data, self.labels)
+
+        if isinstance(self.model, DDP):
+            loss, cf_loss, loss_recon, quant_loss = self.model.module.compute_loss(
+                out, rq_loss, emb_idx, dense_out, xs=data
+            )
+        else:
+            loss, cf_loss, loss_recon, quant_loss = self.model.compute_loss(
+                out, rq_loss, emb_idx, dense_out, xs=data
+            )
+        self._check_nan(loss)
+        loss.backward()
+        self.optimizer.step()
+        dist.all_reduce(loss, op=dist.ReduceOp.SUM)
+        dist.all_reduce(loss_recon, op=dist.ReduceOp.SUM)
+        dist.all_reduce(cf_loss, op=dist.ReduceOp.SUM)
+        dist.all_reduce(quant_loss, op=dist.ReduceOp.SUM)
+        loss = loss / dist.get_world_size()
+        loss_recon = loss_recon / dist.get_world_size()
+        cf_loss = cf_loss / dist.get_world_size()
+        quant_loss = quant_loss / dist.get_world_size()
+        if self.local_rank == 0:
+            wandb.log({
+                "train/train_loss": loss.item(),
+                "train/recon_loss": loss_recon.item(),
+                "train/cf_loss": cf_loss.item() if cf_loss != 0 else cf_loss,
+                "train/quant_loss": quant_loss.item(),
+            }, step=self.global_steps)
+        self.global_steps += 1
+        if self.pbar is not None:
+            self.pbar.update(1)
+            self.pbar.set_postfix({
+                "loss": loss.item(),
+                "recon_loss": loss_recon.item(),
+            })
+        return loss.item(), loss_recon.item(), cf_loss.item(), quant_loss.item()
 
     def _train_epoch(self, train_data: DataLoader, epoch_idx: int) -> tuple[float, float, float, float]:
         self.model.train()
@@ -138,38 +189,22 @@ class Trainer:
         total_recon_loss = 0
         total_cf_loss = 0
         total_quant_loss = 0
-        iter_data = tqdm(
-            train_data,
-            total=len(train_data),
-            ncols=100,
-            desc=set_color(f"Train {epoch_idx}", "pink"),
-        )
         embs = [
             layer.embedding.weight.cpu().detach().numpy()
-            for layer in self.model.rq.vq_layers
+            for layer in (self.model.module.rq.vq_layers if isinstance(self.model, DDP) else self.model.rq.vq_layers)
         ]
 
         for idx, emb in enumerate(embs):
             centers, labels = self.constrained_km(emb)
             self.labels[str(idx)] = labels
 
-        for batch_idx, batch in enumerate(iter_data):
+        for batch in train_data:
             batch: tuple[torch.Tensor, torch.Tensor]
-            data, emb_idx = batch[0], batch[1]
-            data = data.to(self.device)
-            self.optimizer.zero_grad()
-            out, rq_loss, indices, dense_out = self.model(data, self.labels)
-
-            loss, cf_loss, loss_recon, quant_loss = self.model.compute_loss(
-                out, rq_loss, emb_idx, dense_out, xs=data
-            )
-            self._check_nan(loss)
-            loss.backward()
-            self.optimizer.step()
-            total_loss += loss.item()
-            total_recon_loss += loss_recon.item()
-            total_cf_loss += cf_loss.item() if cf_loss != 0 else cf_loss
-            total_quant_loss += quant_loss.item()
+            loss, recon_loss, cf_loss, quant_loss = self._train_step(batch[0], batch[1])
+            total_loss += loss
+            total_recon_loss += recon_loss
+            total_cf_loss += cf_loss
+            total_quant_loss += quant_loss
 
         return total_loss, total_recon_loss, total_cf_loss, total_quant_loss
 
@@ -177,37 +212,41 @@ class Trainer:
     def _valid_epoch(self, valid_data: DataLoader):
         self.model.eval()
 
-        iter_data = tqdm(
-            valid_data,
-            total=len(valid_data),
-            ncols=100,
-            desc=set_color("Evaluate   ", "pink"),
-        )
+        if self.local_rank == 0:
+            pbar = tqdm(
+                total=len(valid_data),
+                desc=set_color("Evaluating", "pink"),
+            )
+        else:
+            pbar = None
         indices_set = set()
 
         num_sample = 0
         embs = [
             layer.embedding.weight.cpu().detach().numpy()
-            for layer in self.model.rq.vq_layers
+            for layer in (self.model.module.rq.vq_layers if isinstance(self.model, DDP) else self.model.rq.vq_layers)
         ]
         for idx, emb in enumerate(embs):
             centers, labels = self.constrained_km(emb)
             self.labels[str(idx)] = labels
-        for batch_idx, batch in enumerate(iter_data):
+        for batch in valid_data:
             batch: tuple[torch.Tensor, torch.Tensor]
             data, emb_idx = batch[0], batch[1]
             num_sample += len(data)
             data = data.to(self.device)
-            indices = self.model.get_indices(data, self.labels)
+            indices = self.model.module.get_indices(data, self.labels) if isinstance(self.model, DDP) else self.model.get_indices(data, self.labels)
             indices = indices.view(-1, indices.shape[-1]).cpu().numpy()
             for index in indices:
                 code = "-".join([str(int(_)) for _ in index])
                 indices_set.add(code)
+            if pbar is not None:
+                pbar.update(1)
 
         collision_rate = (num_sample - len(indices_set)) / num_sample
         return collision_rate
 
     def _save_checkpoint(self, epoch: int, collision_rate: float = 1, ckpt_file: str | None = None):
+        assert self.local_rank == 0, "Only the main process can save checkpoints"
         ckpt_path = (
             os.path.join(self.ckpt_dir, ckpt_file)
             if ckpt_file
@@ -227,61 +266,43 @@ class Trainer:
 
         self.logger.info(set_color("Saving current", "blue") + f": {ckpt_path}")
 
-    def _generate_train_loss_output(
-        self, epoch_idx: int, s_time: float, e_time: float, loss: float, recon_loss: float, cf_loss: float
-    ) -> str:
-        train_loss_output = (
-            set_color("epoch %d training", "green")
-            + " ["
-            + set_color("time", "blue")
-            + ": %.2fs, "
-        ) % (epoch_idx, e_time - s_time)
-        train_loss_output += set_color("train loss", "blue") + ": %.4f" % loss
-        train_loss_output += ", "
-        train_loss_output += (
-            set_color("reconstruction loss", "blue") + ": %.4f" % recon_loss
-        )
-        train_loss_output += ", "
-        train_loss_output += set_color("cf loss", "blue") + ": %.4f" % cf_loss
-        return train_loss_output + "]"
-
     def fit(self, data: DataLoader):
         cur_eval_step = 0
         self.vq_init()
+        if self.local_rank == 0:
+            total_steps = self.epochs * len(data)
+            self.pbar = tqdm(
+                total=total_steps,
+                desc=set_color("Training", "pink"),
+            )
+        else:
+            self.pbar = None
         for epoch_idx in range(self.epochs):
             # train
-            training_start_time = time()
             train_loss, train_recon_loss, cf_loss, quant_loss = self._train_epoch(
                 data, epoch_idx
             )
-
-            training_end_time = time()
-            train_loss_output = self._generate_train_loss_output(
-                epoch_idx,
-                training_start_time,
-                training_end_time,
-                train_loss,
-                train_recon_loss,
-                cf_loss,
-            )
-            self.logger.info(train_loss_output)
 
             if train_loss < self.best_loss:
                 self.best_loss = train_loss
 
             # eval
-            if (epoch_idx + 1) % self.eval_step == 0:
+            if (epoch_idx + 1) % self.eval_step == 0 or epoch_idx == 0:
                 valid_start_time = time()
                 collision_rate = self._valid_epoch(data)
 
                 if collision_rate < self.best_collision_rate:
                     self.best_collision_rate = collision_rate
                     cur_eval_step = 0
-                    self._save_checkpoint(
-                        epoch_idx,
-                        collision_rate=collision_rate,
-                        ckpt_file=self.best_collision_ckpt,
-                    )
+                    if self.local_rank == 0:
+                        self.logger.info(
+                            set_color("Best collision rate updated", "green")
+                        )
+                        self._save_checkpoint(
+                            epoch_idx,
+                            collision_rate=collision_rate,
+                            ckpt_file=self.best_collision_ckpt,
+                        )
                 else:
                     cur_eval_step += 1
 
@@ -295,9 +316,16 @@ class Trainer:
                     + ": %f]"
                 ) % (epoch_idx, valid_end_time - valid_start_time, collision_rate)
 
-                self.logger.info(valid_score_output)
+                if self.local_rank == 0:
+                    self.logger.info(valid_score_output)
+                    wandb.log({
+                        "eval/epoch": epoch_idx,
+                        "eval/collision_rate": collision_rate,
+                        "eval/best_loss": self.best_loss,
+                        "eval/best_collision_rate": self.best_collision_rate,
+                    }, step=self.global_steps)
 
-                if epoch_idx > 2500:
+                if epoch_idx > 2500 and self.local_rank == 0:
                     self._save_checkpoint(epoch_idx, collision_rate=collision_rate)
 
         return self.best_loss, self.best_collision_rate

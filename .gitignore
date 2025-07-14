@@ -4,6 +4,8 @@ __pycache__
 results
 wandb
 ckpt
+logs
+runs
 data/*
 !data/**/*.index.json
 !data/**/*.inter.json

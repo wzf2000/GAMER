@@ -1,8 +1,12 @@
 import os
+import wandb
 import torch
 import numpy as np
+import torch.distributed as dist
 from loguru import logger
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from SeqRec.tasks.base import Task
 from SeqRec.datasets.emb_dataset import EmbDataset
@@ -104,6 +108,30 @@ class TrainRQVAE(Task):
             help="output directory for model",
         )
 
+    @property
+    def local_rank(self) -> int:
+        if not hasattr(self, "_local_rank"):
+            self._local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        return self._local_rank
+
+    @property
+    def world_size(self) -> int:
+        if not hasattr(self, "_world_size"):
+            self._world_size = int(os.environ.get("WORLD_SIZE", 1))
+        return self._world_size
+
+    @property
+    def ddp(self) -> bool:
+        if not hasattr(self, "_ddp"):
+            self._ddp = self.world_size != 1
+        return self._ddp
+
+    def get_device(self, device: str) -> torch.device:
+        if self.ddp:
+            return torch.device("cuda", self.local_rank)
+        else:
+            return torch.device(device)
+
     def invoke(
         self,
         seed: int,
@@ -140,10 +168,24 @@ class TrainRQVAE(Task):
         Train and evaluate the RQVAE model.
         """
         # Implementation of the RQVAE task logic goes here.
+        if self.ddp:
+            dist.init_process_group(backend="nccl", init_method="env://")
+            torch.cuda.set_device(self.local_rank)
         set_seed(seed)
-        logger.warning("Unused parameters:", args, kwargs)
+        if len(args) > 0 or len(kwargs) > 0 and self.local_rank == 0:
+            logger.warning("Unused parameters:", args, kwargs)
+        if self.local_rank == 0:
+            wandb.init(
+                project="RQVAE",
+                config=args,
+                name=f"{data_path.split('/')[-2]}-alpha{alpha}-beta{beta}",
+                dir="runs/RQVAE",
+                job_type="train",
+                reinit="return_previous",
+                notes=f"Training RQVAE on {data_path} with alpha={alpha}, beta={beta}",
+            )
 
-        self.dataset = EmbDataset(data_path)
+        self.dataset = EmbDataset(data_path, local_rank=self.local_rank)
 
         if os.path.exists(cf_emb):
             cf_emb_tensor: torch.Tensor = torch.load(cf_emb, map_location="cpu")
@@ -169,13 +211,24 @@ class TrainRQVAE(Task):
             n_clusters=n_clusters,
             sample_strategy=sample_strategy,
             cf_embedding=cf_emb,
-        )
-        logger.info(self.model)
+        ).to(self.get_device(device))
+        if self.local_rank == 0:
+            logger.info(self.model)
+
+        if self.ddp:
+            self.sampler = DistributedSampler(self.dataset)
+            self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model).to(self.get_device(device))
+            self.model = DDP(self.model, device_ids=[self.local_rank], output_device=self.local_rank)
+        else:
+            self.sampler = None
+
         self.data_loader = DataLoader(
             self.dataset,
             batch_size=batch_size,
-            shuffle=True,
+            shuffle=self.sampler is None,
             num_workers=num_workers,
+            sampler=self.sampler,
+            pin_memory=True,
         )
 
         self.trainer = Trainer(
@@ -185,10 +238,16 @@ class TrainRQVAE(Task):
             weight_decay=weight_decay,
             epochs=epochs,
             eval_step=eval_step,
-            device=device,
+            device=self.get_device(device),
             ckpt_dir=ckpt_dir,
             num_workers=num_workers,
             data_path=data_path,
+            local_rank=self.local_rank,
         )
         best_loss, best_collision_rate = self.trainer.fit(self.data_loader)
-        logger.success(f"Best loss: {best_loss}, Best collision rate: {best_collision_rate}")
+        if self.local_rank == 0:
+            logger.success(f"Best loss: {best_loss}, Best collision rate: {best_collision_rate}")
+        if self.ddp:
+            dist.destroy_process_group()
+        if self.local_rank == 0:
+            wandb.finish()

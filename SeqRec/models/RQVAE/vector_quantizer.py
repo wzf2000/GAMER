@@ -1,7 +1,8 @@
-import random
 import torch
+import random
 import torch.nn as nn
 import torch.nn.functional as F
+from loguru import logger
 
 from SeqRec.models.RQVAE.layers import sinkhorn_algorithm
 
@@ -148,7 +149,7 @@ class VectorQuantizer(nn.Module):
 
             Q = sinkhorn_algorithm(d, self.sk_epsilon, self.sk_iters)
             if torch.isnan(Q).any() or torch.isinf(Q).any():
-                print("Sinkhorn Algorithm returns nan/inf values.")
+                logger.warning("Sinkhorn Algorithm returns nan/inf values.")
             indices = torch.argmax(Q, dim=-1)
 
         x_q: torch.Tensor = self.embedding(indices)
@@ -191,14 +192,17 @@ class VectorQuantizer(nn.Module):
 
             Q = sinkhorn_algorithm(d, self.sk_epsilon, self.sk_iters)
             if torch.isnan(Q).any() or torch.isinf(Q).any():
-                print("Sinkhorn Algorithm returns nan/inf values.")
+                logger.warning("Sinkhorn Algorithm returns nan/inf values.")
             indices = torch.argmax(Q, dim=-1)
 
         x_q: torch.Tensor = self.embedding(indices)
         x_q = x_q.view(x.shape)
 
         # Diversity
-        diversity_loss = self.diversity_loss_main_entry(x, x_q, indices, label)
+        if self.beta > 0:
+            diversity_loss = self.diversity_loss_main_entry(x, x_q, indices, label)
+        else:
+            diversity_loss = torch.tensor(0.0, device=x.device)
 
         # compute loss for embedding
         commitment_loss = F.mse_loss(x_q.detach(), x)
