@@ -26,8 +26,8 @@ if [ $rq_kmeans -eq 0 ]; then
     --checkpoint ${checkpoint}
 else
   echo "Using RQ-Kmeans for index generation."
-  : ${cf_emb:=0}
-  if [ $cf_emb -eq 0 ]; then
+  : ${cf_emb:=None}
+  if [ "${cf_emb}" == "None" ]; then
     echo "Generating indices for ${dataset} using RQ-Kmeans without CF embeddings."
     python main.py tokenize \
       --device cuda:${gpu} \
