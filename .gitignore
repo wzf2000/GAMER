@@ -6,7 +6,8 @@ wandb
 ckpt
 logs
 runs
-data/*
+data/*.py
+data/*/*
 !data/**/*.index.json
 !data/**/*.inter.json
 !data/**/*.item.json
