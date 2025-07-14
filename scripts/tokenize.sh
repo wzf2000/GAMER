@@ -48,7 +48,7 @@ else
           --cf_emb ${cf_emb}
       else
         echo "Generating indices for ${dataset} using RQ-Kmeans with CF embeddings and reduced semantic embeddings."
-        python ./RQ-VAE/generate_indices.py \
+        python main.py tokenize \
           --device cuda:${gpu} \
           --dataset ${dataset} \
           --data_path ${data_path} \
