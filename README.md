@@ -2,44 +2,38 @@
 
 ## Requirements
 
-```
-torch==1.13.1+cu117
-accelerate
-bitsandbytes
-deepspeed
-evaluate
-peft
-sentencepiece
-tqdm
-transformers
+See `requirements.txt`.
+
+## Semantic Embedding Generation
+
+```bash
+bash scripts/generate_sem_emb.sh
 ```
 
-## LETTER Tokenizer
+## RQ-VAE Tokenizer
 
 ### Train
 
-```
-bash RQ-VAE/train_tokenizer.sh 
+```bash
+bash scripts/train_RQVAE.sh 
 ```
 
 ### Tokenize
 
-```
-bash RQ-VAE/tokenize.sh 
+```bash
+bash scripts/tokenize.sh 
 ```
 
 ## Instantiation
 
-### LETTER-TIGER
+### Train TIGER
 
-```
-cd LETTER-TIGER
-bash run_train.sh
+```bash
+bash scripts/train_decoder.sh
 ```
 
-### LETTER-LC-Rec
+### Test TIGER
 
-```
-cd LETTER-LC-Rec
-bash run_train.sh
+```bash
+bash scripts/test_decoder.sh
 ```
