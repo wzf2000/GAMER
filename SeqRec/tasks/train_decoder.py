@@ -164,6 +164,7 @@ class TrainDecoder(MultiGPUTask):
         tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
             base_model,
             model_max_length=512,
+            legacy=True,
         )
         deepspeed = None
 

@@ -182,7 +182,7 @@ class TestDecoder(MultiGPUTask):
         """
         # Implementation of the training logic goes here.
         self.init(seed, False)
-        self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path)
+        self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
         self.model = T5ForConditionalGeneration.from_pretrained(ckpt_path).to(self.device)
         self.test_data = load_test_dataset(
             dataset,
