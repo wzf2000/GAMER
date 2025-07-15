@@ -1,22 +1,19 @@
 import os
-import wandb
 import torch
 import numpy as np
-import torch.distributed as dist
 from loguru import logger
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from SeqRec.tasks.base import Task
+from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.emb_dataset import EmbDataset
 from SeqRec.models.RQVAE.RQVAE import RQVAE
 from SeqRec.trainers.RQVAE import Trainer
 from SeqRec.utils.parse import SubParsersAction
-from SeqRec.utils.pipe import set_seed
 
 
-class TrainRQVAE(Task):
+class TrainRQVAE(MultiGPUTask):
     """
     RQVAE task for training a RQ-VAE for recommender systems.
     """
@@ -108,24 +105,6 @@ class TrainRQVAE(Task):
             help="output directory for model",
         )
 
-    @property
-    def local_rank(self) -> int:
-        if not hasattr(self, "_local_rank"):
-            self._local_rank = int(os.environ.get("LOCAL_RANK", 0))
-        return self._local_rank
-
-    @property
-    def world_size(self) -> int:
-        if not hasattr(self, "_world_size"):
-            self._world_size = int(os.environ.get("WORLD_SIZE", 1))
-        return self._world_size
-
-    @property
-    def ddp(self) -> bool:
-        if not hasattr(self, "_ddp"):
-            self._ddp = self.world_size != 1
-        return self._ddp
-
     def get_device(self, device: str) -> torch.device:
         if self.ddp:
             return torch.device("cuda", self.local_rank)
@@ -168,48 +147,16 @@ class TrainRQVAE(Task):
         Train and evaluate the RQVAE model.
         """
         # Implementation of the RQVAE task logic goes here.
-        if self.ddp:
-            dist.init_process_group(backend="nccl", init_method="env://")
-            torch.cuda.set_device(self.local_rank)
-        set_seed(seed)
+        self.init(
+            seed,
+            True,
+            f"{data_path.split('/')[-2]}-alpha{alpha}-beta{beta}",
+            "train",
+            f"Training RQVAE on {data_path} with alpha={alpha}, beta={beta}",
+            self.param_dict,
+        )
         if len(args) > 0 or len(kwargs) > 0 and self.local_rank == 0:
             logger.warning("Unused parameters:", args, kwargs)
-        if self.local_rank == 0:
-            wandb.init(
-                project="RQVAE",
-                config={
-                    "seed": seed,
-                    "data_path": data_path,
-                    "lr": lr,
-                    "epochs": epochs,
-                    "batch_size": batch_size,
-                    "num_emb_list": num_emb_list,
-                    "e_dim": e_dim,
-                    "layers": layers,
-                    "dropout_prob": dropout_prob,
-                    "bn": bn,
-                    "loss_type": loss_type,
-                    "quant_loss_weight": quant_loss_weight,
-                    "kmeans_init": kmeans_init,
-                    "kmeans_iters": kmeans_iters,
-                    "sk_epsilons": sk_epsilons,
-                    "sk_iters": sk_iters,
-                    "alpha": alpha,
-                    "beta": beta,
-                    "n_clusters": n_clusters,
-                    "sample_strategy": sample_strategy,
-                    "cf_emb": cf_emb,
-                    "num_workers": num_workers,
-                    "learner": learner,
-                    "weight_decay": weight_decay,
-                    "eval_step": eval_step,
-                },
-                name=f"{data_path.split('/')[-2]}-alpha{alpha}-beta{beta}",
-                dir="runs/RQVAE",
-                job_type="train",
-                reinit="return_previous",
-                notes=f"Training RQVAE on {data_path} with alpha={alpha}, beta={beta}",
-            )
 
         self.dataset = EmbDataset(data_path, local_rank=self.local_rank)
 
@@ -273,7 +220,4 @@ class TrainRQVAE(Task):
         best_loss, best_collision_rate = self.trainer.fit(self.data_loader)
         if self.local_rank == 0:
             logger.success(f"Best loss: {best_loss}, Best collision rate: {best_collision_rate}")
-        if self.ddp:
-            dist.destroy_process_group()
-        if self.local_rank == 0:
-            wandb.finish()
+        self.finish(True)

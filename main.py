@@ -3,6 +3,7 @@ import time
 import argparse
 from loguru import logger
 
+from SeqRec.utils.logging import disable_deepspeed_logging
 from SeqRec.tasks import task_list
 
 

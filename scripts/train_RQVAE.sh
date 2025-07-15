@@ -18,6 +18,7 @@ echo "Training RQ-VAE on ${dataset} with alpha=${alpha} and beta=${beta} using G
 
 # check if gpu_num is greater than 1
 if [ $gpu_num -gt 1 ]; then
+  export OMP_NUM_THREADS=1
   torchrun --nproc_per_node=${gpu_num} ./main.py RQVAE \
     --data_path ./data/${dataset}/${dataset}.emb-${semantic_model}-td.npy \
     --alpha ${alpha} \

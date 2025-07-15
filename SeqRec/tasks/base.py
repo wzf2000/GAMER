@@ -1,7 +1,12 @@
+from typing import Any
+
 from SeqRec.utils.parse import SubParsersAction
+from SeqRec.utils.func_util import log_arguments, create_meta_class
 
 
-class Task:
+class Task(metaclass=create_meta_class("Task", ("invoke", ), log_arguments)):
+    param_dict: dict[str, Any]
+
     def __init__(self):
         pass
 

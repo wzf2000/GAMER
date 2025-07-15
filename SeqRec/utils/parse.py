@@ -18,7 +18,7 @@ def parse_global_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParse
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./checkpoint/Recommender",
+        default="./checkpoint/decoder",
         help="The output directory",
     )
 

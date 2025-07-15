@@ -1,10 +1,12 @@
 from SeqRec.tasks.base import Task
-from SeqRec.tasks.semantic_emb import SemanticEmbedding  # noqa: F401
-from SeqRec.tasks.RQVAE import TrainRQVAE  # noqa: F401
-from SeqRec.tasks.tokenize import Tokenize  # noqa: F401
-from SeqRec.tasks.train_decoder import TrainDecoder  # noqa: F401
-from SeqRec.tasks.test_decoder import TestDecoder  # noqa: F401
+from SeqRec.tasks.semantic_emb import SemanticEmbedding
+from SeqRec.tasks.RQVAE import TrainRQVAE
+from SeqRec.tasks.tokenize import Tokenize
+from SeqRec.tasks.train_decoder import TrainDecoder
+from SeqRec.tasks.test_decoder import TestDecoder
+from SeqRec.utils.func_util import subclasses_recursive
+
 
 task_list: dict[str, type[Task]] = {
-    task.parser_name(): task for task in Task.__subclasses__() if task.__name__ != "Task"
+    task.parser_name(): task for task in subclasses_recursive(Task) if not task.__name__.endswith("Task")
 }

@@ -4,6 +4,7 @@ __pycache__
 results
 wandb
 ckpt
+checkpoint
 logs
 runs
 data/*.py

@@ -221,3 +221,35 @@ def load_datasets(
     )
 
     return train_data, valid_data
+
+
+def load_test_dataset(
+    dataset: str,
+    data_path: str,
+    max_his_len: int,
+    index_file: str,
+    test_task: str,
+) -> SeqRecDataset:
+    if test_task.lower() == "seqrec":
+        test_data = SeqRecDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            inter_type=None,
+            mode="test",
+        )
+    elif test_task.lower().startswith("seqrec_"):
+        inter_type = test_task.split("_")[1]
+        test_data = SeqRecDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            inter_type=inter_type,
+            mode="test",
+        )
+    else:
+        raise NotImplementedError
+
+    return test_data

@@ -1,21 +1,17 @@
-import os
-import wandb
 import torch
 import transformers
-import torch.distributed as dist
 from loguru import logger
 from transformers import EarlyStoppingCallback, T5Tokenizer, T5Config
 
-from SeqRec.tasks.base import Task
+from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.seq_dataset import BaseDataset, load_datasets
 from SeqRec.datasets.collator import Collator
 from SeqRec.models.TIGER.TIGER import TIGER
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
-from SeqRec.utils.pipe import set_seed
 
 
-class TrainDecoder(Task):
+class TrainDecoder(MultiGPUTask):
     """
     Train a decoder for the SeqRec model.
     """
@@ -115,31 +111,6 @@ class TrainDecoder(Task):
             help="Name for the Weights & Biases run"
         )
 
-    @property
-    def local_rank(self) -> int:
-        if not hasattr(self, "_local_rank"):
-            self._local_rank = int(os.environ.get("LOCAL_RANK", 0))
-        return self._local_rank
-
-    @property
-    def world_size(self) -> int:
-        if not hasattr(self, "_world_size"):
-            self._world_size = int(os.environ.get("WORLD_SIZE", 1))
-        return self._world_size
-
-    @property
-    def ddp(self) -> bool:
-        if not hasattr(self, "_ddp"):
-            self._ddp = self.world_size != 1
-        return self._ddp
-
-    @property
-    def device(self) -> str:
-        if self.ddp:
-            return f"cuda:{self.local_rank}"
-        else:
-            return "cuda"
-
     def invoke(
         self,
         # global arguments
@@ -178,49 +149,17 @@ class TrainDecoder(Task):
         Train the decoder using the provided arguments.
         """
         # Implementation of the training logic goes here.
-        if self.ddp:
-            dist.init_process_group(backend="nccl", init_method="env://")
-            torch.cuda.set_device(self.local_rank)
-        set_seed(seed)
+        self.init(
+            seed,
+            True,
+            wandb_run_name if wandb_run_name != "default" else output_dir.split("checkpoint/decoder/")[-1],
+            "train",
+            f"Training decoder on {data_path} with base model {base_model}",
+            self.param_dict,
+        )
         ensure_dir(output_dir)
         if len(args) > 0 or len(kwargs) > 0 and self.local_rank == 0:
             logger.warning("Unused parameters:", args, kwargs)
-        if self.local_rank == 0:
-            wandb.init(
-                project="SeqRec",
-                config={
-                    "seed": seed,
-                    "base_model": base_model,
-                    "output_dir": output_dir,
-                    "data_path": data_path,
-                    "tasks": tasks,
-                    "dataset": dataset,
-                    "index_file": index_file,
-                    "max_his_len": max_his_len,
-                    "optim": optim,
-                    "epochs": epochs,
-                    "learning_rate": learning_rate,
-                    "per_device_batch_size": per_device_batch_size,
-                    "gradient_accumulation_steps": gradient_accumulation_steps,
-                    "logging_step": logging_step,
-                    "model_max_length": model_max_length,
-                    "weight_decay": weight_decay,
-                    "resume_from_checkpoint": resume_from_checkpoint,
-                    "warmup_ratio": warmup_ratio,
-                    "lr_scheduler_type": lr_scheduler_type,
-                    "save_and_eval_strategy": save_and_eval_strategy,
-                    "save_and_eval_steps": save_and_eval_steps,
-                    "fp16": fp16,
-                    "bf16": bf16,
-                    "deepspeed": deepspeed,
-                    "temperature": temperature
-                },
-                name=wandb_run_name,
-                dir="runs/decoder",
-                job_type="train",
-                reinit="return_previous",
-                notes=f"Training SeqRec decoder with base model {base_model} on dataset {dataset} (tasks: {tasks})"
-            )
         config: T5Config = T5Config.from_pretrained(base_model)
         tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
             base_model,
@@ -280,7 +219,7 @@ class TrainDecoder(Task):
             deepspeed=deepspeed,
             ddp_find_unused_parameters=False if self.ddp else None,
             eval_delay=1 if save_and_eval_strategy == "epoch" else 2000,
-            run_name=wandb_run_name if wandb_run_name != "default" else output_dir.split("ckpt/")[-1],
+            run_name=wandb_run_name if wandb_run_name != "default" else output_dir.split("checkpoint/decoder/")[-1],
         )
         trainer = transformers.trainer.Trainer(
             model=model,
@@ -301,4 +240,4 @@ class TrainDecoder(Task):
         trainer.save_model(output_dir=output_dir)
         if self.local_rank == 0:
             logger.info("Training completed successfully.")
-            wandb.finish()
+        self.finish(True)
