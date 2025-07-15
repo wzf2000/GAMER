@@ -29,12 +29,6 @@ class TestDecoder(Task):
         parser.add_argument("--test_batch_size", type=int, default=16)
         parser.add_argument("--num_beams", type=int, default=20)
         parser.add_argument(
-            "--sample_num",
-            type=int,
-            default=-1,
-            help="test sample number, -1 represents using all test data",
-        )
-        parser.add_argument(
             "--metrics",
             type=str,
             default="hit@1,hit@5,hit@10,ndcg@5,ndcg@10",

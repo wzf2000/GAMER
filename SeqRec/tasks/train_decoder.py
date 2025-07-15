@@ -1,5 +1,18 @@
+import os
+import wandb
+import torch
+import transformers
+import torch.distributed as dist
+from loguru import logger
+from transformers import EarlyStoppingCallback, T5Tokenizer, T5Config
+
 from SeqRec.tasks.base import Task
+from SeqRec.datasets.seq_dataset import BaseDataset, load_datasets
+from SeqRec.datasets.collator import Collator
+from SeqRec.models.TIGER.TIGER import TIGER
+from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
+from SeqRec.utils.pipe import set_seed
 
 
 class TrainDecoder(Task):
@@ -102,9 +115,190 @@ class TrainDecoder(Task):
             help="Name for the Weights & Biases run"
         )
 
-    def invoke(self, *args, **kwargs):
+    @property
+    def local_rank(self) -> int:
+        if not hasattr(self, "_local_rank"):
+            self._local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        return self._local_rank
+
+    @property
+    def world_size(self) -> int:
+        if not hasattr(self, "_world_size"):
+            self._world_size = int(os.environ.get("WORLD_SIZE", 1))
+        return self._world_size
+
+    @property
+    def ddp(self) -> bool:
+        if not hasattr(self, "_ddp"):
+            self._ddp = self.world_size != 1
+        return self._ddp
+
+    @property
+    def device(self) -> str:
+        if self.ddp:
+            return f"cuda:{self.local_rank}"
+        else:
+            return "cuda"
+
+    def invoke(
+        self,
+        # global arguments
+        seed: int,
+        base_model: str,
+        output_dir: str,
+        # dataset arguments
+        data_path: str,
+        tasks: str,
+        dataset: str,
+        index_file: str,
+        max_his_len: int,
+        # training arguments
+        optim: str,
+        epochs: int,
+        learning_rate: float,
+        per_device_batch_size: int,
+        gradient_accumulation_steps: int,
+        logging_step: int,
+        model_max_length: int,
+        weight_decay: float,
+        resume_from_checkpoint: str | None,
+        warmup_ratio: float,
+        lr_scheduler_type: str,
+        save_and_eval_strategy: str,
+        save_and_eval_steps: int,
+        fp16: bool,
+        bf16: bool,
+        deepspeed: str | None,
+        temperature: float,
+        wandb_run_name: str,
+        *args,
+        **kwargs
+    ):
         """
         Train the decoder using the provided arguments.
         """
         # Implementation of the training logic goes here.
-        pass
+        if self.ddp:
+            dist.init_process_group(backend="nccl", init_method="env://")
+            torch.cuda.set_device(self.local_rank)
+        set_seed(seed)
+        ensure_dir(output_dir)
+        if len(args) > 0 or len(kwargs) > 0 and self.local_rank == 0:
+            logger.warning("Unused parameters:", args, kwargs)
+        if self.local_rank == 0:
+            wandb.init(
+                project="SeqRec",
+                config={
+                    "seed": seed,
+                    "base_model": base_model,
+                    "output_dir": output_dir,
+                    "data_path": data_path,
+                    "tasks": tasks,
+                    "dataset": dataset,
+                    "index_file": index_file,
+                    "max_his_len": max_his_len,
+                    "optim": optim,
+                    "epochs": epochs,
+                    "learning_rate": learning_rate,
+                    "per_device_batch_size": per_device_batch_size,
+                    "gradient_accumulation_steps": gradient_accumulation_steps,
+                    "logging_step": logging_step,
+                    "model_max_length": model_max_length,
+                    "weight_decay": weight_decay,
+                    "resume_from_checkpoint": resume_from_checkpoint,
+                    "warmup_ratio": warmup_ratio,
+                    "lr_scheduler_type": lr_scheduler_type,
+                    "save_and_eval_strategy": save_and_eval_strategy,
+                    "save_and_eval_steps": save_and_eval_steps,
+                    "fp16": fp16,
+                    "bf16": bf16,
+                    "deepspeed": deepspeed,
+                    "temperature": temperature
+                },
+                name=wandb_run_name,
+                dir="runs/decoder",
+                job_type="train",
+                reinit="return_previous",
+                notes=f"Training SeqRec decoder with base model {base_model} on dataset {dataset} (tasks: {tasks})"
+            )
+        config: T5Config = T5Config.from_pretrained(base_model)
+        tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
+            base_model,
+            model_max_length=512,
+        )
+        deepspeed = None
+
+        train_data, valid_data = load_datasets(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            tasks=tasks,
+        )
+        first_dataset: BaseDataset = train_data.datasets[0]
+        add_num = tokenizer.add_tokens(first_dataset.get_new_tokens())
+        config.vocab_size = len(tokenizer)
+        if self.local_rank == 0:
+            logger.info(f"Added {add_num} new tokens.")
+            logger.info(f"Training data size: {len(train_data)}")
+            tokenizer.save_pretrained(output_dir)
+            config.save_pretrained(output_dir)
+
+        collator = Collator(tokenizer)
+        model = TIGER(config)
+        model.set_hyper(temperature)
+        model.resize_token_embeddings(len(tokenizer))
+        model.to(self.device)
+        if self.local_rank == 0:
+            logger.info(model)
+        if not self.ddp and torch.cuda.device_count() > 1:
+            model.is_parallelizable = True
+            model.model_parallel = True
+
+        training_args = transformers.training_args.TrainingArguments(
+            output_dir=output_dir,
+            seed=seed,
+            per_device_train_batch_size=per_device_batch_size,
+            per_device_eval_batch_size=per_device_batch_size,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            warmup_ratio=warmup_ratio,
+            num_train_epochs=epochs,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            lr_scheduler_type=lr_scheduler_type,
+            fp16=fp16,
+            bf16=bf16,
+            logging_steps=logging_step,
+            optim=optim,
+            gradient_checkpointing=False,  # Set to True if you want to use gradient checkpointing
+            eval_strategy=save_and_eval_strategy,
+            save_strategy=save_and_eval_strategy,
+            eval_steps=save_and_eval_steps,
+            save_steps=save_and_eval_steps,
+            save_total_limit=2,
+            load_best_model_at_end=True,
+            deepspeed=deepspeed,
+            ddp_find_unused_parameters=False if self.ddp else None,
+            eval_delay=1 if save_and_eval_strategy == "epoch" else 2000,
+            run_name=wandb_run_name if wandb_run_name != "default" else output_dir.split("ckpt/")[-1],
+        )
+        trainer = transformers.trainer.Trainer(
+            model=model,
+            train_dataset=train_data,
+            eval_dataset=valid_data,
+            args=training_args,
+            processing_class=tokenizer,
+            data_collator=collator,
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=20)],
+        )
+        model.config.use_cache = False
+
+        trainer.train(
+            resume_from_checkpoint=resume_from_checkpoint
+        )
+
+        trainer.save_state()
+        trainer.save_model(output_dir=output_dir)
+        if self.local_rank == 0:
+            logger.info("Training completed successfully.")
+            wandb.finish()

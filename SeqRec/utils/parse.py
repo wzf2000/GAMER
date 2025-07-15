@@ -49,49 +49,4 @@ def parse_dataset_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPars
         default=20,
         help="the max number of items in history sequence, -1 means no limit",
     )
-    parser.add_argument(
-        "--add_prefix",
-        action="store_true",
-        default=False,
-        help="whether add sequential prefix in history",
-    )
-    parser.add_argument(
-        "--his_sep", type=str, default=", ", help="The separator used for history"
-    )
-    parser.add_argument(
-        "--only_train_response",
-        action="store_true",
-        default=False,
-        help="whether only train on responses",
-    )
-
-    parser.add_argument(
-        "--train_prompt_sample_num",
-        type=str,
-        default="1",
-        help="the number of sampling prompts for each task",
-    )
-    parser.add_argument(
-        "--train_data_sample_num",
-        type=str,
-        default="-1",
-        help="the number of training samples for each task, -1 for no sampling",
-    )
-
-    parser.add_argument(
-        "--valid_prompt_id", type=int, default=0, help="The prompt used for validation"
-    )
-    parser.add_argument(
-        "--sample_valid",
-        action="store_true",
-        default=True,
-        help="use sampled prompt for validation",
-    )
-    parser.add_argument(
-        "--valid_prompt_sample_num",
-        type=int,
-        default=2,
-        help="the number of sampling validation sequential recommendation prompts",
-    )
-
     return parser
