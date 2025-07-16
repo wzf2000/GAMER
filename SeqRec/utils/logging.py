@@ -27,7 +27,7 @@ class InterceptHandler(logging.Handler):
 
 def intercept_logging():
     """
-    Disable DeepSpeed logging to avoid cluttering the output.
+    Intercept standard logging calls and redirect them to Loguru.
     """
     logging.getLogger("DeepSpeed").addHandler(InterceptHandler())
     logging.basicConfig(handlers=[InterceptHandler()], level=logging.INFO, force=True)

@@ -16,7 +16,7 @@ from SeqRec.utils.kmeans import constrained_km
 from SeqRec.utils.logging import set_color
 from SeqRec.utils.time import get_local_time
 from SeqRec.datasets.emb_dataset import EmbDataset
-from SeqRec.models.RQVAE.RQVAE import RQVAE
+from SeqRec.models.tokenizer import RQVAE
 
 
 class Trainer:

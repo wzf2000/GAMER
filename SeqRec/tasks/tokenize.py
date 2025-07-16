@@ -15,8 +15,8 @@ from SeqRec.datasets.emb_dataset import EmbDataset
 from SeqRec.utils.indice import check_collision, get_collision_item, get_indices_count
 from SeqRec.utils.kmeans import constrained_km, center_distance_for_constraint
 from SeqRec.utils.pipe import set_seed
-from SeqRec.models.RQVAE.RQVAE import RQVAE
-from SeqRec.models.RQVAE.layers import sinkhorn_algorithm
+from SeqRec.models.tokenizer import RQVAE
+from SeqRec.models.tokenizer.layers import sinkhorn_algorithm
 
 
 class Tokenize(Task):

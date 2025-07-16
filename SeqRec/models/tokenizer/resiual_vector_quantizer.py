@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from typing import Sequence
 
-from SeqRec.models.RQVAE.vector_quantizer import VectorQuantizer
+from SeqRec.models.tokenizer.vector_quantizer import VectorQuantizer
 
 
 class ResidualVectorQuantizer(nn.Module):

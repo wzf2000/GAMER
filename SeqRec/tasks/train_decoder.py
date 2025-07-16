@@ -6,7 +6,7 @@ from transformers import EarlyStoppingCallback, T5Tokenizer, T5Config
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.seq_dataset import BaseDataset, load_datasets
 from SeqRec.datasets.collator import Collator
-from SeqRec.models.TIGER.TIGER import TIGER
+from SeqRec.models.TIGER import TIGER
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 

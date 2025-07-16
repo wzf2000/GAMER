@@ -4,8 +4,8 @@ from argparse import Namespace
 from torch import nn
 from torch.nn import functional as F
 
-from SeqRec.models.RQVAE.layers import MLPLayers
-from SeqRec.models.RQVAE.resiual_vector_quantizer import ResidualVectorQuantizer
+from SeqRec.models.tokenizer.layers import MLPLayers
+from SeqRec.models.tokenizer.resiual_vector_quantizer import ResidualVectorQuantizer
 
 
 class RQVAE(nn.Module):

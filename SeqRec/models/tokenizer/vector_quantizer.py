@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from loguru import logger
 
-from SeqRec.models.RQVAE.layers import sinkhorn_algorithm
+from SeqRec.models.tokenizer.layers import sinkhorn_algorithm
 from SeqRec.utils.kmeans import constrained_km, center_distance_for_constraint
 
 
