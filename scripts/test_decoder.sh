@@ -42,10 +42,18 @@ if [ $rq_kmeans -eq 0 ]; then
         fi
     else
         : ${chunk_size:=64}
-        results_file=./results/${dataset}/results-cid-${chunk_size}.json
-        ckpt_path=./checkpoint/decoder/${dataset}/cid-${chunk_size}/
-        index_file=.index.cid.chunk${chunk_size}.json
-        echo "Testing decoder on ${dataset} using chunked ID tokenization with chunk size ${chunk_size}."
+        : ${shuffle:=0}
+        if [ $shuffle -eq 1 ]; then
+            results_file=./results/${dataset}/results-cid-shuffle-${chunk_size}.json
+            ckpt_path=./checkpoint/decoder/${dataset}/cid-shuffle-${chunk_size}/
+            index_file=.index.cid.shuffle.chunk${chunk_size}.json
+            echo "Testing decoder on ${dataset} using chunked ID tokenization with chunk size ${chunk_size} and shuffling."
+        else
+            results_file=./results/${dataset}/results-cid-${chunk_size}.json
+            ckpt_path=./checkpoint/decoder/${dataset}/cid-${chunk_size}/
+            index_file=.index.cid.chunk${chunk_size}.json
+            echo "Testing decoder on ${dataset} using chunked ID tokenization with chunk size ${chunk_size}."
+        fi
     fi
 else
     : ${cf_emb:=0}

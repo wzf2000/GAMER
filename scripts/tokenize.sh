@@ -40,13 +40,21 @@ if [ $rq_kmeans -eq 0 ]; then
   else
     echo "Using Chunked ID tokenization for index generation."
     : ${chunk_size:=64}
-    echo "Generating indices for ${dataset} with chunk size ${chunk_size}."
+    : ${shuffle:=0}
+    if [ $shuffle -eq 1 ]; then
+      shuffle_option="--shuffle"
+      echo "Generating indices for ${dataset} with chunk size ${chunk_size} and shuffling."
+    else
+      shuffle_option=""
+      echo "Generating indices for ${dataset} with chunk size ${chunk_size}."
+    fi
     python main.py tokenize \
       --dataset ${dataset} \
       --data_path ${data_path} \
       --output_dir ${output_dir} \
       --cid \
-      --chunk_size ${chunk_size}
+      --chunk_size ${chunk_size} \
+      ${shuffle_option}
   fi
 else
   echo "Using RQ-Kmeans for index generation."

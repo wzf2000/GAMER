@@ -42,10 +42,18 @@ if [ $rq_kmeans -eq 0 ]; then
         fi
     else
         : ${chunk_size:=64}
-        output_dir=./checkpoint/decoder/${dataset}/cid-${chunk_size}/
-        run_name=${dataset}/cid-${chunk_size}/
-        index_file=.index.cid.chunk${chunk_size}.json
-        echo "Training LETTER-TIGER on ${dataset} using chunked ID tokenization with chunk size ${chunk_size}."
+        : ${shuffle:=0}
+        if [ $shuffle -eq 1 ]; then
+            output_dir=./checkpoint/decoder/${dataset}/cid-shuffle-${chunk_size}/
+            run_name=${dataset}/cid-shuffle-${chunk_size}/
+            index_file=.index.cid.shuffle.chunk${chunk_size}.json
+            echo "Training LETTER-TIGER on ${dataset} using chunked ID tokenization with chunk size ${chunk_size} and shuffling."
+        else
+            output_dir=./checkpoint/decoder/${dataset}/cid-${chunk_size}/
+            run_name=${dataset}/cid-${chunk_size}/
+            index_file=.index.cid.chunk${chunk_size}.json
+            echo "Training LETTER-TIGER on ${dataset} using chunked ID tokenization with chunk size ${chunk_size}."
+        fi
     fi
 else
     : ${cf_emb:=0}

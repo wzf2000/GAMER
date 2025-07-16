@@ -2,7 +2,6 @@ import os
 import json
 import math
 import torch
-import random
 import numpy as np
 from tqdm import tqdm
 from loguru import logger
@@ -90,6 +89,11 @@ class Tokenize(Task):
             type=int,
             default=64,
             help="Chunk size (the representation base k) for chunked ID tokenization (default: 64)",
+        )
+        parser.add_argument(
+            "--shuffle",
+            action="store_true",
+            help="Shuffle the dataset before tokenization (default: False) for chunked ID tokenization",
         )
         # Random ID arguments
         parser.add_argument(
@@ -304,22 +308,26 @@ class Tokenize(Task):
         with open(self.output_file, "w") as fp:
             json.dump(all_indices_dict, fp)
 
-    def run_CID(self, chunk_size: int, n_item: int):
+    def run_CID(self, chunk_size: int, n_item: int, shuffle: bool = False):
         n_token = 1
         max_items = chunk_size
         while max_items < n_item:
             n_token += 1
             max_items *= chunk_size
         all_indices_dict = {}
+        if shuffle:
+            indices = np.random.permutation(n_item)
+        else:
+            indices = np.arange(n_item)
         for i in range(n_item):
             code = []
             for j in range(n_token):
-                code.append(self.prefix[j].format(i // (chunk_size ** j) % chunk_size))
+                code.append(self.prefix[j].format(indices[i] // (chunk_size ** j) % chunk_size))
             all_indices_dict[i] = code
 
         self.output_file = os.path.join(
             self.output_dir,
-            f"{self.dataset}.index.cid.chunk{chunk_size}.json"
+            f"{self.dataset}.index.cid{'.shuffle' if shuffle else ''}.chunk{chunk_size}.json"
         )
         with open(self.output_file, "w") as fp:
             json.dump(all_indices_dict, fp)
@@ -365,6 +373,7 @@ class Tokenize(Task):
         epoch: int,
         checkpoint: str,
         cid: bool,
+        shuffle: bool,
         chunk_size: int,
         rid: bool,
         *args,
@@ -389,7 +398,7 @@ class Tokenize(Task):
                 reduce=reduce,
             )
         elif cid:
-            self.run_CID(chunk_size=chunk_size, n_item=len(self.data))
+            self.run_CID(chunk_size=chunk_size, n_item=len(self.data), shuffle=shuffle)
         elif rid:
             self.run_RID(num_code_list, n_item=len(self.data))
         else:

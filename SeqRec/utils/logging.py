@@ -1,12 +1,36 @@
 import logging
+import inspect
+from loguru import logger
 
 
-def disable_deepspeed_logging():
+class InterceptHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord) -> None:
+        # Get corresponding Loguru level if it exists.
+        try:
+            level: str | int = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        # Find caller from where originated the logged message.
+        frame, depth = inspect.currentframe(), 0
+        while frame:
+            filename = frame.f_code.co_filename
+            is_logging = filename == logging.__file__
+            is_frozen = "importlib" in filename and "_bootstrap" in filename
+            if depth > 0 and not (is_logging or is_frozen):
+                break
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+
+def intercept_logging():
     """
     Disable DeepSpeed logging to avoid cluttering the output.
     """
-    ds_logger = logging.getLogger("DeepSpeed")
-    ds_logger.setLevel(logging.WARNING)
+    logging.getLogger("DeepSpeed").addHandler(InterceptHandler())
+    logging.basicConfig(handlers=[InterceptHandler()], level=logging.INFO, force=True)
 
 
 def set_color(log: str, color: str, highlight: bool = True) -> str:
@@ -24,4 +48,4 @@ def set_color(log: str, color: str, highlight: bool = True) -> str:
     return prev_log + log + "\033[0m"
 
 
-disable_deepspeed_logging()
+intercept_logging()
