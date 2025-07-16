@@ -58,7 +58,7 @@ class TestDecoder(MultiGPUTask):
             help="Filter out the collision items from the test data",
         )
 
-    def check_collision_items(self, filter: bool = False):
+    def check_collision_items(self, filter: bool = False) -> dict[str, int | float]:
         collision_cnt = 0
         new_inter_data = []
         for i, test_sample in enumerate(self.test_data):
@@ -72,11 +72,18 @@ class TestDecoder(MultiGPUTask):
             logger.info(f"Collision items num: {len(self.test_data.collision_items)}")
             logger.info(f"Collision sample num: {collision_cnt}")
             logger.info(f"Collision items ratio: {collision_cnt / len(self.test_data)}")
+        ret = {
+            "total": len(self.test_data),
+            "collision_items": len(self.test_data.collision_items),
+            "collision_samples": collision_cnt,
+            "collision_ratio": collision_cnt / len(self.test_data),
+        }
         if filter:
             # Filter out the collision items from the test data
             self.test_data.inter_data = new_inter_data
             if self.local_rank == 0:
                 logger.info(f"Filtered test data num: {len(self.test_data)}")
+        return ret
 
     def test(self, num_beams: int) -> dict[str, float]:
         results: dict[str, float] = {}
@@ -203,7 +210,7 @@ class TestDecoder(MultiGPUTask):
             self.sampler = None
         collator = TestCollator(self.tokenizer)
         self.all_items = self.test_data.get_all_items()
-        self.check_collision_items(filter)
+        self.collision_info = self.check_collision_items(filter)
         candidate_trie = Trie(
             [[0] + self.tokenizer.encode(candidate) for candidate in self.all_items]
         )
@@ -228,6 +235,7 @@ class TestDecoder(MultiGPUTask):
             for m in results:
                 logger.success(f"\t{m} = {results[m]:.4f}")
             logger.success("======================================================")
+            results['collision_info'] = self.collision_info
             ensure_dir(os.path.dirname(results_file))
             with open(results_file, "w") as f:
                 json.dump(results, f, indent=4)

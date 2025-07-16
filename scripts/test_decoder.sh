@@ -15,20 +15,37 @@ gpu_num=$(echo $gpu | awk -F, '{print NF}')
 per_device_batch_size=$(($batch_size / $gpu_num))
 
 if [ $rq_kmeans -eq 0 ]; then
-    : ${original:=0}
-    if [ $original -eq 0 ]; then
-        : ${alpha:=0.02}
-        : ${beta:=0.0001}
-        : ${epoch:=20000}
-        results_file=./results/${dataset}/results-alpha${alpha}-beta${beta}.json
-        ckpt_path=./checkpoint/decoder/${dataset}/alpha${alpha}-beta${beta}/
-        index_file=.index.epoch${epoch}.alpha${alpha}-beta${beta}.json
-        echo "Testing decoder on ${dataset} using RQ-VAE with alpha=${alpha}, beta=${beta}, epoch=${epoch} using GPU ${gpu}."
+    : ${cid:=0}
+    if [ $cid -eq 0 ]; then
+        : ${rid:=0}
+        if [ $rid -eq 0 ]; then
+            : ${original:=0}
+            if [ $original -eq 0 ]; then
+                : ${alpha:=0.02}
+                : ${beta:=0.0001}
+                : ${epoch:=20000}
+                results_file=./results/${dataset}/results-alpha${alpha}-beta${beta}.json
+                ckpt_path=./checkpoint/decoder/${dataset}/alpha${alpha}-beta${beta}/
+                index_file=.index.epoch${epoch}.alpha${alpha}-beta${beta}.json
+                echo "Testing decoder on ${dataset} using RQ-VAE with alpha=${alpha}, beta=${beta}, epoch=${epoch} using GPU ${gpu}."
+            else
+                results_file=./results/${dataset}/results-original.json
+                ckpt_path=./checkpoint/decoder/${dataset}/original/
+                index_file=.index.json
+                echo "Testing decoder on ${dataset} using original index file from LETTER repository."
+            fi
+        else
+            results_file=./results/${dataset}/results-rid.json
+            ckpt_path=./checkpoint/decoder/${dataset}/rid/
+            index_file=.index.rid.json
+            echo "Testing decoder on ${dataset} using random ID tokenization."
+        fi
     else
-        results_file=./results/${dataset}/results-original.json
-        ckpt_path=./checkpoint/decoder/${dataset}/original/
-        index_file=.index.json
-        echo "Testing decoder on ${dataset} using original index file from LETTER repository."
+        : ${chunk_size:=64}
+        results_file=./results/${dataset}/results-cid-${chunk_size}.json
+        ckpt_path=./checkpoint/decoder/${dataset}/cid-${chunk_size}/
+        index_file=.index.cid.chunk${chunk_size}.json
+        echo "Testing decoder on ${dataset} using chunked ID tokenization with chunk size ${chunk_size}."
     fi
 else
     : ${cf_emb:=0}

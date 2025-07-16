@@ -1,6 +1,8 @@
 import os
 import json
+import math
 import torch
+import random
 import numpy as np
 from tqdm import tqdm
 from loguru import logger
@@ -13,6 +15,7 @@ from SeqRec.tasks.base import SubParsersAction, Task
 from SeqRec.datasets.emb_dataset import EmbDataset
 from SeqRec.utils.indice import check_collision, get_collision_item, get_indices_count
 from SeqRec.utils.kmeans import constrained_km, center_distance_for_constraint
+from SeqRec.utils.pipe import set_seed
 from SeqRec.models.RQVAE.RQVAE import RQVAE
 from SeqRec.models.RQVAE.layers import sinkhorn_algorithm
 
@@ -34,20 +37,22 @@ class Tokenize(Task):
         parser = sub_parsers.add_parser(
             "tokenize", help="Run item tokenization for the dataset"
         )
+        # Common arguments
         parser.add_argument("--dataset", type=str, default="Instruments", help="Dataset name")
         parser.add_argument("--data_path", type=str, required=True, help="Semantic embeddings path")
         parser.add_argument("--output_dir", type=str, default="./data/", help="Output directory for tokenized data")
         parser.add_argument(
-            "--rq_kmeans",
-            action="store_true",
-            help="Use RQ-Kmeans for tokenization, otherwise use RQ-VAE",
-        )
-        parser.add_argument(
-            "--num_emb_list",
+            "--num_code_list",
             type=int,
             nargs="+",
             default=[256, 256, 256, 256],
-            help="Embedding numbers for each VQ layer (RQ-Kmeans only)",
+            help="Embedding numbers for each VQ layer (RQ-Kmeans and RID only)",
+        )
+        # RQ-Kmeans arguments
+        parser.add_argument(
+            "--rq_kmeans",
+            action="store_true",
+            help="Use RQ-Kmeans for tokenization, otherwise use RQ-VAE",
         )
         parser.add_argument(
             "--cf_emb",
@@ -55,6 +60,7 @@ class Tokenize(Task):
             default=None,
             help="Path to the collaborative filtering embeddings, None for not using (RQ-Kmeans only)"
         )
+        # RQ-VAE arguments
         parser.add_argument(
             '--reduce',
             action='store_true',
@@ -73,6 +79,24 @@ class Tokenize(Task):
             default="best_collision_model.pth",
             help="The checkpoint file name",
         )
+        # Chunked ID arguments
+        parser.add_argument(
+            "--cid",
+            action="store_true",
+            help="Use chunked ID tokenization for the dataset",
+        )
+        parser.add_argument(
+            "--chunk_size",
+            type=int,
+            default=64,
+            help="Chunk size (the representation base k) for chunked ID tokenization (default: 64)",
+        )
+        # Random ID arguments
+        parser.add_argument(
+            "--rid",
+            action="store_true",
+            help="Use random ID tokenization for the dataset",
+        )
 
     def reduce_collision(
         self,
@@ -80,7 +104,6 @@ class Tokenize(Task):
         all_indices_str: np.ndarray,
         labels: dict[str, list[int]] | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        prefix = ["<a_{}>", "<b_{}>", "<c_{}>", "<d_{}>", "<e_{}>", "<f_{}>", "<g_{}>", "<h_{}>"]
         tt = 0
         # There are often duplicate items in the dataset, and we no longer differentiate them
         while True:
@@ -106,7 +129,7 @@ class Tokenize(Task):
                     indices = torch.argmax(Q, dim=-1)
                     for i, iid in enumerate(iids):
                         code = all_indices[iid]
-                        code[-1] = prefix[len(code) - 1].format(int(indices[i]))
+                        code[-1] = self.prefix[len(code) - 1].format(int(indices[i]))
                         all_indices[iid] = code
                         all_indices_str[iid] = str(code)
                 else:
@@ -117,7 +140,7 @@ class Tokenize(Task):
                     for item, index in zip(collision_items, indices):
                         code = []
                         for i, ind in enumerate(index):
-                            code.append(prefix[i].format(int(ind)))
+                            code.append(self.prefix[i].format(int(ind)))
 
                         all_indices[item] = code
                         all_indices_str[item] = str(code)
@@ -127,7 +150,7 @@ class Tokenize(Task):
     def run_rq_kmeans(
         self,
         embeddings: np.ndarray,
-        num_emb_list: list[int],
+        num_code_list: list[int],
         cf_emb: str | None = None,
         reduce: bool = False,
     ):
@@ -150,18 +173,17 @@ class Tokenize(Task):
             )
         )
         R = embeddings
-        prefix = ["<a_{}>", "<b_{}>", "<c_{}>", "<d_{}>", "<e_{}>", "<f_{}>", "<g_{}>", "<h_{}>"]
-        assert len(num_emb_list) <= len(prefix), "Codebook list length exceeds prefix length."
+        assert len(num_code_list) <= len(self.prefix), "Codebook list length exceeds prefix length."
         item_num = len(R)
         all_indices_dict = {str(i): [] for i in range(item_num)}
-        for i, N_t in enumerate(num_emb_list):
+        for i, N_t in enumerate(num_code_list):
             model = KMeans(n_clusters=N_t, max_iter=1000)
             model.fit(R)
             logger.info(f"KMeans model fitted with {N_t} clusters for codebook {i + 1}.")
             C = model.cluster_centers_
             s = model.predict(R)
             for j, s_j in enumerate(s):
-                all_indices_dict[str(j)].append(prefix[i].format(str(s_j)))
+                all_indices_dict[str(j)].append(self.prefix[i].format(str(s_j)))
             # compute residuals
             R = R - C[s]
             logger.info(f"Codebook {i + 1} with {N_t} embeddings created.")
@@ -203,7 +225,7 @@ class Tokenize(Task):
 
         self.model = RQVAE(
             in_dim=self.data.dim,
-            num_emb_list=ckpt_args.num_emb_list,
+            num_code_list=ckpt_args.num_code_list,
             e_dim=ckpt_args.e_dim,
             layers=ckpt_args.layers,
             dropout_prob=ckpt_args.dropout_prob,
@@ -230,7 +252,6 @@ class Tokenize(Task):
 
         all_indices = []
         all_indices_str = []
-        prefix = ["<a_{}>", "<b_{}>", "<c_{}>", "<d_{}>", "<e_{}>", "<f_{}>", "<g_{}>", "<h_{}>"]
 
         labels = {str(i): [] for i in range(len(self.model.rq.vq_layers))}
         embs = [layer.embedding.weight.cpu().detach().numpy() for layer in self.model.rq.vq_layers]
@@ -249,7 +270,7 @@ class Tokenize(Task):
             for index in indices:
                 code = []
                 for i, ind in enumerate(index):
-                    code.append(prefix[i].format(int(ind)))
+                    code.append(self.prefix[i].format(int(ind)))
 
                 all_indices.append(code)
                 all_indices_str.append(str(code))
@@ -283,13 +304,58 @@ class Tokenize(Task):
         with open(self.output_file, "w") as fp:
             json.dump(all_indices_dict, fp)
 
+    def run_CID(self, chunk_size: int, n_item: int):
+        n_token = 1
+        max_items = chunk_size
+        while max_items < n_item:
+            n_token += 1
+            max_items *= chunk_size
+        all_indices_dict = {}
+        for i in range(n_item):
+            code = []
+            for j in range(n_token):
+                code.append(self.prefix[j].format(i // (chunk_size ** j) % chunk_size))
+            all_indices_dict[i] = code
+
+        self.output_file = os.path.join(
+            self.output_dir,
+            f"{self.dataset}.index.cid.chunk{chunk_size}.json"
+        )
+        with open(self.output_file, "w") as fp:
+            json.dump(all_indices_dict, fp)
+
+    def run_RID(self, num_code_list: list[int], n_item: int):
+        """
+        Run Random ID tokenization for the dataset.
+        """
+        # random assign each item a random code in the size of * num_code_list
+        n_codes = math.prod(num_code_list)
+        item_code = np.random.choice(
+            n_codes,
+            size=n_item,
+            replace=False
+        )
+        all_indices_dict = {}
+        for i in range(n_item):
+            code = []
+            for j, num_code in enumerate(num_code_list):
+                code.append(self.prefix[j].format(item_code[i] % num_code))
+                item_code[i] //= num_code
+            all_indices_dict[i] = code
+        self.output_file = os.path.join(
+            self.output_dir,
+            f"{self.dataset}.index.rid.json"
+        )
+        with open(self.output_file, "w") as fp:
+            json.dump(all_indices_dict, fp)
+
     def invoke(
         self,
         dataset: str,
         data_path: str,
         output_dir: str,
+        num_code_list: list[int],
         rq_kmeans: bool,
-        num_emb_list: list[int],
         cf_emb: str,
         reduce: bool,
         root_path: str,
@@ -298,12 +364,17 @@ class Tokenize(Task):
         beta: str,
         epoch: int,
         checkpoint: str,
+        cid: bool,
+        chunk_size: int,
+        rid: bool,
         *args,
         **kwargs
     ):
         """
         Run the tokenization process for the dataset.
         """
+        set_seed(42)
+        self.prefix = ["<a_{}>", "<b_{}>", "<c_{}>", "<d_{}>", "<e_{}>", "<f_{}>", "<g_{}>", "<h_{}>"]
         # Implementation of the tokenization logic goes here.
         self.dataset = dataset
         self.data = EmbDataset(data_path=data_path)
@@ -313,10 +384,14 @@ class Tokenize(Task):
         if self.rq_kmeans:
             self.run_rq_kmeans(
                 self.data.embeddings,
-                num_emb_list,
+                num_code_list,
                 cf_emb=cf_emb,
                 reduce=reduce,
             )
+        elif cid:
+            self.run_CID(chunk_size=chunk_size, n_item=len(self.data))
+        elif rid:
+            self.run_RID(num_code_list, n_item=len(self.data))
         else:
             self.run_rq_vae(
                 root_path=root_path,

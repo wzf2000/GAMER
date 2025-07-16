@@ -15,20 +15,37 @@ gpu_num=$(echo $gpu | awk -F, '{print NF}')
 per_device_batch_size=$(($batch_size / $gpu_num))
 
 if [ $rq_kmeans -eq 0 ]; then
-    : ${original:=0}
-    if [ $original -eq 0 ]; then
-        : ${alpha:=0.02}
-        : ${beta:=0.0001}
-        : ${epoch:=20000}
-        output_dir=./checkpoint/decoder/${dataset}/alpha${alpha}-beta${beta}/
-        run_name=${dataset}/alpha${alpha}-beta${beta}/
-        index_file=.index.epoch${epoch}.alpha${alpha}-beta${beta}.json
-        echo "Training LETTER-TIGER on ${dataset} with alpha=${alpha}, beta=${beta}, epoch=${epoch} using GPUs ${gpu}."
+    : ${cid:=0}
+    if [ $cid -eq 0 ]; then
+        : ${rid:=0}
+        if [ $rid -eq 0 ]; then
+            : ${original:=0}
+            if [ $original -eq 0 ]; then
+                : ${alpha:=0.02}
+                : ${beta:=0.0001}
+                : ${epoch:=20000}
+                output_dir=./checkpoint/decoder/${dataset}/alpha${alpha}-beta${beta}/
+                run_name=${dataset}/alpha${alpha}-beta${beta}/
+                index_file=.index.epoch${epoch}.alpha${alpha}-beta${beta}.json
+                echo "Training LETTER-TIGER on ${dataset} with alpha=${alpha}, beta=${beta}, epoch=${epoch} using GPUs ${gpu}."
+            else
+                output_dir=./checkpoint/decoder/${dataset}/original/
+                run_name=${dataset}/original/
+                index_file=.index.json
+                echo "Training LETTER-TIGER on ${dataset} using original index file from LETTER repository."
+            fi
+        else
+            output_dir=./checkpoint/decoder/${dataset}/rid/
+            run_name=${dataset}/rid/
+            index_file=.index.rid.json
+            echo "Training LETTER-TIGER on ${dataset} using random ID tokenization."
+        fi
     else
-        output_dir=./checkpoint/decoder/${dataset}/original/
-        run_name=${dataset}/original/
-        index_file=.index.json
-        echo "Training LETTER-TIGER on ${dataset} using original index file from LETTER repository."
+        : ${chunk_size:=64}
+        output_dir=./checkpoint/decoder/${dataset}/cid-${chunk_size}/
+        run_name=${dataset}/cid-${chunk_size}/
+        index_file=.index.cid.chunk${chunk_size}.json
+        echo "Training LETTER-TIGER on ${dataset} using chunked ID tokenization with chunk size ${chunk_size}."
     fi
 else
     : ${cf_emb:=0}
