@@ -3,7 +3,6 @@ __pycache__
 *.npy
 results
 wandb
-ckpt
 checkpoint
 logs
 runs
@@ -12,5 +11,6 @@ data/*/*
 !data/**/*.index.json
 !data/**/*.inter.json
 !data/**/*.item.json
+!data/**/*.behavior.json
 *.pth
 *.ipynb

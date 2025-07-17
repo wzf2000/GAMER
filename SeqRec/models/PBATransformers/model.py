@@ -28,13 +28,13 @@ from transformers.models.switch_transformers.modeling_switch_transformers import
     load_balancing_loss_func,
 )
 
-from SeqRec.models.PBATransformer.configuration import PBATransformerConfig
-from SeqRec.models.PBATransformer.router import PBAEncoderRouter, PBADecoderRouter
-from SeqRec.models.PBATransformer.FFN import (
+from SeqRec.models.PBATransformers.configuration import PBATransformerConfig
+from SeqRec.models.PBATransformers.router import PBAEncoderRouter, PBADecoderRouter
+from SeqRec.models.PBATransformers.FFN import (
     PBATransformersDenseActDense,
     PBATransformersSparseMLP,
 )
-from SeqRec.models.PBATransformer.block import PBATransformersBlock
+from SeqRec.models.PBATransformers.block import PBATransformersBlock
 
 
 if is_torch_flex_attn_available():
@@ -476,7 +476,7 @@ class PBATransformersStack(PBATransformersPreTrainedModel):
     # Copied from transformers.models.gptj.modeling_gptj.GPTJModel._update_causal_mask
     def _update_causal_mask(
         self,
-        attention_mask: torch.Tensor | "BlockMask",
+        attention_mask: torch.Tensor | BlockMask,
         input_tensor: torch.Tensor,
         cache_position: torch.Tensor,
         past_key_values: Cache,

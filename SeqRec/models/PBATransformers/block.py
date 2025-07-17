@@ -5,8 +5,8 @@ from transformers.models.switch_transformers.modeling_switch_transformers import
     SwitchTransformersLayerCrossAttention,
 )
 
-from SeqRec.models.PBATransformer.configuration import PBATransformerConfig
-from SeqRec.models.PBATransformer.FFN import PBATransformersLayerFF
+from SeqRec.models.PBATransformers.configuration import PBATransformerConfig
+from SeqRec.models.PBATransformers.FFN import PBATransformersLayerFF
 
 
 class PBATransformersBlock(nn.Module):

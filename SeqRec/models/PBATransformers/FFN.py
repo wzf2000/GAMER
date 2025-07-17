@@ -6,7 +6,7 @@ from transformers.models.switch_transformers.modeling_switch_transformers import
     SwitchTransformersLayerNorm,
 )
 
-from SeqRec.models.PBATransformer.configuration import PBATransformerConfig
+from SeqRec.models.PBATransformers.configuration import PBATransformerConfig
 
 
 # Implementation reference: transformers.models.t5.modeling_t5.T5DenseActDense
