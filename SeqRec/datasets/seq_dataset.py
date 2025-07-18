@@ -1,9 +1,9 @@
 import os
 import json
-from torch.utils.data import Dataset, ConcatDataset
+from torch.utils.data import Dataset
 
 
-class BaseDataset(Dataset):
+class BaseSeqDataset(Dataset):
     def __init__(self, dataset: str, data_path: str, max_his_len: int, index_file: str):
         super().__init__()
 
@@ -35,7 +35,7 @@ class BaseDataset(Dataset):
 
         return self.new_tokens
 
-    def get_all_items(self):
+    def get_all_items(self) -> set[str]:
         if self.all_items is not None:
             return self.all_items
 
@@ -50,21 +50,8 @@ class BaseDataset(Dataset):
 
         return self.all_items
 
-    def get_all_items_v2(self):
-        if self.all_items is not None:
-            return self.all_items
 
-        self.all_items = []
-        for index in self.indices.values():
-            self.all_items.append("".join(index))
-
-        return self.all_items
-
-    def _process_data(self):
-        raise NotImplementedError
-
-
-class SeqRecDataset(BaseDataset):
+class SeqRecDataset(BaseSeqDataset):
     def __init__(
         self,
         dataset: str,
@@ -89,8 +76,6 @@ class SeqRecDataset(BaseDataset):
             self.inter_data = self._process_valid_data()
         elif self.mode == "test":
             self.inter_data = self._process_test_data()
-        elif self.mode == "test_ranking":
-            self.inter_data = self._process_test_data_ids()
         else:
             raise NotImplementedError
 
@@ -151,105 +136,9 @@ class SeqRecDataset(BaseDataset):
 
         return inter_data
 
-    def _process_test_data_ids(self) -> list[dict[str, list[int] | int]]:
-        inter_data = []
-        for uid in self.inters:
-            items = self.inters[uid]
-            one_data = dict()
-            one_data["item"] = items[-1]
-            history = items[:-1]
-            if self.max_his_len > 0:
-                history = history[-self.max_his_len :]
-            one_data["inters"] = history
-            inter_data.append(one_data)
-
-        return inter_data
-
     def __len__(self) -> int:
         return len(self.inter_data)
 
-    def __getitem__(self, index: int) -> dict[str, str | list[int]]:
+    def __getitem__(self, index: int) -> dict[str, str]:
         d = self.inter_data[index]
         return dict(input_ids=d["inters"], labels=d["item"])
-
-
-def load_datasets(
-    dataset: str,
-    data_path: str,
-    max_his_len: int,
-    index_file: str,
-    tasks: str,
-) -> tuple[ConcatDataset, SeqRecDataset]:
-    tasks: list[str] = tasks.split(",")
-
-    train_datasets = []
-    inter_type = None
-    for task in tasks:
-        if task.lower() == "seqrec":
-            assert inter_type is None, "Only one inter_type is allowed in tasks."
-            single_dataset = SeqRecDataset(
-                dataset=dataset,
-                data_path=data_path,
-                max_his_len=max_his_len,
-                index_file=index_file,
-                inter_type=None,
-                mode="train",
-            )
-        elif task.lower().startswith("seqrec_"):
-            assert inter_type is None, "Only one inter_type is allowed in tasks."
-            inter_type = task.split("_")[1]
-            single_dataset = SeqRecDataset(
-                dataset=dataset,
-                data_path=data_path,
-                max_his_len=max_his_len,
-                index_file=index_file,
-                inter_type=inter_type,
-                mode="train",
-            )
-        else:
-            raise NotImplementedError
-        train_datasets.append(single_dataset)
-
-    train_data = ConcatDataset(train_datasets)
-    valid_data = SeqRecDataset(
-        dataset=dataset,
-        data_path=data_path,
-        max_his_len=max_his_len,
-        index_file=index_file,
-        inter_type=inter_type,
-        mode="valid",
-    )
-
-    return train_data, valid_data
-
-
-def load_test_dataset(
-    dataset: str,
-    data_path: str,
-    max_his_len: int,
-    index_file: str,
-    test_task: str,
-) -> SeqRecDataset:
-    if test_task.lower() == "seqrec":
-        test_data = SeqRecDataset(
-            dataset=dataset,
-            data_path=data_path,
-            max_his_len=max_his_len,
-            index_file=index_file,
-            inter_type=None,
-            mode="test",
-        )
-    elif test_task.lower().startswith("seqrec_"):
-        inter_type = test_task.split("_")[1]
-        test_data = SeqRecDataset(
-            dataset=dataset,
-            data_path=data_path,
-            max_his_len=max_his_len,
-            index_file=index_file,
-            inter_type=inter_type,
-            mode="test",
-        )
-    else:
-        raise NotImplementedError
-
-    return test_data

@@ -14,6 +14,16 @@ export CUDA_LAUNCH_BLOCKING=1
 gpu_num=$(echo $gpu | awk -F, '{print NF}')
 per_device_batch_size=$(($batch_size / $gpu_num))
 
+: ${extra_args:=}
+# transform the format of "X=a,Y=b" into "-X a -Y b"
+extra_args_out=$(echo "$extra_args" | awk -F, '{
+  for(i=1; i<=NF; i++) {
+    split($i, arr, "=")
+    printf "--%s %s ", arr[1], arr[2]
+  }
+}')
+echo "Extra arguments: ${extra_args_out}"
+
 echo "Training RQ-VAE on ${dataset} with alpha=${alpha} and beta=${beta} using GPU ${gpu}, semantic model ${semantic_model}, and cf model ${cf_model}."
 
 # check if gpu_num is greater than 1
@@ -25,7 +35,8 @@ if [ $gpu_num -gt 1 ]; then
     --beta ${beta} \
     --cf_emb ./ckpt/cf-embs/ckpt/${dataset}-32d-${cf_model}.pt \
     --ckpt_dir ./checkpoint/RQ-VAE/${dataset} \
-    --batch_size ${per_device_batch_size}
+    --batch_size ${per_device_batch_size} \
+    ${extra_args_out}
 else
   # if gpu_num is 1, use single GPU training
   python main.py RQVAE \
@@ -35,5 +46,6 @@ else
     --beta ${beta} \
     --cf_emb ./ckpt/cf-embs/ckpt/${dataset}-32d-${cf_model}.pt \
     --ckpt_dir ./checkpoint/RQ-VAE/${dataset} \
-    --batch_size ${per_device_batch_size}
+    --batch_size ${per_device_batch_size} \
+    ${extra_args_out}
 fi

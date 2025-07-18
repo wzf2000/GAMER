@@ -8,6 +8,16 @@
 data_path="./data/${dataset}/${dataset}.emb-${semantic_model}-td.npy"
 output_dir="./data/${dataset}/"
 
+: ${extra_args:=}
+# transform the format of "X=a,Y=b" into "-X a -Y b"
+extra_args_out=$(echo "$extra_args" | awk -F, '{
+  for(i=1; i<=NF; i++) {
+    split($i, arr, "=")
+    printf "--%s %s ", arr[1], arr[2]
+  }
+}')
+echo "Extra arguments: ${extra_args_out}"
+
 if [ $rq_kmeans -eq 0 ]; then
   : ${cid:=0}
   if [ $cid -eq 0 ]; then
@@ -27,7 +37,8 @@ if [ $rq_kmeans -eq 0 ]; then
         --alpha ${alpha} \
         --beta ${beta} \
         --epoch ${epoch} \
-        --checkpoint ${checkpoint}
+        --checkpoint ${checkpoint} \
+        ${extra_args_out}
     else
       echo "Using Random ID tokenization for index generation."
       echo "Generating indices for ${dataset} with random ID tokenization."
@@ -35,7 +46,8 @@ if [ $rq_kmeans -eq 0 ]; then
         --dataset ${dataset} \
         --data_path ${data_path} \
         --output_dir ${output_dir} \
-        --rid
+        --rid \
+        ${extra_args_out}
     fi
   else
     echo "Using Chunked ID tokenization for index generation."
@@ -54,7 +66,8 @@ if [ $rq_kmeans -eq 0 ]; then
       --output_dir ${output_dir} \
       --cid \
       --chunk_size ${chunk_size} \
-      ${shuffle_option}
+      ${shuffle_option} \
+      ${extra_args_out}
   fi
 else
   echo "Using RQ-Kmeans for index generation."
@@ -66,7 +79,8 @@ else
       --dataset ${dataset} \
       --data_path ${data_path} \
       --output_dir ${output_dir} \
-      --rq_kmeans
+      --rq_kmeans \
+      ${extra_args_out}
   else
       : ${reduce:=0}
       if [ $reduce -eq 0 ]; then
@@ -77,7 +91,8 @@ else
           --data_path ${data_path} \
           --output_dir ${output_dir} \
           --rq_kmeans \
-          --cf_emb ${cf_emb}
+          --cf_emb ${cf_emb} \
+          ${extra_args_out}
       else
         echo "Generating indices for ${dataset} using RQ-Kmeans with CF embeddings and reduced semantic embeddings."
         python main.py tokenize \
@@ -87,7 +102,8 @@ else
           --output_dir ${output_dir} \
           --rq_kmeans \
           --cf_emb ${cf_emb} \
-          --reduce
+          --reduce \
+          ${extra_args_out}
       fi
   fi
 fi

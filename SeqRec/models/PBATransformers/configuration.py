@@ -45,6 +45,9 @@ class PBATransformerConfig(SwitchTransformersConfig):
         #   ]
         Moe_behavior_only: bool = False,
         shared_expert: bool = False,  # Whether to use half output for shared expert
+        use_behavior_token: bool = True,  # Whether to use behavior token in the input sequence
+        behavior_maps: dict[int, int] = {},  # Mapping from behavior token IDs to behavior embedding IDs
+        use_user_token: bool = False,  # Whether to use user token in the input sequence
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -63,3 +66,6 @@ class PBATransformerConfig(SwitchTransformersConfig):
         self.behavior_injection_decoder = behavior_injection_decoder
         self.Moe_behavior_only = Moe_behavior_only
         self.shared_expert = shared_expert
+        self.use_behavior_token = use_behavior_token
+        self.behavior_maps = behavior_maps
+        self.use_user_token = use_user_token

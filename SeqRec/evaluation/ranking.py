@@ -33,6 +33,8 @@ def ndcg_k(topk_results: list[list[int]], k: int) -> float:
         one_ndcg = 0.0
         for i in range(len(res)):
             one_ndcg += res[i] / math.log(i + 2, 2)
+            if res[i] == 1:
+                break
         ndcg += one_ndcg
     return ndcg
 

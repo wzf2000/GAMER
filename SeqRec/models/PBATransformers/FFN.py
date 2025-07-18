@@ -12,7 +12,7 @@ from SeqRec.models.PBATransformers.configuration import PBATransformerConfig
 # Implementation reference: transformers.models.t5.modeling_t5.T5DenseActDense
 class PBATransformersDenseActDense(T5DenseActDense):
     def __init__(self, config: PBATransformerConfig, behavior_injection: bool = False):
-        super(T5DenseActDense, self).__init__(self)
+        super(T5DenseActDense, self).__init__()
         if behavior_injection:
             self.wi = nn.Linear(
                 (config.d_model + config.behavior_embedding_dim),

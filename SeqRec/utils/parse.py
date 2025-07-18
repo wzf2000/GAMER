@@ -10,10 +10,16 @@ else:
 def parse_global_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument(
+        "--backbone",
+        type=str,
+        default="TIGER",
+        help="The backbone model to use, e.g., TIGER, PBATransformers, etc.",
+    )
+    parser.add_argument(
         "--base_model",
         type=str,
-        default="./ckpt/s2s-models/TIGER",
-        help="basic model path",
+        default="./ckpt/s2s-models/TIGER",  # Default to use the TIGER (T5-based) model
+        help="Basic model path",
     )
     parser.add_argument(
         "--output_dir",

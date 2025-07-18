@@ -24,8 +24,6 @@ from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.models.switch_transformers.modeling_switch_transformers import (
     SwitchTransformersLayerNorm,
     SwitchTransformersAttention,
-    router_z_loss_func,
-    load_balancing_loss_func,
 )
 
 from SeqRec.models.PBATransformers.configuration import PBATransformerConfig
@@ -291,8 +289,6 @@ class PBATransformersStack(PBATransformersPreTrainedModel):
 
         batch_size, seq_length = input_shape
 
-        position_indices, behavior_indices = self.router(input_ids)
-
         if use_cache is True:
             if not self.is_decoder:
                 raise ValueError(
@@ -326,6 +322,14 @@ class PBATransformersStack(PBATransformersPreTrainedModel):
             cache_position = torch.arange(
                 past_key_values_length, past_key_values_length + seq_length, device=inputs_embeds.device
             )
+
+        if self.is_decoder:
+            position_indices, behavior_indices = self.router(
+                input_ids,
+                cache_position=cache_position,
+            )
+        else:
+            position_indices, behavior_indices = self.router(input_ids)
 
         if attention_mask is None and not is_torchdynamo_compiling():
             # required mask seq length can be calculated via length of past
@@ -397,7 +401,6 @@ class PBATransformersStack(PBATransformersPreTrainedModel):
                 behavior_indices,
                 causal_mask,
                 position_bias,
-                causal_mask,
                 encoder_hidden_states,
                 encoder_extended_attention_mask,
                 encoder_decoder_position_bias,
@@ -789,26 +792,6 @@ class PBATransformersForConditionalGeneration(PBATransformersPreTrainedModel, Ge
         decoder_z_loss = 0
         decoder_aux_loss = 0
 
-        if output_router_logits:
-            # Compute the router loss (z_loss + auxiliary loss) for each router in the encoder and decoder
-            if self.encoder.config.encoder_sparse_step > 1:
-                encoder_router_logits, encoder_expert_indexes = self._unpack_router_logits(encoder_outputs[-1])
-                encoder_z_loss = router_z_loss_func(encoder_router_logits)
-                encoder_router_probs = nn.Softmax(dim=-1)(encoder_router_logits)
-                encoder_aux_loss = load_balancing_loss_func(encoder_router_probs, encoder_expert_indexes)
-            else:
-                encoder_z_loss = 0
-                encoder_aux_loss = 0
-
-            if self.decoder.config.decoder_sparse_step > 1:
-                decoder_router_logits, decoder_expert_indexes = self._unpack_router_logits(decoder_outputs[-1])
-                decoder_z_loss = router_z_loss_func(decoder_router_logits)
-                decoder_router_probs = nn.Softmax(dim=-1)(decoder_router_logits)
-                decoder_aux_loss = load_balancing_loss_func(decoder_router_probs, decoder_expert_indexes)
-            else:
-                decoder_z_loss = 0
-                decoder_aux_loss = 0
-
         if labels is not None:
             loss_fct = CrossEntropyLoss(ignore_index=-100)
             # move labels to correct device to enable PP
@@ -852,16 +835,6 @@ class PBATransformersForConditionalGeneration(PBATransformersPreTrainedModel, Ge
             encoder_attentions=encoder_outputs.attentions,
             encoder_router_logits=encoder_outputs.router_probs,
         )
-
-    def _unpack_router_logits(self, router_outputs: tuple[tuple[torch.Tensor, ...], ...]) -> tuple[torch.Tensor, torch.Tensor]:
-        total_router_logits = []
-        total_expert_indexes = []
-        for router_output in router_outputs:
-            if len(router_output[0].shape) > 1:
-                router_logits, expert_indexes = router_output
-                total_router_logits.append(router_logits)
-                total_expert_indexes.append(expert_indexes)
-        return torch.cat(total_router_logits, dim=1), torch.cat(total_expert_indexes, dim=1)
 
     def prepare_decoder_input_ids_from_labels(self, labels: torch.Tensor) -> torch.Tensor:
         return self._shift_right(labels)

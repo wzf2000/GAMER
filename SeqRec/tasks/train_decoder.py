@@ -1,12 +1,15 @@
 import torch
 import transformers
 from loguru import logger
-from transformers import EarlyStoppingCallback, T5Tokenizer, T5Config
+from transformers import EarlyStoppingCallback, T5Config, T5Tokenizer
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
-from SeqRec.datasets.seq_dataset import BaseDataset, load_datasets
+from SeqRec.datasets.seq_dataset import BaseSeqDataset
+from SeqRec.datasets.MB_dataset import BaseMBDataset
+from SeqRec.datasets.loading import load_datasets
 from SeqRec.datasets.collator import Collator
 from SeqRec.models.TIGER import TIGER
+from SeqRec.models.PBATransformers import PBATransformerConfig, PBATransformersForConditionalGeneration
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 
@@ -58,7 +61,7 @@ class TrainDecoder(MultiGPUTask):
         parser.add_argument(
             "--model_max_length",
             type=int,
-            default=2048,
+            default=512,
             help="Maximum sequence length for the model",
         )
         parser.add_argument(
@@ -92,6 +95,12 @@ class TrainDecoder(MultiGPUTask):
             help="Steps at which to save and evaluate the model",
         )
         parser.add_argument(
+            "--patience",
+            type=int,
+            default=20,
+            help="Number of evaluation steps to wait before stopping training if no improvement",
+        )
+        parser.add_argument(
             "--fp16", action="store_true", default=False, help="Use mixed precision training (fp16)"
         )
         parser.add_argument(
@@ -115,6 +124,7 @@ class TrainDecoder(MultiGPUTask):
         self,
         # global arguments
         seed: int,
+        backbone: str,
         base_model: str,
         output_dir: str,
         # dataset arguments
@@ -137,6 +147,7 @@ class TrainDecoder(MultiGPUTask):
         lr_scheduler_type: str,
         save_and_eval_strategy: str,
         save_and_eval_steps: int,
+        patience: int,
         fp16: bool,
         bf16: bool,
         deepspeed: str | None,
@@ -160,12 +171,24 @@ class TrainDecoder(MultiGPUTask):
         ensure_dir(output_dir)
         if len(args) > 0 or len(kwargs) > 0 and self.local_rank == 0:
             logger.warning("Unused parameters:", args, kwargs)
-        config: T5Config = T5Config.from_pretrained(base_model)
-        tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
-            base_model,
-            model_max_length=512,
-            legacy=True,
-        )
+        if backbone == 'TIGER':
+            config: T5Config = T5Config.from_pretrained(base_model)
+            tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
+                base_model,
+                model_max_length=model_max_length,
+                legacy=True,
+            )
+            assert isinstance(tokenizer, T5Tokenizer), "Expected T5Tokenizer for TIGER backbone"
+        elif backbone == 'PBATransformers':
+            config: PBATransformerConfig = PBATransformerConfig.from_pretrained(base_model)
+            tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
+                base_model,
+                model_max_length=model_max_length,
+                legacy=True,
+            )
+            assert isinstance(tokenizer, T5Tokenizer), "Expected T5Tokenizer for PBATransformers backbone"
+        else:
+            raise ValueError(f"Unsupported backbone model: {backbone}")
         deepspeed = None
 
         train_data, valid_data = load_datasets(
@@ -175,7 +198,7 @@ class TrainDecoder(MultiGPUTask):
             index_file=index_file,
             tasks=tasks,
         )
-        first_dataset: BaseDataset = train_data.datasets[0]
+        first_dataset: BaseSeqDataset | BaseMBDataset = train_data.datasets[0]
         add_num = tokenizer.add_tokens(first_dataset.get_new_tokens())
         config.vocab_size = len(tokenizer)
         if self.local_rank == 0:
@@ -185,8 +208,44 @@ class TrainDecoder(MultiGPUTask):
             config.save_pretrained(output_dir)
 
         collator = Collator(tokenizer)
-        model = TIGER(config)
-        model.set_hyper(temperature)
+        if backbone == 'TIGER':
+            model = TIGER(config)
+            model.set_hyper(temperature)
+        elif backbone == 'PBATransformers':
+            all_items = first_dataset.get_all_items()
+            single_item = list(all_items)[0]
+            if isinstance(first_dataset, BaseMBDataset):
+                single_item = first_dataset.get_behavior_item(single_item, first_dataset.target_behavior)
+                behavior_tokens = []
+                for behavior in first_dataset.behaviors:
+                    behavior_tokens.extend(first_dataset.get_behavior_tokens(behavior))
+                behavior_tokens = [tokenizer.encode(b, add_special_tokens=False)[0] for b in behavior_tokens]
+                behavior_maps = {
+                    behavior_token: i for i, behavior_token in enumerate(behavior_tokens)
+                }
+                config.num_behavior = len(behavior_maps)
+                config.behavior_maps = behavior_maps
+                config.use_behavior_token = len(first_dataset.get_behavior_tokens(first_dataset.target_behavior)) > 0
+            else:
+                config.num_behavior = 0
+                config.use_behavior_token = False
+            if not config.use_behavior_token:
+                config.behavior_injection = False
+                config.behavior_injection_encoder = []
+                config.behavior_injection_decoder = []
+            single_item_ids = tokenizer.encode(single_item, add_special_tokens=False)
+            config.num_positions = len(single_item_ids)
+            if not config.Moe_behavior_only:
+                config.num_experts = config.num_positions + 1  # 1 for the BOS, EOS, PAD tokens
+            else:
+                config.num_experts = 2  # 1 for the item semantic tokens, 1 for the other tokens
+            config.n_positions = max_his_len
+            config.use_user_token = False
+            if self.local_rank == 0:
+                logger.info(f"Model Config: {config}")
+            model = PBATransformersForConditionalGeneration(config)
+        else:
+            raise ValueError(f"Unsupported backbone model: {backbone}")
         model.resize_token_embeddings(len(tokenizer))
         model.to(self.device)
         if self.local_rank == 0:
@@ -229,7 +288,7 @@ class TrainDecoder(MultiGPUTask):
             args=training_args,
             processing_class=tokenizer,
             data_collator=collator,
-            callbacks=[EarlyStoppingCallback(early_stopping_patience=20)],
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=patience)],
         )
         model.config.use_cache = False
 
