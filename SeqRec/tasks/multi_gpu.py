@@ -45,8 +45,8 @@ class MultiGPUTask(Task):
     ):
         set_seed(seed)
         if self.ddp:
-            dist.init_process_group(backend="nccl", init_method="env://")
             torch.cuda.set_device(self.local_rank)
+            dist.init_process_group(backend="nccl", init_method="env://", rank=self.local_rank, world_size=self.world_size, device_id=torch.device(self.device))
         if self.local_rank == 0 and wandb_init:
             wandb.init(
                 project=self.parser_name(),
