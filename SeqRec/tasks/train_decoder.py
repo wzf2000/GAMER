@@ -9,7 +9,10 @@ from SeqRec.datasets.MB_dataset import BaseMBDataset
 from SeqRec.datasets.loading import load_datasets
 from SeqRec.datasets.collator import Collator
 from SeqRec.models.TIGER import TIGER
-from SeqRec.models.PBATransformers import PBATransformerConfig, PBATransformersForConditionalGeneration
+from SeqRec.models.PBATransformers import (
+    PBATransformerConfig,
+    PBATransformersForConditionalGeneration,
+)
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 
@@ -28,7 +31,9 @@ class TrainDecoder(MultiGPUTask):
         """
         Add subparsers for the TrainDecoder task.
         """
-        parser = sub_parsers.add_parser("train_decoder", help="Train a decoder for SeqRec.")
+        parser = sub_parsers.add_parser(
+            "train_decoder", help="Train a decoder for SeqRec."
+        )
         parser = parse_global_args(parser)
         parser = parse_dataset_args(parser)
         parser.add_argument(
@@ -65,7 +70,10 @@ class TrainDecoder(MultiGPUTask):
             help="Maximum sequence length for the model",
         )
         parser.add_argument(
-            "--weight_decay", type=float, default=0.01, help="Weight decay for regularization"
+            "--weight_decay",
+            type=float,
+            default=0.01,
+            help="Weight decay for regularization",
         )
         parser.add_argument(
             "--resume_from_checkpoint",
@@ -74,7 +82,10 @@ class TrainDecoder(MultiGPUTask):
             help="either training checkpoint or final adapter",
         )
         parser.add_argument(
-            "--warmup_ratio", type=float, default=0.1, help="Warmup ratio for learning rate scheduler"
+            "--warmup_ratio",
+            type=float,
+            default=0.1,
+            help="Warmup ratio for learning rate scheduler",
         )
         parser.add_argument(
             "--lr_scheduler_type",
@@ -101,23 +112,35 @@ class TrainDecoder(MultiGPUTask):
             help="Number of evaluation steps to wait before stopping training if no improvement",
         )
         parser.add_argument(
-            "--fp16", action="store_true", default=False, help="Use mixed precision training (fp16)"
+            "--fp16",
+            action="store_true",
+            default=False,
+            help="Use mixed precision training (fp16)",
         )
         parser.add_argument(
-            "--bf16", action="store_true", default=False, help="Use bfloat16 precision training"
+            "--bf16",
+            action="store_true",
+            default=False,
+            help="Use bfloat16 precision training",
         )
         parser.add_argument(
-            "--deepspeed", type=str, default=None, help="Path to deepspeed configuration file"
+            "--deepspeed",
+            type=str,
+            default=None,
+            help="Path to deepspeed configuration file",
         )
         parser.add_argument(
-            "--temperature", type=float, default=1.0, help="Temperature for softmax scaling"
+            "--temperature",
+            type=float,
+            default=1.0,
+            help="Temperature for softmax scaling",
         )
 
         parser.add_argument(
             "--wandb_run_name",
             type=str,
             default="default",
-            help="Name for the Weights & Biases run"
+            help="Name for the Weights & Biases run",
         )
 
     def invoke(
@@ -154,7 +177,7 @@ class TrainDecoder(MultiGPUTask):
         temperature: float,
         wandb_run_name: str,
         *args,
-        **kwargs
+        **kwargs,
     ):
         """
         Train the decoder using the provided arguments.
@@ -163,7 +186,11 @@ class TrainDecoder(MultiGPUTask):
         self.init(
             seed,
             True,
-            wandb_run_name if wandb_run_name != "default" else output_dir.split("checkpoint/decoder/")[-1],
+            (
+                wandb_run_name
+                if wandb_run_name != "default"
+                else output_dir.split("checkpoint/decoder/")[-1]
+            ),
             "train",
             f"Training decoder on {data_path} with base model {base_model}",
             self.param_dict,
@@ -171,22 +198,28 @@ class TrainDecoder(MultiGPUTask):
         ensure_dir(output_dir)
         if len(args) > 0 or len(kwargs) > 0 and self.local_rank == 0:
             logger.warning("Unused parameters:", args, kwargs)
-        if backbone == 'TIGER':
+        if backbone == "TIGER":
             config: T5Config = T5Config.from_pretrained(base_model)
             tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
                 base_model,
                 model_max_length=model_max_length,
                 legacy=True,
             )
-            assert isinstance(tokenizer, T5Tokenizer), "Expected T5Tokenizer for TIGER backbone"
-        elif backbone == 'PBATransformers':
-            config: PBATransformerConfig = PBATransformerConfig.from_pretrained(base_model)
+            assert isinstance(
+                tokenizer, T5Tokenizer
+            ), "Expected T5Tokenizer for TIGER backbone"
+        elif backbone == "PBATransformers":
+            config: PBATransformerConfig = PBATransformerConfig.from_pretrained(
+                base_model
+            )
             tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
                 base_model,
                 model_max_length=model_max_length,
                 legacy=True,
             )
-            assert isinstance(tokenizer, T5Tokenizer), "Expected T5Tokenizer for PBATransformers backbone"
+            assert isinstance(
+                tokenizer, T5Tokenizer
+            ), "Expected T5Tokenizer for PBATransformers backbone"
         else:
             raise ValueError(f"Unsupported backbone model: {backbone}")
         deepspeed = None
@@ -208,24 +241,35 @@ class TrainDecoder(MultiGPUTask):
             config.save_pretrained(output_dir)
 
         collator = Collator(tokenizer)
-        if backbone == 'TIGER':
+        if backbone == "TIGER":
             model = TIGER(config)
             model.set_hyper(temperature)
-        elif backbone == 'PBATransformers':
+        elif backbone == "PBATransformers":
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
             if isinstance(first_dataset, BaseMBDataset):
-                single_item = first_dataset.get_behavior_item(single_item, first_dataset.target_behavior)
+                single_item = first_dataset.get_behavior_item(
+                    single_item, first_dataset.target_behavior
+                )
                 behavior_tokens = []
                 for behavior in first_dataset.behaviors:
                     behavior_tokens.extend(first_dataset.get_behavior_tokens(behavior))
-                behavior_tokens = [tokenizer.encode(b, add_special_tokens=False)[0] for b in behavior_tokens]
+                behavior_tokens = [
+                    tokenizer.encode(b, add_special_tokens=False)[0]
+                    for b in behavior_tokens
+                ]
                 behavior_maps = {
-                    behavior_token: i for i, behavior_token in enumerate(behavior_tokens)
+                    behavior_token: i
+                    for i, behavior_token in enumerate(behavior_tokens)
                 }
                 config.num_behavior = len(behavior_maps)
                 config.behavior_maps = behavior_maps
-                config.use_behavior_token = len(first_dataset.get_behavior_tokens(first_dataset.target_behavior)) > 0
+                config.use_behavior_token = (
+                    len(
+                        first_dataset.get_behavior_tokens(first_dataset.target_behavior)
+                    )
+                    > 0
+                )
             else:
                 config.num_behavior = 0
                 config.use_behavior_token = False
@@ -236,9 +280,13 @@ class TrainDecoder(MultiGPUTask):
             single_item_ids = tokenizer.encode(single_item, add_special_tokens=False)
             config.num_positions = len(single_item_ids)
             if not config.Moe_behavior_only:
-                config.num_experts = config.num_positions + 1  # 1 for the BOS, EOS, PAD tokens
+                config.num_experts = (
+                    config.num_positions + 1
+                )  # 1 for the BOS, EOS, PAD tokens
             else:
-                config.num_experts = 2  # 1 for the item semantic tokens, 1 for the other tokens
+                config.num_experts = (
+                    2  # 1 for the item semantic tokens, 1 for the other tokens
+                )
             config.n_positions = max_his_len
             config.use_user_token = False
             if self.local_rank == 0:
@@ -269,7 +317,8 @@ class TrainDecoder(MultiGPUTask):
             bf16=bf16,
             logging_steps=logging_step,
             optim=optim,
-            gradient_checkpointing=False,  # Set to True if you want to use gradient checkpointing
+            # Set to True if you want to use gradient checkpointing
+            gradient_checkpointing=False,
             eval_strategy=save_and_eval_strategy,
             save_strategy=save_and_eval_strategy,
             eval_steps=save_and_eval_steps,
@@ -279,7 +328,11 @@ class TrainDecoder(MultiGPUTask):
             deepspeed=deepspeed,
             ddp_find_unused_parameters=False if self.ddp else None,
             eval_delay=1 if save_and_eval_strategy == "epoch" else 2000,
-            run_name=wandb_run_name if wandb_run_name != "default" else output_dir.split("checkpoint/decoder/")[-1],
+            run_name=(
+                wandb_run_name
+                if wandb_run_name != "default"
+                else output_dir.split("checkpoint/decoder/")[-1]
+            ),
         )
         trainer = transformers.trainer.Trainer(
             model=model,
@@ -292,9 +345,7 @@ class TrainDecoder(MultiGPUTask):
         )
         model.config.use_cache = False
 
-        trainer.train(
-            resume_from_checkpoint=resume_from_checkpoint
-        )
+        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
         trainer.save_state()
         trainer.save_model(output_dir=output_dir)
