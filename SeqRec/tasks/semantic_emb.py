@@ -1,9 +1,12 @@
 import os
+import re
 import torch
+import string
 import numpy as np
 from tqdm import tqdm
 from typing import Any
 from loguru import logger
+from zhon.hanzi import punctuation
 from torch.utils.data import DataLoader
 from transformers import AutoModel, AutoTokenizer
 from transformers.utils import ModelOutput
@@ -17,9 +20,6 @@ from SeqRec.utils.futils import load_json
 from SeqRec.utils.parse import SubParsersAction
 from SeqRec.utils.pipe import set_device
 from SeqRec.utils.text import clean_text
-import re
-import string
-from zhon.hanzi import punctuation
 
 punctuation_en = string.punctuation
 
