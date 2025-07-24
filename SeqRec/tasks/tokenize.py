@@ -12,6 +12,7 @@ from sklearn.decomposition import PCA
 
 from SeqRec.tasks.base import SubParsersAction, Task
 from SeqRec.datasets.emb_dataset import EmbDataset
+from SeqRec.utils.futils import load_json
 from SeqRec.utils.indice import check_collision, get_collision_item, get_indices_count
 from SeqRec.utils.kmeans import constrained_km, center_distance_for_constraint
 from SeqRec.utils.pipe import set_seed
@@ -389,8 +390,18 @@ class Tokenize(Task):
         self.output_dir = output_dir
         self.device = torch.device(device)
         self.rq_kmeans = rq_kmeans
+        item_file = os.path.join(self.output_dir, f"{self.dataset}.item.json")
+        item_meta = load_json(item_file) if os.path.exists(item_file) else None
+        self.data = EmbDataset(data_path=data_path) if os.path.exists(data_path) else None
+        if self.data is not None:
+            n_items = len(self.data)
+        elif item_meta is not None:
+            item_ids = item_meta.keys()
+            item_ids = map(int, item_ids)
+            n_items = max(item_ids) + 1
+        else:
+            raise ValueError("No valid data found. Please provide a valid data_path or item_file.")
         if self.rq_kmeans:
-            self.data = EmbDataset(data_path=data_path)
             self.run_rq_kmeans(
                 self.data.embeddings,
                 num_code_list,
@@ -398,11 +409,10 @@ class Tokenize(Task):
                 reduce=reduce,
             )
         elif cid:
-            self.run_CID(chunk_size=chunk_size, n_item=len(self.data), shuffle=shuffle)
+            self.run_CID(chunk_size=chunk_size, n_item=n_items, shuffle=shuffle)
         elif rid:
-            self.run_RID(num_code_list, n_item=len(self.data))
+            self.run_RID(num_code_list, n_item=n_items)
         else:
-            self.data = EmbDataset(data_path=data_path)
             self.run_rq_vae(
                 root_path=root_path,
                 alpha=alpha,
