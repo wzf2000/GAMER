@@ -386,11 +386,11 @@ class Tokenize(Task):
         self.prefix = ["<a_{}>", "<b_{}>", "<c_{}>", "<d_{}>", "<e_{}>", "<f_{}>", "<g_{}>", "<h_{}>"]
         # Implementation of the tokenization logic goes here.
         self.dataset = dataset
-        self.data = EmbDataset(data_path=data_path)
         self.output_dir = output_dir
         self.device = torch.device(device)
         self.rq_kmeans = rq_kmeans
         if self.rq_kmeans:
+            self.data = EmbDataset(data_path=data_path)
             self.run_rq_kmeans(
                 self.data.embeddings,
                 num_code_list,
@@ -402,6 +402,7 @@ class Tokenize(Task):
         elif rid:
             self.run_RID(num_code_list, n_item=len(self.data))
         else:
+            self.data = EmbDataset(data_path=data_path)
             self.run_rq_vae(
                 root_path=root_path,
                 alpha=alpha,

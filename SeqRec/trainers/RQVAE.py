@@ -321,7 +321,7 @@ class Trainer:
                         "eval/best_collision_rate": self.best_collision_rate,
                     }, step=self.global_steps)
 
-                if epoch_idx > 2500 and self.local_rank == 0:
+                if self.local_rank == 0:
                     self._save_checkpoint(epoch_idx, collision_rate=collision_rate)
 
         return self.best_loss, self.best_collision_rate
