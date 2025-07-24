@@ -1,3 +1,4 @@
+import os
 import inspect
 from loguru import logger
 from typing import TypeVar
@@ -16,7 +17,8 @@ def log_arguments(func):
         bound_args.apply_defaults()  # 应用默认值
         # 转换为参数字典
         param_dict = dict(bound_args.arguments)
-        logger.info(f"Calling {func.__name__} with arguments: {param_dict}")
+        if int(os.environ.get("LOCAL_RANK", 0)) == 0:
+            logger.info(f"Calling {func.__name__} with arguments: {param_dict}")
         if 'self' in param_dict:
             class_instance = param_dict.pop('self')  # 移除self参数
             class_instance.param_dict = param_dict

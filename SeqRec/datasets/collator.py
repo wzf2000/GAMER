@@ -49,7 +49,7 @@ class DecoderOnlyCollator:
 
     def __call__(self, batch: list[dict]) -> BatchEncoding:
         input_texts = [d["input_ids"] for d in batch]
-        full_texts = [d["labels"] + self.tokenizer.eos_token for d in batch]
+        full_texts = [d["input_ids"] + d["labels"] + self.tokenizer.eos_token for d in batch]
 
         inputs = self.tokenizer(
             text=full_texts,
