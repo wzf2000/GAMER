@@ -19,7 +19,7 @@ class BaseMBDataset(Dataset):
     """
     behaviors: list[str]
 
-    def __init__(self, dataset: str, data_path: str, max_his_len: int, index_file: str, mode: str):
+    def __init__(self, dataset: str, data_path: str, max_his_len: int, index_file: str, mode: str, filter_target: bool = False):
         super().__init__()
 
         self.dataset: str = dataset
@@ -33,6 +33,7 @@ class BaseMBDataset(Dataset):
         self.all_items = None
         self.all_items_by_behavior: dict[str, set[str]] = {}
         self.mode = mode
+        self.filter_target = filter_target
 
         self.inter_suffix = "MB.inter"
 
@@ -53,17 +54,19 @@ class BaseMBDataset(Dataset):
         if int(os.environ.get("LOCAL_RANK", 0)) == 0:
             logger.info(f"Loaded {len(self.inter_data)} interactions for {self.mode} set.")
 
-        if self.dataset == "KuaiRec":
-            self.target_behavior = "like"
-        # TODO: Add more datasets and their target behaviors
-        elif os.path.exists(os.path.join(self.data_path, self.dataset + '.target_behavior.txt')):
-            with open(os.path.join(self.data_path, self.dataset + '.target_behavior.txt'), 'r') as f:
-                self.target_behavior = f.read().strip()
-        else:
-            raise NotImplementedError((
-                f"Dataset {self.dataset} is not supported for multi-bahavior recommendation. "
-                f"The target behavior should be specified in {self.data_path}/{self.dataset}.target_behavior.txt."
-            ))
+        assert os.path.exists(os.path.join(self.data_path, self.dataset + '.behavior_level.json')), (
+            f"Behavior level file {self.data_path}/{self.dataset}.behavior_level.json does not exist."
+        )
+        with open(os.path.join(self.data_path, self.dataset + '.behavior_level.json'), 'r') as f:
+            self.behavior_level: dict[str, int] = json.load(f)
+        # get the max level of behaviors
+        self.max_behavior_level = max(self.behavior_level.values())
+        # get the target behavior
+        max_level_behaviors = [b for b, level in self.behavior_level.items() if level == self.max_behavior_level]
+        assert len(max_level_behaviors) == 1, (
+            f"Expected exactly one target behavior with max level, but found {len(max_level_behaviors)}: {max_level_behaviors}"
+        )
+        self.target_behavior = max_level_behaviors[0]
 
     def _load_data(self):
         with open(os.path.join(self.data_path, self.dataset + f".{self.inter_suffix}.json"), "r") as f:
@@ -102,8 +105,14 @@ class BaseMBDataset(Dataset):
 
     def _get_inters(self, history_items: list[str], history_behaviors: list[str]) -> str:
         if self.max_his_len > 0:
-            history_items = history_items[-self.max_his_len :]
-            history_behaviors = history_behaviors[-self.max_his_len :]
+            history_items = history_items[-(self.max_his_len + 1) : -1]
+            history_behaviors = history_behaviors[-(self.max_his_len + 1) : -1]
+        if self.filter_target:
+            target_item = history_items[-1]
+            target_behavior = history_behaviors[-1]
+            non_duplicate_ids = [i for i in range(len(history_items)) if history_items[i] != target_item or history_behaviors[i] >= target_behavior]
+            history_items = [history_items[i] for i in non_duplicate_ids]
+            history_behaviors = [history_behaviors[i] for i in non_duplicate_ids]
         history_behavior_items = [
             self.get_behavior_item(history_item, history_behavior)
             for history_item, history_behavior in zip(history_items, history_behaviors)
@@ -119,7 +128,7 @@ class BaseMBDataset(Dataset):
             for i in range(1, len(items)):
                 inter_data.append({
                     "item": self.get_behavior_item(items[i], behaviors[i]),
-                    "inters": self._get_inters(items[:i], behaviors[:i]),
+                    "inters": self._get_inters(items[:i + 1], behaviors[:i + 1]),
                     "behavior": behaviors[i],
                 })
 
@@ -132,7 +141,7 @@ class BaseMBDataset(Dataset):
             behaviors = self.history_behaviors[uid]
             inter_data.append({
                 "item": self.get_behavior_item(items[-2], behaviors[-2]),
-                "inters": self._get_inters(items[:-2], behaviors[:-2]),
+                "inters": self._get_inters(items[:-1], behaviors[:-1]),
                 "behavior": behaviors[-2],
             })
 
@@ -145,7 +154,7 @@ class BaseMBDataset(Dataset):
             behaviors = self.history_behaviors[uid]
             inter_data.append({
                 "item": self.get_behavior_item(items[-1], behaviors[-1]),
-                "inters": self._get_inters(items[:-1], behaviors[:-1]),
+                "inters": self._get_inters(items, behaviors),
                 "behavior": behaviors[-1],
             })
 
@@ -236,8 +245,9 @@ class MBDataset(BaseMBDataset):
         max_his_len: int,
         index_file: str = ".index.json",
         mode: str = "train",
+        filter_target: bool = False,
     ):
-        super().__init__(dataset, data_path, max_his_len, index_file, mode)
+        super().__init__(dataset, data_path, max_his_len, index_file, mode, filter_target)
 
     def _update_behavior_tokens(self):
         pass

@@ -1,18 +1,19 @@
 import torch
 import transformers
 from loguru import logger
-from transformers import EarlyStoppingCallback, T5Config, T5Tokenizer
+from transformers import EarlyStoppingCallback, T5Config, T5Tokenizer, Qwen2Tokenizer, Qwen3Config
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.seq_dataset import BaseSeqDataset
 from SeqRec.datasets.MB_dataset import BaseMBDataset
 from SeqRec.datasets.loading import load_datasets
-from SeqRec.datasets.collator import Collator
+from SeqRec.datasets.collator import EncoderDecoderCollator, DecoderOnlyCollator
 from SeqRec.models.TIGER import TIGER
 from SeqRec.models.PBATransformers import (
     PBATransformerConfig,
     PBATransformersForConditionalGeneration,
 )
+from SeqRec.models.Qwen import Qwen3WithTemperature
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 
@@ -220,6 +221,15 @@ class TrainDecoder(MultiGPUTask):
             assert isinstance(
                 tokenizer, T5Tokenizer
             ), "Expected T5Tokenizer for PBATransformers backbone"
+        elif backbone == "Qwen3":
+            config: Qwen3Config = Qwen3Config.from_pretrained(base_model)
+            tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(
+                base_model,
+                model_max_length=model_max_length,
+            )
+            assert isinstance(
+                tokenizer, Qwen2Tokenizer
+            ), "Expected Qwen2Tokenizer for Qwen3 backbone"
         else:
             raise ValueError(f"Unsupported backbone model: {backbone}")
         deepspeed = None
@@ -240,7 +250,10 @@ class TrainDecoder(MultiGPUTask):
             tokenizer.save_pretrained(output_dir)
             config.save_pretrained(output_dir)
 
-        collator = Collator(tokenizer)
+        if backbone == "Qwen3":
+            collator = DecoderOnlyCollator(tokenizer, only_train_response=True)
+        else:
+            collator = EncoderDecoderCollator(tokenizer)
         if backbone == "TIGER":
             model = TIGER(config)
             model.set_hyper(temperature)
@@ -292,6 +305,9 @@ class TrainDecoder(MultiGPUTask):
             if self.local_rank == 0:
                 logger.info(f"Model Config: {config}")
             model = PBATransformersForConditionalGeneration(config)
+        elif backbone == "Qwen3":
+            model = Qwen3WithTemperature(config)
+            model.set_hyper(temperature)
         else:
             raise ValueError(f"Unsupported backbone model: {backbone}")
         model.resize_token_embeddings(len(tokenizer))

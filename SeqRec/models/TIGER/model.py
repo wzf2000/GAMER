@@ -1,7 +1,8 @@
 import torch
+import warnings
 from torch.nn import CrossEntropyLoss
 from transformers.models.t5.configuration_t5 import T5Config
-from transformers.models.t5.modeling_t5 import T5ForConditionalGeneration
+from transformers.models.t5.modeling_t5 import T5ForConditionalGeneration, __HEAD_MASK_WARNING_MSG
 from transformers.modeling_outputs import (
     BaseModelOutput,
     Seq2SeqLMOutput,
@@ -13,61 +14,76 @@ from typing import Any
 class TIGER(T5ForConditionalGeneration):
     def __init__(self, config: T5Config):
         super().__init__(config)
-
         # You can add parameters out here.
         self.temperature = 1.0
 
     def set_hyper(self, temperature: float):
         self.temperature = temperature
 
-    def ranking_loss(self, lm_logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        t_logits = lm_logits / self.temperature
-        loss_fct = CrossEntropyLoss(ignore_index=-100)
-        # move labels to correct device to enable PP
-        labels = labels.to(lm_logits.device)
-        loss = loss_fct(t_logits.view(-1, t_logits.size(-1)), labels.view(-1))
-        return loss
-
-    def total_loss(self, lm_logits: torch.Tensor, labels: torch.Tensor, decoder_input_ids: torch.Tensor) -> torch.Tensor:
-        loss = self.ranking_loss(lm_logits, labels)
-        return loss
-
     def forward(
         self,
-        input_ids: torch.Tensor | None = None,
-        whole_word_ids: Any | None = None,
-        attention_mask: torch.Tensor | None = None,
-        encoder_outputs: Any | None = None,
-        decoder_input_ids: torch.Tensor | None = None,
-        decoder_attention_mask: torch.Tensor | None = None,
+        input_ids: torch.LongTensor | None = None,
+        attention_mask: torch.FloatTensor | None = None,
+        decoder_input_ids: torch.LongTensor | None = None,
+        decoder_attention_mask: torch.BoolTensor | None = None,
+        head_mask: torch.FloatTensor | None = None,
+        decoder_head_mask: torch.FloatTensor | None = None,
         cross_attn_head_mask: torch.Tensor | None = None,
-        past_key_values: Any | None = None,
+        encoder_outputs: tuple[tuple[torch.Tensor | None, ...], ...] = None,
+        past_key_values: tuple[tuple[torch.Tensor | None, ...], ...] = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+        decoder_inputs_embeds: torch.FloatTensor | None = None,
+        labels: torch.LongTensor | None = None,
         use_cache: bool | None = None,
-        labels: torch.Tensor | None = None,
-        inputs_embeds: torch.Tensor | None = None,
-        decoder_inputs_embeds: torch.Tensor | None = None,
-        head_mask: torch.Tensor | None = None,
-        decoder_head_mask: torch.Tensor | None = None,
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
-        reduce_loss: bool = False,
-        return_hidden_state: bool = False,
-        **kwargs: Any,
-    ) -> Seq2SeqLMOutput:
-        use_cache = use_cache if use_cache is not None else self.config.use_cache
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        cache_position: torch.LongTensor | None = None,
+    ) -> tuple[torch.FloatTensor] | Seq2SeqLMOutput:
+        r"""
+        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+            Labels for computing the sequence classification/regression loss. Indices should be in `[-100, 0, ...,
+            config.vocab_size - 1]`. All labels set to `-100` are ignored (masked), the loss is only computed for
+            labels in `[0, ..., config.vocab_size]`
 
+        Returns:
+
+        Examples:
+
+        ```python
+        >>> from transformers import AutoTokenizer, T5ForConditionalGeneration
+
+        >>> tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-small")
+        >>> model = T5ForConditionalGeneration.from_pretrained("google-t5/t5-small")
+
+        >>> # training
+        >>> input_ids = tokenizer("The <extra_id_0> walks in <extra_id_1> park", return_tensors="pt").input_ids
+        >>> labels = tokenizer("<extra_id_0> cute dog <extra_id_1> the <extra_id_2>", return_tensors="pt").input_ids
+        >>> outputs = model(input_ids=input_ids, labels=labels)
+        >>> loss = outputs.loss
+        >>> logits = outputs.logits
+
+        >>> # inference
+        >>> input_ids = tokenizer(
+        ...     "summarize: studies have shown that owning a dog is good for you", return_tensors="pt"
+        ... ).input_ids  # Batch size 1
+        >>> outputs = model.generate(input_ids)
+        >>> print(tokenizer.decode(outputs[0], skip_special_tokens=True))
+        >>> # studies have shown that owning a dog is good for you.
+        ```"""
+        use_cache = use_cache if use_cache is not None else self.config.use_cache
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        # FutureWarning: head_mask was separated into two input args - head_mask, decoder_head_mask
         if head_mask is not None and decoder_head_mask is None:
             if self.config.num_layers == self.config.num_decoder_layers:
+                warnings.warn(__HEAD_MASK_WARNING_MSG, FutureWarning)
                 decoder_head_mask = head_mask
 
         # Encode if needed (training, first prediction pass)
         if encoder_outputs is None:
             # Convert encoder inputs in embeddings if needed
-            encoder_outputs: BaseModelOutputWithPastAndCrossAttentions | tuple = self.encoder(
+            encoder_outputs = self.encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 inputs_embeds=inputs_embeds,
@@ -88,11 +104,7 @@ class TIGER(T5ForConditionalGeneration):
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
 
-        if (
-            labels is not None
-            and decoder_input_ids is None
-            and decoder_inputs_embeds is None
-        ):
+        if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
             # get decoder inputs from shifting lm labels to the right
             decoder_input_ids = self._shift_right(labels)
 
@@ -105,12 +117,10 @@ class TIGER(T5ForConditionalGeneration):
             if attention_mask is not None:
                 attention_mask = attention_mask.to(self.decoder.first_device)
             if decoder_attention_mask is not None:
-                decoder_attention_mask = decoder_attention_mask.to(
-                    self.decoder.first_device
-                )
+                decoder_attention_mask = decoder_attention_mask.to(self.decoder.first_device)
 
         # Decode
-        decoder_outputs: BaseModelOutputWithPastAndCrossAttentions = self.decoder(
+        decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
             attention_mask=decoder_attention_mask,
             inputs_embeds=decoder_inputs_embeds,
@@ -123,6 +133,7 @@ class TIGER(T5ForConditionalGeneration):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
+            cache_position=cache_position,
         )
 
         sequence_output = decoder_outputs[0]
@@ -135,18 +146,19 @@ class TIGER(T5ForConditionalGeneration):
 
         if self.config.tie_word_embeddings:
             # Rescale output before projecting on vocab
-            # See
-            # https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
+            # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
             sequence_output = sequence_output * (self.model_dim**-0.5)
 
         lm_logits = self.lm_head(sequence_output)
 
-        # ------------------------------------------
-        # Loss Computing!
         loss = None
-        loss = self.total_loss(lm_logits, labels, decoder_input_ids)
-
-        # ------------------------------------------
+        if labels is not None:
+            loss_fct = CrossEntropyLoss(ignore_index=-100)
+            t_logits = lm_logits / self.temperature
+            # move labels to correct device to enable PP
+            labels = labels.to(lm_logits.device)
+            loss = loss_fct(t_logits.view(-1, t_logits.size(-1)), labels.view(-1))
+            # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666
 
         if not return_dict:
             output = (lm_logits,) + decoder_outputs[1:] + encoder_outputs

@@ -21,8 +21,10 @@ if [ "${backbone}" = "TIGER" ]; then
     base_model=./ckpt/s2s-models/TIGER
 elif [ "${backbone}" = "PBATransformers" ]; then
     base_model=./ckpt/s2s-models/PBATransformers
+elif [ "${backbone}" = "Qwen3" ]; then
+    base_model=./ckpt/s2s-models/Qwen3
 else
-    echo "Unsupported backbone model: ${backbone}. Please set backbone to either TIGER or PBATransformers."
+    echo "Unsupported backbone model: ${backbone}."
     exit 1
 fi
 

@@ -15,7 +15,7 @@ from transformers.generation.utils import GenerateBeamOutput
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.loading import load_test_dataset
 from SeqRec.datasets.MB_dataset import BaseMBDataset, EvaluationType
-from SeqRec.datasets.collator import TestCollator
+from SeqRec.datasets.collator import EncoderDecoderTestCollator
 from SeqRec.models.TIGER import TIGER
 from SeqRec.models.PBATransformers import PBATransformerConfig, PBATransformersForConditionalGeneration
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
@@ -270,7 +270,7 @@ class TestDecoder(MultiGPUTask):
             self.model = DDP(self.model, device_ids=[self.local_rank])
         else:
             self.samplers = [None] * len(self.datasets)
-        collator = TestCollator(self.tokenizer)
+        collator = EncoderDecoderTestCollator(self.tokenizer)
         for test_dataset in self.datasets:
             test_dataset.get_all_items()
         self.all_items = self.datasets[0].get_all_items()

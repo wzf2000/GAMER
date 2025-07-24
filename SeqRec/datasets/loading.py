@@ -61,6 +61,19 @@ def load_datasets(
                 mode="train",
                 behavior_first=True,  # Default behavior first for explicit token dataset
             )
+        elif task.lower() == "mb_explicit_filter":
+            assert inter_type is None, "inter_type is not applicable for multi-behavior tasks."
+            assert mb_type is None, "Only one multi-behavior type is allowed in tasks."
+            mb_type = "explicit_filter"
+            single_dataset = MBExplicitTokenDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                index_file=index_file,
+                mode="train",
+                behavior_first=True,  # Default behavior first for explicit token dataset
+                filter_target=True,  # Filter target behavior for explicit token dataset
+            )
         elif task.lower() == "mb_explicit_back":
             assert inter_type is None, "inter_type is not applicable for multi-behavior tasks."
             assert mb_type is None, "Only one multi-behavior type is allowed in tasks."
@@ -95,6 +108,16 @@ def load_datasets(
                 index_file=index_file,
                 mode="valid",
                 behavior_first=True,  # Default behavior first for explicit token dataset
+            )
+        elif mb_type == "explicit_filter":
+            valid_data = MBExplicitTokenDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                index_file=index_file,
+                mode="valid",
+                behavior_first=True,  # Default behavior first for explicit token dataset
+                filter_target=True,  # Filter target behavior for explicit token dataset
             )
         elif mb_type == "explicit_back":
             valid_data = MBExplicitTokenDataset(
@@ -160,6 +183,16 @@ def load_test_dataset(
             index_file=index_file,
             mode="test",
             behavior_first=True,  # Default behavior first for explicit token dataset
+        )
+    elif test_task.lower() == "mb_explicit_filter":
+        test_data = MBExplicitTokenDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="test",
+            behavior_first=True,  # Default behavior first for explicit token dataset
+            filter_target=True,  # Filter target behavior for explicit token dataset
         )
     elif test_task.lower() == "mb_explicit_back":
         test_data = MBExplicitTokenDataset(
