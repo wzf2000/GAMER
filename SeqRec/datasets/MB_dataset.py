@@ -54,7 +54,6 @@ class BaseMBDataset(Dataset):
         if int(os.environ.get("LOCAL_RANK", 0)) == 0:
             logger.info(f"Loaded {len(self.inter_data)} interactions for {self.mode} set.")
 
-<<<<<<< Updated upstream
         assert os.path.exists(os.path.join(self.data_path, self.dataset + '.behavior_level.json')), (
             f"Behavior level file {self.data_path}/{self.dataset}.behavior_level.json does not exist."
         )
@@ -68,21 +67,6 @@ class BaseMBDataset(Dataset):
             f"Expected exactly one target behavior with max level, but found {len(max_level_behaviors)}: {max_level_behaviors}"
         )
         self.target_behavior = max_level_behaviors[0]
-=======
-        if self.dataset == "KuaiRec":
-            self.target_behavior = "like"
-        elif self.dataset == "Tmall":
-            self.target_behavior = "alipay"
-        # TODO: Add more datasets and their target behaviors
-        elif os.path.exists(os.path.join(self.data_path, self.dataset + '.target_behavior.txt')):
-            with open(os.path.join(self.data_path, self.dataset + '.target_behavior.txt'), 'r') as f:
-                self.target_behavior = f.read().strip()
-        else:
-            raise NotImplementedError((
-                f"Dataset {self.dataset} is not supported for multi-bahavior recommendation. "
-                f"The target behavior should be specified in {self.data_path}/{self.dataset}.target_behavior.txt."
-            ))
->>>>>>> Stashed changes
 
     def _load_data(self):
         with open(os.path.join(self.data_path, self.dataset + f".{self.inter_suffix}.json"), "r") as f:
