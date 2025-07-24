@@ -12,5 +12,6 @@ data/*/*
 !data/**/*.inter.json
 !data/**/*.item.json
 !data/**/*.behavior.json
+!data/**/*.target_behavior.txt
 *.pth
 *.ipynb
