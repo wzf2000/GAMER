@@ -43,18 +43,18 @@ if [ $rq_kmeans -eq 0 ]; then
                 output_dir=./checkpoint/decoder/${task_dir}/alpha${alpha}-beta${beta}/
                 run_name=${task_dir}/alpha${alpha}-beta${beta}/
                 index_file=.index.epoch${epoch}.alpha${alpha}-beta${beta}.json
-                echo "Training LETTER-TIGER on ${dataset} with alpha=${alpha}, beta=${beta}, epoch=${epoch} using GPUs ${gpu}."
+                echo "Training Decoder on ${dataset} with alpha=${alpha}, beta=${beta}, epoch=${epoch} using GPUs ${gpu}."
             else
                 output_dir=./checkpoint/decoder/${task_dir}/original/
                 run_name=${task_dir}/original/
                 index_file=.index.json
-                echo "Training LETTER-TIGER on ${dataset} using original index file from LETTER repository."
+                echo "Training Decoder on ${dataset} using original index file from LETTER repository."
             fi
         else
             output_dir=./checkpoint/decoder/${task_dir}/rid/
             run_name=${task_dir}/rid/
             index_file=.index.rid.json
-            echo "Training LETTER-TIGER on ${dataset} using random ID tokenization."
+            echo "Training Decoder on ${dataset} using random ID tokenization."
         fi
     else
         : ${chunk_size:=64}
@@ -63,12 +63,12 @@ if [ $rq_kmeans -eq 0 ]; then
             output_dir=./checkpoint/decoder/${task_dir}/cid-shuffle-${chunk_size}/
             run_name=${task_dir}/cid-shuffle-${chunk_size}/
             index_file=.index.cid.shuffle.chunk${chunk_size}.json
-            echo "Training LETTER-TIGER on ${dataset} using chunked ID tokenization with chunk size ${chunk_size} and shuffling."
+            echo "Training Decoder on ${dataset} using chunked ID tokenization with chunk size ${chunk_size} and shuffling."
         else
             output_dir=./checkpoint/decoder/${task_dir}/cid-${chunk_size}/
             run_name=${task_dir}/cid-${chunk_size}/
             index_file=.index.cid.chunk${chunk_size}.json
-            echo "Training LETTER-TIGER on ${dataset} using chunked ID tokenization with chunk size ${chunk_size}."
+            echo "Training Decoder on ${dataset} using chunked ID tokenization with chunk size ${chunk_size}."
         fi
     fi
 else
@@ -77,19 +77,19 @@ else
         output_dir=./checkpoint/decoder/${task_dir}/rq-kmeans/
         run_name=${task_dir}/rq-kmeans/
         index_file=.index.rq-kmeans.json
-        echo "Training LETTER-TIGER on ${dataset} using RQ-Kmeans without CF embeddings."
+        echo "Training Decoder on ${dataset} using RQ-Kmeans without CF embeddings."
     else
         : ${reduce:=0}
         if [ $reduce -eq 0 ]; then
             output_dir=./checkpoint/decoder/${task_dir}/rq-kmeans-cf/
             run_name=${task_dir}/rq-kmeans-cf/
             index_file=.index.rq-kmeans-cf.json
-            echo "Training LETTER-TIGER on ${dataset} using RQ-Kmeans with CF embeddings."
+            echo "Training Decoder on ${dataset} using RQ-Kmeans with CF embeddings."
         else
             output_dir=./checkpoint/decoder/${task_dir}/rq-kmeans-cf-reduce/
             run_name=${task_dir}/rq-kmeans-cf-reduce/
             index_file=.index.rq-kmeans-cf-reduce.json
-            echo "Training LETTER-TIGER on ${dataset} using RQ-Kmeans with CF embeddings and reduced semantic embeddings."
+            echo "Training Decoder on ${dataset} using RQ-Kmeans with CF embeddings and reduced semantic embeddings."
         fi
     fi
 fi

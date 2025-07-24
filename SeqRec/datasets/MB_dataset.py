@@ -279,9 +279,10 @@ class MBExplicitTokenDataset(BaseMBDataset):
         index_file: str = ".index.json",
         mode: str = "train",
         behavior_first: bool = True,
+        filter_target: bool = False,
     ):
         self.behavior_first = behavior_first
-        super().__init__(dataset, data_path, max_his_len, index_file, mode)
+        super().__init__(dataset, data_path, max_his_len, index_file, mode, filter_target)
 
     def _update_behavior_tokens(self):
         for behavior in self.behaviors:
