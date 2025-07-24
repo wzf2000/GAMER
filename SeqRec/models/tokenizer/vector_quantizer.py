@@ -42,7 +42,7 @@ class VectorQuantizer(nn.Module):
         return self.embedding.weight
 
     def init_emb(self, data: torch.Tensor):
-        centers, _ = constrained_km(data, 256, init=True)
+        centers, _ = constrained_km(data.detach().cpu().numpy(), 256, init=True)
         self.embedding.weight.data.copy_(centers)
         self.initted = True
 

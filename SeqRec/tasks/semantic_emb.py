@@ -17,6 +17,11 @@ from SeqRec.utils.futils import load_json
 from SeqRec.utils.parse import SubParsersAction
 from SeqRec.utils.pipe import set_device
 from SeqRec.utils.text import clean_text
+import re
+import string
+from zhon.hanzi import punctuation
+
+punctuation_en = string.punctuation
 
 
 class SemanticEmbedding(Task):
@@ -96,11 +101,30 @@ class SemanticEmbedding(Task):
         logger.info(f"Sample text for item 0: {text_list[0]}")
         return text_list
 
+    def Tmall_text(self) -> list[list[str]]:
+        text_list: list[list[str]] = []
+
+        for item in self.item2feature:
+            data = self.item2feature[item]
+            prompt = data['title']
+            prompt_en = re.sub('[{}]'.format(punctuation_en), "", prompt)  # 删中文字符
+            prompt_cn = re.sub('[{}]'.format(punctuation), "", prompt_en)  # 删英文字符
+            prompt_num = re.sub(r'\d{6,}', "", prompt_cn)  # 高位数的数字
+            prompt_end = ""  # 删除""
+            for tmp in prompt_num.split(" "):
+                if tmp != "":
+                    prompt_end += tmp + " "
+            text_list.append([prompt_end])
+        logger.info(f"Sample text for item 0: {text_list[0]}")
+        return text_list
+
     def process_texts(self) -> list[list[str]]:
         if self.dataset in ['Instruments', 'Beauty', 'Yelp']:
             return self.amazon_text(["title", "description"])
         elif self.dataset == 'KuaiRec':
             return self.kuairec_text()
+        elif self.dataset == "Tmall":
+            return self.Tmall_text()
         else:
             raise ValueError(f"Unsupported dataset: {self.dataset}.")
 
