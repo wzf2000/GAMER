@@ -104,12 +104,12 @@ class BaseMBDataset(Dataset):
         )
 
     def _get_inters(self, history_items: list[str], history_behaviors: list[str]) -> str:
+        target_item = history_items[-1]
+        target_behavior = history_behaviors[-1]
         if self.max_his_len > 0:
             history_items = history_items[-(self.max_his_len + 1) : -1]
             history_behaviors = history_behaviors[-(self.max_his_len + 1) : -1]
         if self.filter_target:
-            target_item = history_items[-1]
-            target_behavior = history_behaviors[-1]
             non_duplicate_ids = [i for i in range(len(history_items)) if history_items[i] != target_item or history_behaviors[i] >= target_behavior]
             history_items = [history_items[i] for i in non_duplicate_ids]
             history_behaviors = [history_behaviors[i] for i in non_duplicate_ids]
