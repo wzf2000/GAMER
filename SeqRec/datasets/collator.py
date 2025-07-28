@@ -53,9 +53,9 @@ class DecoderOnlyCollator:
             return_attention_mask=True,
         )
         labels = copy.deepcopy(inputs["input_ids"])
+        # ignore padding
+        labels[labels == self.tokenizer.pad_token_id] = -100
         if self.only_train_response:
-            # ignore padding
-            labels[labels == self.tokenizer.pad_token_id] = -100
             # ignore input text
             labels[torch.where(inputs["labels"] != self.tokenizer.pad_token_id)] = -100
 

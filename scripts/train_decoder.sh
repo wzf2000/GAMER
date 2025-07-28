@@ -22,7 +22,7 @@ if [ "${backbone}" = "TIGER" ]; then
 elif [ "${backbone}" = "PBATransformers" ]; then
     base_model=./ckpt/s2s-models/PBATransformers
 elif [ "${backbone}" = "Qwen3" ]; then
-    base_model=./ckpt/s2s-models/Qwen3
+    base_model=./ckpt/s2s-models/Qwen3-Light
 else
     echo "Unsupported backbone model: ${backbone}."
     exit 1

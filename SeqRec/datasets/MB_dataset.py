@@ -1,10 +1,13 @@
 import os
 import json
 import copy
+import numpy as np
 from enum import Enum
 from tqdm import tqdm
 from loguru import logger
 from torch.utils.data import Dataset
+
+from SeqRec.utils.pipe import set_seed
 
 
 class EvaluationType(Enum):
@@ -238,16 +241,8 @@ class MBDataset(BaseMBDataset):
     where `<item_token>` is the token representing the item.
     """
 
-    def __init__(
-        self,
-        dataset: str,
-        data_path: str,
-        max_his_len: int,
-        index_file: str = ".index.json",
-        mode: str = "train",
-        filter_target: bool = False,
-    ):
-        super().__init__(dataset, data_path, max_his_len, index_file, mode, filter_target)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     def _update_behavior_tokens(self):
         pass
@@ -261,7 +256,7 @@ class MBDataset(BaseMBDataset):
         return []
 
 
-class MBExplicitTokenDataset(BaseMBDataset):
+class MBExplicitDataset(BaseMBDataset):
     """
     Multi-behavior dataset with explicit behavior tokens for sequential recommendation.
     The representation of the item with specific behavior will be like:
@@ -271,18 +266,9 @@ class MBExplicitTokenDataset(BaseMBDataset):
     where `<behavior_token>` is the token representing the behavior type.
     """
 
-    def __init__(
-        self,
-        dataset: str,
-        data_path: str,
-        max_his_len: int,
-        index_file: str = ".index.json",
-        mode: str = "train",
-        behavior_first: bool = True,
-        filter_target: bool = False,
-    ):
+    def __init__(self, behavior_first: bool = True, **kwargs):
         self.behavior_first = behavior_first
-        super().__init__(dataset, data_path, max_his_len, index_file, mode, filter_target)
+        super().__init__(**kwargs)
 
     def _update_behavior_tokens(self):
         for behavior in self.behaviors:
@@ -300,20 +286,64 @@ class MBExplicitTokenDataset(BaseMBDataset):
         return [f"<behavior_{behavior}>"]
 
 
-class MBExplicitTokenDatasetForDecoder(MBExplicitTokenDataset):
-    def __init__(self, **kwargs):
+class MBExplicitDatasetForDecoder(MBExplicitDataset):
+    def __init__(self, augment: int | None = None, **kwargs):
+        self.augment = augment  # Times of augmentation for each interaction (for training only)
+        if augment is not None and augment < 1:
+            raise ValueError("augment must be greater than or equal to 1")
         super().__init__(**kwargs)
 
+    def _augment_interactions(self, items: list[str], behaviors: list[str]) -> tuple[list[list[str]], list[list[str]]]:
+        if not self.augment:
+            return [items], [behaviors]
+        downsample_ratios = np.arange(1, self.augment + 1) / self.augment
+        behavior_indices = {}
+        for behavior in self.behavior_level:
+            behavior_indices[behavior] = [i for i, b in enumerate(behaviors) if b == behavior]
+        items_list = [items]
+        behaviors_list = [behaviors]
+        for ratio in downsample_ratios:
+            if ratio == 0:
+                continue
+            drop_indices = []
+            for behavior, level in self.behavior_level.items():
+                if level == self.max_behavior_level:
+                    continue  # Skip the target behavior
+                if behavior not in behavior_indices or len(behavior_indices[behavior]) == 0:
+                    continue
+                behavior_ratio = ratio / (level + 1)  # downsample ratio for each behavior
+                drop_num = int(len(behavior_indices[behavior]) * behavior_ratio)
+                if drop_num > 0:
+                    drop_indices.extend(np.random.choice(behavior_indices[behavior], drop_num, replace=False).tolist())
+            drop_mask = np.ones(len(items), dtype=bool)
+            drop_mask[drop_indices] = False
+            items_copy = copy.deepcopy(items)
+            behaviors_copy = copy.deepcopy(behaviors)
+            items_array = np.array(items_copy)
+            behaviors_array = np.array(behaviors_copy)
+            items_copy: list[str] = items_array[drop_mask].tolist()
+            behaviors_copy: list[str] = behaviors_array[drop_mask].tolist()
+            if len(items_copy) < 2:
+                continue
+            items_list.append(items_copy)
+            behaviors_list.append(behaviors_copy)
+        return items_list, behaviors_list
+
     def _process_train_data(self) -> list[dict[str, str]]:
+        set_seed(42)  # For reproducibility
         inter_data = []
+        if self.augment and int(os.environ.get("LOCAL_RANK", 0)) == 0:
+            logger.info(f"Augmenting interactions {self.augment} times for each interaction.")
         pbar = tqdm(self.remapped_inters) if int(os.environ.get("LOCAL_RANK", 0)) == 0 else self.remapped_inters
         for uid in pbar:
             items = self.remapped_inters[uid][:-2]
             behaviors = self.history_behaviors[uid][:-2]
-            inter_data.append({
-                "item": self.get_behavior_item(items[-1], behaviors[-1]),
-                "inters": self._get_inters(items, behaviors),
-                "behavior": behaviors[-1],
-            })
+            items_list, behaviors_list = self._augment_interactions(items, behaviors)
+            for items, behaviors in zip(items_list, behaviors_list):
+                inter_data.append({
+                    "item": self.get_behavior_item(items[-1], behaviors[-1]),
+                    "inters": self._get_inters(items, behaviors),
+                    "behavior": behaviors[-1],
+                })
 
         return inter_data

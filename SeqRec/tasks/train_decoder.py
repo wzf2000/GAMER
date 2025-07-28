@@ -5,7 +5,7 @@ from transformers import EarlyStoppingCallback, T5Config, T5Tokenizer, Qwen3Conf
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.seq_dataset import BaseSeqDataset
-from SeqRec.datasets.MB_dataset import BaseMBDataset
+from SeqRec.datasets.MB_dataset import BaseMBDataset, MBExplicitDatasetForDecoder
 from SeqRec.datasets.loading import load_datasets
 from SeqRec.datasets.collator import EncoderDecoderCollator, DecoderOnlyCollator
 from SeqRec.models.TIGER import TIGER
@@ -251,7 +251,7 @@ class TrainDecoder(MultiGPUTask):
             config.save_pretrained(output_dir)
 
         if backbone == "Qwen3":
-            collator = DecoderOnlyCollator(tokenizer, only_train_response=True)
+            collator = DecoderOnlyCollator(tokenizer, only_train_response=not isinstance(first_dataset, MBExplicitDatasetForDecoder))
         else:
             collator = EncoderDecoderCollator(tokenizer)
         if backbone == "TIGER":
