@@ -87,3 +87,21 @@ def prefix_allowed_tokens_fn(candidate_trie: Trie) -> Callable[[int, torch.Tenso
         return trie_out
 
     return prefix_allowed_tokens
+
+
+def prefix_allowed_tokens_fn_by_last_token(
+    candidate_trie: Trie,
+    last_token_set: set[int],
+) -> Callable[[int, torch.Tensor], list[int]]:
+    def prefix_allowed_tokens(batch_id: int, sentence: torch.Tensor) -> list[int]:
+        sentence = sentence.tolist()
+        index = -1
+        while sentence[index] not in last_token_set:
+            index -= 1
+        if index == -1:
+            sentence = []
+        else:
+            sentence = sentence[index + 1:]
+        return candidate_trie.get(sentence)
+
+    return prefix_allowed_tokens

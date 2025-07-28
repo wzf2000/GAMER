@@ -15,7 +15,8 @@ class EncoderDecoderCollator:
         label_texts = [d["labels"] for d in batch]
 
         inputs = self.tokenizer(
-            input_texts,
+            text=input_texts,
+            text_target=label_texts,
             return_tensors="pt",
             padding="longest",
             max_length=self.tokenizer.model_max_length,
@@ -23,15 +24,6 @@ class EncoderDecoderCollator:
             return_attention_mask=True,
         )
 
-        labels = self.tokenizer(
-            label_texts,
-            return_tensors="pt",
-            padding="longest",
-            max_length=self.tokenizer.model_max_length,
-            truncation=True,
-            return_attention_mask=True,
-        )
-        inputs["labels"] = labels["input_ids"]
         inputs["labels"][inputs["labels"] == self.tokenizer.pad_token_id] = -100
         if "behavior" in batch[0]:
             # If the batch contains target behavior, add it to the inputs
@@ -83,20 +75,14 @@ class EncoderDecoderTestCollator:
         targets = [d["labels"] for d in batch]
         inputs = self.tokenizer(
             text=input_texts,
+            text_target=targets,
             return_tensors="pt",
             padding="longest",
             max_length=self.tokenizer.model_max_length,
             truncation=True,
             return_attention_mask=True,
         )
-        label_ids = self.tokenizer(
-            text=targets,
-            return_tensors="pt",
-            padding="longest",
-            max_length=self.tokenizer.model_max_length,
-            truncation=True,
-            return_attention_mask=True,
-        )['input_ids']
+        label_ids = inputs['labels']
         if "behavior" in batch[0]:
             # If the batch contains target behavior, add it to the inputs
             inputs["target_behavior"] = [d["behavior"] for d in batch]
@@ -113,24 +99,18 @@ class DecoderOnlyTestCollator(object):
         self.tokenizer.padding_side = "left"
 
     def __call__(self, batch: list[dict]) -> tuple[BatchEncoding, list[str], torch.LongTensor]:
-        input_texts = [d["input_ids"] for d in batch]
         targets = [d["labels"] for d in batch]
+        full_texts = [d["input_ids"] + d["labels"] for d in batch]
         inputs = self.tokenizer(
-            text=input_texts,
+            text=full_texts,
+            text_target=targets,
             return_tensors="pt",
             padding="longest",
             max_length=self.tokenizer.model_max_length,
             truncation=True,
             return_attention_mask=True,
         )
-        label_ids = self.tokenizer(
-            text=targets,
-            return_tensors="pt",
-            padding="longest",
-            max_length=self.tokenizer.model_max_length,
-            truncation=True,
-            return_attention_mask=True,
-        )['input_ids']
+        label_ids = inputs["labels"]
         if "behavior" in batch[0]:
             # If the batch contains target behavior, add it to the inputs
             inputs["target_behavior"] = [d["behavior"] for d in batch]

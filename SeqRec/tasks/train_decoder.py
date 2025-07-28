@@ -1,7 +1,7 @@
 import torch
 import transformers
 from loguru import logger
-from transformers import EarlyStoppingCallback, T5Config, T5Tokenizer, Qwen2Tokenizer, Qwen3Config
+from transformers import EarlyStoppingCallback, T5Config, T5Tokenizer, Qwen3Config, Qwen2Tokenizer
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.seq_dataset import BaseSeqDataset

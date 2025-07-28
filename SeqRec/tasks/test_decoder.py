@@ -8,18 +8,19 @@ from typing import Callable
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from transformers import BatchEncoding, T5Config, T5Tokenizer
+from transformers import BatchEncoding, T5Config, T5Tokenizer, Qwen3Config, Qwen2Tokenizer
 from transformers.generation import GenerationMixin
 from transformers.generation.utils import GenerateBeamOutput
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.loading import load_test_dataset
 from SeqRec.datasets.MB_dataset import BaseMBDataset, EvaluationType
-from SeqRec.datasets.collator import EncoderDecoderTestCollator
+from SeqRec.datasets.collator import EncoderDecoderTestCollator, DecoderOnlyTestCollator
 from SeqRec.models.TIGER import TIGER
 from SeqRec.models.PBATransformers import PBATransformerConfig, PBATransformersForConditionalGeneration
+from SeqRec.models.Qwen import Qwen3WithTemperature
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
-from SeqRec.generation.trie import Trie, prefix_allowed_tokens_fn
+from SeqRec.generation.trie import Trie, prefix_allowed_tokens_fn, prefix_allowed_tokens_fn_by_last_token
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 
@@ -115,34 +116,67 @@ class TestDecoder(MultiGPUTask):
                 dataset: BaseMBDataset = loader.dataset
                 behavior_tokens = [''.join(dataset.get_behavior_tokens(b)) for b in behaviors]
                 decoder_input_ids = [[self.config.decoder_start_token_id] + self.tokenizer.encode(behavior_token_str, add_special_tokens=False) for behavior_token_str in behavior_tokens]
+                if self.backbone == 'Qwen3':
+                    # Get any item in all_item
+                    any_item = next(iter(self.all_items))
+                    max_new_tokens = len(any_item)
+                    inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
+                    inputs.attention_mask = inputs.attention_mask[:, :-max_new_tokens]
                 if eval_type == EvaluationType.TARGET_BEHAVIOR:
                     prefix_allowed_tokens_fn = self.prefix_allowed_tokens_by_behavior[dataset.target_behavior]
                 else:
                     prefix_allowed_tokens_fn = self.prefix_allowed_tokens
             else:
+                if self.backbone == 'Qwen3':
+                    any_item = next(iter(list(dataset.all_items_by_behavior.values())[0]))
+                    max_new_tokens = len(any_item)
+                    inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
+                    inputs.attention_mask = inputs.attention_mask[:, :-max_new_tokens]
                 decoder_input_ids = [[self.config.decoder_start_token_id] for _ in targets]
                 prefix_allowed_tokens_fn = self.prefix_allowed_tokens
             batch_size = len(targets)
 
-            output: GenerateBeamOutput = (
-                self.model
-                if isinstance(self.model, GenerationMixin)
-                else
-                self.model.module
-            ).generate(
-                input_ids=inputs.input_ids,
-                attention_mask=inputs.attention_mask,
-                decoder_input_ids=torch.tensor(decoder_input_ids, device=self.device),
-                max_new_tokens=10,
-                prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
-                num_beams=num_beams,
-                num_return_sequences=num_beams,
-                output_scores=True,
-                return_dict_in_generate=True,
-                early_stopping=True,
-            )
+            if self.backbone == 'Qwen3':
+                output: GenerateBeamOutput = (
+                    self.model
+                    if isinstance(self.model, GenerationMixin)
+                    else
+                    self.model.module
+                ).generate(
+                    input_ids=inputs.input_ids,
+                    attention_mask=inputs.attention_mask,
+                    max_new_tokens=max_new_tokens,
+                    prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                    num_beams=num_beams,
+                    num_return_sequences=num_beams,
+                    output_scores=True,
+                    return_dict_in_generate=True,
+                    early_stopping=True,
+                )
+            else:
+                output: GenerateBeamOutput = (
+                    self.model
+                    if isinstance(self.model, GenerationMixin)
+                    else
+                    self.model.module
+                ).generate(
+                    input_ids=inputs.input_ids,
+                    attention_mask=inputs.attention_mask,
+                    decoder_input_ids=torch.tensor(decoder_input_ids, device=self.device),
+                    max_new_tokens=10,
+                    prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                    num_beams=num_beams,
+                    num_return_sequences=num_beams,
+                    output_scores=True,
+                    return_dict_in_generate=True,
+                    early_stopping=True,
+                )
             output_ids = output.sequences
             scores = output.sequences_scores
+
+            if self.backbone == 'Qwen3':
+                output_ids = output_ids[:, -max_new_tokens:]
+                scores = scores[:, -max_new_tokens:]
 
             output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
 
@@ -248,6 +282,10 @@ class TestDecoder(MultiGPUTask):
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
             self.model = PBATransformersForConditionalGeneration.from_pretrained(ckpt_path).to(self.device)
             self.config: PBATransformerConfig = self.model.config
+        elif backbone == 'Qwen3':
+            self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
+            self.model = Qwen3WithTemperature.from_pretrained(ckpt_path).to(self.device)
+            self.config: Qwen3Config = self.model.config
         else:
             raise ValueError(f"Unsupported backbone: {backbone}")
         assert isinstance(self.model, GenerationMixin), "Model must be a generation model."
@@ -270,31 +308,56 @@ class TestDecoder(MultiGPUTask):
             self.model = DDP(self.model, device_ids=[self.local_rank])
         else:
             self.samplers = [None] * len(self.datasets)
-        collator = EncoderDecoderTestCollator(self.tokenizer)
+        if backbone == 'Qwen3':
+            collator = DecoderOnlyTestCollator(self.tokenizer)
+        else:
+            collator = EncoderDecoderTestCollator(self.tokenizer)
         for test_dataset in self.datasets:
             test_dataset.get_all_items()
         self.all_items = self.datasets[0].get_all_items()
         self.collision_info = self.check_collision_items(filter)
+        last_token_set: set[int] = set()
+        for item_rep in self.all_items:
+            item_tokens = self.tokenizer.encode(item_rep, add_special_tokens=False)
+            last_token_set.add(item_tokens[-1])
         if self.multi_behavior:
             assert isinstance(self.datasets[0], BaseMBDataset), "Expected a multi-behavior dataset."
             self.all_behavior_items = self.datasets[0].get_all_items("all")
-            candidate_trie = Trie(
-                [[self.config.decoder_start_token_id] + self.tokenizer.encode(candidate) for candidate in self.all_behavior_items]
-            )
-            self.prefix_allowed_tokens = prefix_allowed_tokens_fn(candidate_trie)
+            if backbone == 'Qwen3':
+                candidate_trie = Trie(
+                    [self.tokenizer.encode(candidate, add_special_tokens=False) for candidate in self.all_behavior_items]
+                )
+                self.prefix_allowed_tokens = prefix_allowed_tokens_fn_by_last_token(candidate_trie, last_token_set)
+            else:
+                candidate_trie = Trie(
+                    [[self.config.decoder_start_token_id] + self.tokenizer.encode(candidate) for candidate in self.all_behavior_items]
+                )
+                self.prefix_allowed_tokens = prefix_allowed_tokens_fn(candidate_trie)
             self.prefix_allowed_tokens_by_behavior: dict[str, Callable[[int, torch.Tensor], list[int]]] = {}
             behaviors = self.datasets[0].behaviors
             for behavior in behaviors:
                 all_items = self.datasets[0].get_all_items(behavior)
-                behavior_trie = Trie(
-                    [[self.config.decoder_start_token_id] + self.tokenizer.encode(candidate) for candidate in all_items]
-                )
-                self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn(behavior_trie)
+                if backbone == 'Qwen3':
+                    behavior_trie = Trie(
+                        [self.tokenizer.encode(candidate, add_special_tokens=False) for candidate in all_items]
+                    )
+                    self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn_by_last_token(behavior_trie, last_token_set)
+                else:
+                    behavior_trie = Trie(
+                        [[self.config.decoder_start_token_id] + self.tokenizer.encode(candidate) for candidate in all_items]
+                    )
+                    self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn(behavior_trie)
         else:
-            candidate_trie = Trie(
-                [[self.config.decoder_start_token_id] + self.tokenizer.encode(candidate) for candidate in self.all_items]
-            )
-            self.prefix_allowed_tokens = prefix_allowed_tokens_fn(candidate_trie)
+            if backbone == 'Qwen3':
+                candidate_trie = Trie(
+                    [self.tokenizer.encode(candidate, add_special_tokens=False) for candidate in self.all_items]
+                )
+                self.prefix_allowed_tokens = prefix_allowed_tokens_fn_by_last_token(candidate_trie, last_token_set)
+            else:
+                candidate_trie = Trie(
+                    [[self.config.decoder_start_token_id] + self.tokenizer.encode(candidate) for candidate in self.all_items]
+                )
+                self.prefix_allowed_tokens = prefix_allowed_tokens_fn(candidate_trie)
         self.loaders = [DataLoader(
             test_dataset,
             batch_size=test_batch_size,
@@ -309,6 +372,7 @@ class TestDecoder(MultiGPUTask):
 
         self.model.eval()
         self.metric_list = metrics.split(",")
+        self.backbone = backbone
         results = self.test(num_beams)
         if self.local_rank == 0:
             logger.success("======================================================")
