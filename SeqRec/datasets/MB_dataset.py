@@ -110,7 +110,7 @@ class BaseMBDataset(Dataset):
             history_items = history_items[-(self.max_his_len + 1) : -1]
             history_behaviors = history_behaviors[-(self.max_his_len + 1) : -1]
         if self.filter_target:
-            non_duplicate_ids = [i for i in range(len(history_items)) if history_items[i] != target_item or history_behaviors[i] >= target_behavior]
+            non_duplicate_ids = [i for i in range(len(history_items)) if history_items[i] != target_item or self.behavior_level[history_behaviors[i]] >= self.behavior_level[target_behavior]]
             history_items = [history_items[i] for i in non_duplicate_ids]
             history_behaviors = [history_behaviors[i] for i in non_duplicate_ids]
         history_behavior_items = [
@@ -298,3 +298,22 @@ class MBExplicitTokenDataset(BaseMBDataset):
 
     def get_behavior_tokens(self, behavior: str) -> list[str]:
         return [f"<behavior_{behavior}>"]
+
+
+class MBExplicitTokenDatasetForDecoder(MBExplicitTokenDataset):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def _process_train_data(self) -> list[dict[str, str]]:
+        inter_data = []
+        pbar = tqdm(self.remapped_inters) if int(os.environ.get("LOCAL_RANK", 0)) == 0 else self.remapped_inters
+        for uid in pbar:
+            items = self.remapped_inters[uid][:-2]
+            behaviors = self.history_behaviors[uid][:-2]
+            inter_data.append({
+                "item": self.get_behavior_item(items[-1], behaviors[-1]),
+                "inters": self._get_inters(items, behaviors),
+                "behavior": behaviors[-1],
+            })
+
+        return inter_data
