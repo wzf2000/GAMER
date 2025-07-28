@@ -41,19 +41,6 @@ class BaseMBDataset(Dataset):
         self._load_data()
         self._remap_items()
 
-        # load data
-        if self.mode == "train":
-            self.inter_data = self._process_train_data()
-        elif self.mode == "valid":
-            self.inter_data = self._process_valid_data()
-        elif self.mode == "test":
-            self.inter_data = self._process_test_data()
-        else:
-            raise NotImplementedError
-
-        if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-            logger.info(f"Loaded {len(self.inter_data)} interactions for {self.mode} set.")
-
         assert os.path.exists(os.path.join(self.data_path, self.dataset + '.behavior_level.json')), (
             f"Behavior level file {self.data_path}/{self.dataset}.behavior_level.json does not exist."
         )
@@ -67,6 +54,19 @@ class BaseMBDataset(Dataset):
             f"Expected exactly one target behavior with max level, but found {len(max_level_behaviors)}: {max_level_behaviors}"
         )
         self.target_behavior = max_level_behaviors[0]
+
+        # load data
+        if self.mode == "train":
+            self.inter_data = self._process_train_data()
+        elif self.mode == "valid":
+            self.inter_data = self._process_valid_data()
+        elif self.mode == "test":
+            self.inter_data = self._process_test_data()
+        else:
+            raise NotImplementedError
+
+        if int(os.environ.get("LOCAL_RANK", 0)) == 0:
+            logger.info(f"Loaded {len(self.inter_data)} interactions for {self.mode} set.")
 
     def _load_data(self):
         with open(os.path.join(self.data_path, self.dataset + f".{self.inter_suffix}.json"), "r") as f:
