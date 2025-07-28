@@ -233,10 +233,10 @@ class PBADecoderRouter(nn.Module):
             )
         elif self.use_behavior_token:
             if cache_position is not None:
-                n_items = (torch.max(cache_position) + 4) // self.num_positions
+                n_items = (torch.max(cache_position) + self.num_positions - 1) // self.num_positions
             else:
                 n_items = (
-                    (seq_length + 3) // self.num_positions
+                    (seq_length + self.num_positions - 2) // self.num_positions
                 )
             behavior_indices = self.behavior_token_indices.to(input_id_sequence.device)[
                 : n_items
