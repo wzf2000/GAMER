@@ -2,6 +2,7 @@
 : ${dataset:=Beauty}
 : ${rq_kmeans:=0}
 : ${batch_size:=1024}
+: ${tasks=seqrec}
 : ${test_task:=seqrec}
 : ${filter:=0}
 : ${gpu:=0,1,2,3}
@@ -16,7 +17,8 @@ data_path=./data
 gpu_num=$(echo $gpu | awk -F, '{print NF}')
 per_device_batch_size=$(($batch_size / $gpu_num))
 
-task_dir=${dataset}/${test_task}/${backbone}
+task_dir=${tasks//,/-}
+task_dir=${dataset}/${task_dir}/${backbone}
 
 if [ $rq_kmeans -eq 0 ]; then
     : ${cid:=0}
@@ -80,6 +82,15 @@ else
             echo "Testing decoder on ${dataset} using RQ-Kmeans with CF embeddings and reduced semantic embeddings."
         fi
     fi
+fi
+
+: ${ckpt_num:=best}
+if [[ "$ckpt_num" == "best" ]]; then
+    # no changes needed
+    echo "Using the best checkpoint."
+else
+    ckpt_path=${ckpt_path}checkpoint-${ckpt_num}/
+    echo "Using checkpoint from step ${ckpt_num}."
 fi
 
 if [ $filter -eq 0 ]; then

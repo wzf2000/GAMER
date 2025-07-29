@@ -115,11 +115,11 @@ class TestDecoder(MultiGPUTask):
                 behaviors: list[str] = inputs.pop("target_behavior", None)
                 dataset: BaseMBDataset = loader.dataset
                 behavior_tokens = [''.join(dataset.get_behavior_tokens(b)) for b in behaviors]
-                decoder_input_ids = [[self.config.decoder_start_token_id] + self.tokenizer.encode(behavior_token_str, add_special_tokens=False) for behavior_token_str in behavior_tokens]
+                behavior_tokens = self.tokenizer.batch_encode_plus(behavior_tokens, add_special_tokens=False)["input_ids"]
+                decoder_input_ids = [[self.config.decoder_start_token_id] + tokens for tokens in behavior_tokens]
                 if self.backbone == 'Qwen3':
-                    # Get any item in all_item
-                    any_item = next(iter(self.all_items))
-                    max_new_tokens = len(any_item)
+                    # Get any item in all_items
+                    max_new_tokens = self.sole_item_len
                     inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
                     inputs.attention_mask = inputs.attention_mask[:, :-max_new_tokens]
                 if eval_type == EvaluationType.TARGET_BEHAVIOR:
@@ -128,8 +128,7 @@ class TestDecoder(MultiGPUTask):
                     prefix_allowed_tokens_fn = self.prefix_allowed_tokens
             else:
                 if self.backbone == 'Qwen3':
-                    any_item = next(iter(list(dataset.all_items_by_behavior.values())[0]))
-                    max_new_tokens = len(any_item)
+                    max_new_tokens = self.item_len
                     inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
                     inputs.attention_mask = inputs.attention_mask[:, :-max_new_tokens]
                 decoder_input_ids = [[self.config.decoder_start_token_id] for _ in targets]
@@ -175,8 +174,7 @@ class TestDecoder(MultiGPUTask):
             scores = output.sequences_scores
 
             if self.backbone == 'Qwen3':
-                output_ids = output_ids[:, -max_new_tokens:]
-                scores = scores[:, -max_new_tokens:]
+                output_ids = output_ids[:, -self.item_len:]
 
             output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
 
@@ -285,6 +283,8 @@ class TestDecoder(MultiGPUTask):
         elif backbone == 'Qwen3':
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3WithTemperature.from_pretrained(ckpt_path).to(self.device)
+            if self.model.config.pad_token_id is None:
+                self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3Config = self.model.config
         else:
             raise ValueError(f"Unsupported backbone: {backbone}")
@@ -316,48 +316,63 @@ class TestDecoder(MultiGPUTask):
             test_dataset.get_all_items()
         self.all_items = self.datasets[0].get_all_items()
         self.collision_info = self.check_collision_items(filter)
-        last_token_set: set[int] = set()
-        for item_rep in self.all_items:
-            item_tokens = self.tokenizer.encode(item_rep, add_special_tokens=False)
-            last_token_set.add(item_tokens[-1])
         if self.multi_behavior:
             assert isinstance(self.datasets[0], BaseMBDataset), "Expected a multi-behavior dataset."
             self.all_behavior_items = self.datasets[0].get_all_items("all")
+            item_reps = list(self.all_behavior_items)
+            items_tokens = self.tokenizer.batch_encode_plus(item_reps, add_special_tokens=False)["input_ids"]
+            self.item_len = len(items_tokens[0])
+            self.sole_item_len = len(self.tokenizer.encode(next(iter(self.all_items)), add_special_tokens=False))
+            last_token_set: set[int] = set([tokens[-1] for tokens in items_tokens])
+            last_token_set.add(self.config.pad_token_id)  # Ensure pad token is included
+            if self.local_rank == 0:
+                logger.info("Complete get all behavior items last token set.")
             if backbone == 'Qwen3':
-                candidate_trie = Trie(
-                    [self.tokenizer.encode(candidate, add_special_tokens=False) for candidate in self.all_behavior_items]
-                )
+                candidate_trie = Trie(items_tokens)
                 self.prefix_allowed_tokens = prefix_allowed_tokens_fn_by_last_token(candidate_trie, last_token_set)
             else:
-                candidate_trie = Trie(
-                    [[self.config.decoder_start_token_id] + self.tokenizer.encode(candidate) for candidate in self.all_behavior_items]
-                )
+                candidate_tokens = self.tokenizer.batch_encode_plus(list(self.all_behavior_items))["input_ids"]
+                # Add decoder start token id to each candidate
+                candidate_tokens = [[self.config.decoder_start_token_id] + tokens for tokens in candidate_tokens]
+                candidate_trie = Trie(candidate_tokens)
                 self.prefix_allowed_tokens = prefix_allowed_tokens_fn(candidate_trie)
+            if self.local_rank == 0:
+                logger.info("Complete building all behavior candidate trie for prefix allowed tokens function.")
             self.prefix_allowed_tokens_by_behavior: dict[str, Callable[[int, torch.Tensor], list[int]]] = {}
             behaviors = self.datasets[0].behaviors
             for behavior in behaviors:
                 all_items = self.datasets[0].get_all_items(behavior)
                 if backbone == 'Qwen3':
-                    behavior_trie = Trie(
-                        [self.tokenizer.encode(candidate, add_special_tokens=False) for candidate in all_items]
-                    )
+                    candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items), add_special_tokens=False)["input_ids"]
+                    behavior_trie = Trie(candidate_tokens)
                     self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn_by_last_token(behavior_trie, last_token_set)
                 else:
-                    behavior_trie = Trie(
-                        [[self.config.decoder_start_token_id] + self.tokenizer.encode(candidate) for candidate in all_items]
-                    )
+                    candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items))["input_ids"]
+                    # Add decoder start token id to each candidate
+                    candidate_tokens = [[self.config.decoder_start_token_id] + tokens for tokens in candidate_tokens]
+                    behavior_trie = Trie(candidate_tokens)
                     self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn(behavior_trie)
+                if self.local_rank == 0:
+                    logger.info(f"Complete building candidate trie for behavior {behavior} prefix allowed tokens function.")
         else:
+            item_reps = list(self.all_items)
+            items_tokens = self.tokenizer.batch_encode_plus(item_reps, add_special_tokens=False)["input_ids"]
+            self.item_len = len(items_tokens[0])
+            last_token_set: set[int] = set([tokens[-1] for tokens in items_tokens])
+            last_token_set.add(self.config.pad_token_id)  # Ensure pad token is included
             if backbone == 'Qwen3':
-                candidate_trie = Trie(
-                    [self.tokenizer.encode(candidate, add_special_tokens=False) for candidate in self.all_items]
-                )
+                candidate_trie = Trie(items_tokens)
                 self.prefix_allowed_tokens = prefix_allowed_tokens_fn_by_last_token(candidate_trie, last_token_set)
             else:
-                candidate_trie = Trie(
-                    [[self.config.decoder_start_token_id] + self.tokenizer.encode(candidate) for candidate in self.all_items]
-                )
+                candidate_tokens = self.tokenizer.batch_encode_plus(item_reps)["input_ids"]
+                # Add decoder start token id to each candidate
+                candidate_tokens = [[self.config.decoder_start_token_id] + tokens for tokens in candidate_tokens]
+                candidate_trie = Trie(candidate_tokens)
                 self.prefix_allowed_tokens = prefix_allowed_tokens_fn(candidate_trie)
+            if self.local_rank == 0:
+                logger.info("Complete building candidate trie for prefix allowed tokens function.")
+        if self.local_rank == 0:
+            logger.info("Complete building candidate trie for prefix allowed tokens function.")
         self.loaders = [DataLoader(
             test_dataset,
             batch_size=test_batch_size,
@@ -366,6 +381,8 @@ class TestDecoder(MultiGPUTask):
             num_workers=2,
             pin_memory=True,
         ) for sampler, test_dataset in zip(self.samplers, self.datasets)]
+        if self.local_rank == 0:
+            logger.info("Complete loading test datasets and collators.")
         if self.local_rank == 0:
             for i, test_dataset in enumerate(self.datasets):
                 logger.info(f"Dataset {i} num: {len(test_dataset)}")

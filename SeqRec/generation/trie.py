@@ -95,13 +95,10 @@ def prefix_allowed_tokens_fn_by_last_token(
 ) -> Callable[[int, torch.Tensor], list[int]]:
     def prefix_allowed_tokens(batch_id: int, sentence: torch.Tensor) -> list[int]:
         sentence = sentence.tolist()
-        index = -1
-        while sentence[index] not in last_token_set:
+        index = len(sentence) - 1
+        while index >= 0 and sentence[index] not in last_token_set:
             index -= 1
-        if index == -1:
-            sentence = []
-        else:
-            sentence = sentence[index + 1:]
-        return candidate_trie.get(sentence)
+        truncated_sentence = sentence[index + 1:]
+        return candidate_trie.get(truncated_sentence)
 
     return prefix_allowed_tokens
