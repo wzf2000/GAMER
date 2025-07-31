@@ -189,10 +189,10 @@ class TrainSMBDecoder(MultiGPUTask):
             (
                 wandb_run_name
                 if wandb_run_name != "default"
-                else output_dir.split("checkpoint/decoder/")[-1]
+                else output_dir.split("checkpoint/SMB-decoder/")[-1]
             ),
             "train",
-            f"Training decoder on {data_path} with base model {base_model}",
+            f"Training SMB decoder on {data_path} with base model {base_model}",
             self.param_dict,
         )
         ensure_dir(output_dir)

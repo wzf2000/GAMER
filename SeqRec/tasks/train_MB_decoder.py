@@ -192,7 +192,7 @@ class TrainMBDecoder(MultiGPUTask):
                 else output_dir.split("checkpoint/MB-decoder/")[-1]
             ),
             "train",
-            f"Training decoder on {data_path} with base model {base_model}",
+            f"Training MB decoder on {data_path} with base model {base_model}",
             self.param_dict,
         )
         ensure_dir(output_dir)
