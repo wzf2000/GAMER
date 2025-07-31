@@ -95,7 +95,6 @@ def load_SMB_datasets(
                 index_file=index_file,
                 mode="valid",
                 behavior_first=True,  # Default behavior first for explicit token dataset
-                filter_target=True,  # Filter target items for explicit token dataset
             )
         elif mb_type == "explicit_back":
             valid_data = SMBExplicitDataset(
