@@ -28,6 +28,9 @@ class EncoderDecoderCollator:
         if "behavior" in batch[0]:
             # If the batch contains target behavior, add it to the inputs
             inputs["target_behavior"] = [d["behavior"] for d in batch]
+        if "session_ids" in batch[0]:
+            # If the batch contains session IDs, add it to the inputs
+            inputs["session_ids"] = torch.tensor([d["session_ids"] for d in batch], dtype=torch.long)
 
         return inputs
 
@@ -60,6 +63,12 @@ class DecoderOnlyCollator:
             labels[torch.where(inputs["labels"] != self.tokenizer.pad_token_id)] = -100
 
         inputs["labels"] = labels
+        if "behavior" in batch[0]:
+            # If the batch contains target behavior, add it to the inputs
+            inputs["target_behavior"] = [d["behavior"] for d in batch]
+        if "session_ids" in batch[0]:
+            # If the batch contains session IDs, add it to the inputs
+            inputs["session_ids"] = torch.tensor([d["session_ids"] for d in batch], dtype=torch.long)
 
         return inputs
 
@@ -70,24 +79,25 @@ class EncoderDecoderTestCollator:
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = 0
 
-    def __call__(self, batch: list[dict]) -> tuple[BatchEncoding, list[str], torch.LongTensor]:
+    def __call__(self, batch: list[dict]) -> tuple[BatchEncoding, list[str] | list[list[str]]]:
         input_texts = [d["input_ids"] for d in batch]
         targets = [d["labels"] for d in batch]
         inputs = self.tokenizer(
             text=input_texts,
-            text_target=targets,
             return_tensors="pt",
             padding="longest",
             max_length=self.tokenizer.model_max_length,
             truncation=True,
             return_attention_mask=True,
         )
-        label_ids = inputs['labels']
         if "behavior" in batch[0]:
             # If the batch contains target behavior, add it to the inputs
             inputs["target_behavior"] = [d["behavior"] for d in batch]
+        if "session_ids" in batch[0]:
+            # If the batch contains session IDs, add it to the inputs
+            inputs["session_ids"] = [d["session_ids"] for d in batch]
 
-        return (inputs, targets, label_ids)
+        return (inputs, targets)
 
 
 class DecoderOnlyTestCollator(object):
@@ -98,21 +108,26 @@ class DecoderOnlyTestCollator(object):
         # Allow batched inference
         self.tokenizer.padding_side = "left"
 
-    def __call__(self, batch: list[dict]) -> tuple[BatchEncoding, list[str], torch.LongTensor]:
+    def __call__(self, batch: list[dict]) -> tuple[BatchEncoding, list[str] | list[list[str]]]:
         targets = [d["labels"] for d in batch]
-        full_texts = [d["input_ids"] + d["labels"] for d in batch]
+        if isinstance(batch[0]["input_ids"], str):
+            full_texts = [d["input_ids"] + d["labels"] for d in batch]
+        else:
+            assert isinstance(batch[0]["labels"], list), "labels should be a string or a list of strings"
+            full_texts = [d["input_ids"] for d in batch]
         inputs = self.tokenizer(
             text=full_texts,
-            text_target=targets,
             return_tensors="pt",
             padding="longest",
             max_length=self.tokenizer.model_max_length,
             truncation=True,
             return_attention_mask=True,
         )
-        label_ids = inputs["labels"]
         if "behavior" in batch[0]:
             # If the batch contains target behavior, add it to the inputs
             inputs["target_behavior"] = [d["behavior"] for d in batch]
+        if "session_ids" in batch[0]:
+            # If the batch contains session IDs, add it to the inputs
+            inputs["session_ids"] = [d["session_ids"] for d in batch]
 
-        return (inputs, targets, label_ids)
+        return (inputs, targets)

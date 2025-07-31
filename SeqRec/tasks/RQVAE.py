@@ -185,8 +185,7 @@ class TrainRQVAE(MultiGPUTask):
             sample_strategy=sample_strategy,
             cf_embedding=cf_emb,
         ).to(self.get_device(device))
-        if self.local_rank == 0:
-            logger.info(self.model)
+        self.info(self.model)
 
         if self.ddp:
             self.sampler = DistributedSampler(self.dataset)

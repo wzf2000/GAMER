@@ -20,6 +20,10 @@ def log_arguments(func):
         if 'self' in param_dict:
             class_instance = param_dict.pop('self')  # 移除self参数
             class_instance.param_dict = param_dict
+        if 'args' in param_dict and param_dict['args'] == ():
+            param_dict.pop('args')
+        if 'kwargs' in param_dict and param_dict['kwargs'] == {}:
+            param_dict.pop('kwargs')
         if int(os.environ.get("LOCAL_RANK", 0)) == 0:
             logger.info(f"Calling {func.__name__} with arguments: {param_dict}")
         return func(*args, **kwargs)

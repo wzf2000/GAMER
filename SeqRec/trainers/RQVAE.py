@@ -4,7 +4,6 @@ import torch
 import numpy as np
 import torch.distributed as dist
 from time import time
-from tqdm import tqdm
 from torch import optim
 from loguru import logger
 from argparse import Namespace
@@ -15,6 +14,7 @@ from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.kmeans import constrained_km
 from SeqRec.utils.logging import set_color
 from SeqRec.utils.time import get_local_time
+from SeqRec.utils.pipe import get_tqdm
 from SeqRec.datasets.emb_dataset import EmbDataset
 from SeqRec.models.tokenizer import RQVAE
 
@@ -194,13 +194,7 @@ class Trainer:
     def _valid_epoch(self, valid_data: DataLoader):
         self.model.eval()
 
-        if self.local_rank == 0:
-            pbar = tqdm(
-                total=len(valid_data),
-                desc=set_color("Evaluating", "pink"),
-            )
-        else:
-            pbar = None
+        pbar = get_tqdm(desc=set_color("Evaluating", "pink"), total=len(valid_data))
         indices_set = set()
 
         num_sample = 0
@@ -265,14 +259,8 @@ class Trainer:
     def fit(self, data: DataLoader):
         cur_eval_step = 0
         self.vq_init()
-        if self.local_rank == 0:
-            total_steps = self.epochs * len(data)
-            self.pbar = tqdm(
-                total=total_steps,
-                desc=set_color("Training", "pink"),
-            )
-        else:
-            self.pbar = None
+        total_steps = self.epochs * len(data)
+        self.pbar = get_tqdm(total=total_steps, desc=set_color("Training", "pink"))
         for epoch_idx in range(self.epochs):
             # train
             train_loss, train_recon_loss, cf_loss, quant_loss = self._train_epoch(

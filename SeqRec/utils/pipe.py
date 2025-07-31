@@ -1,6 +1,9 @@
+import os
 import torch
 import random
 import numpy as np
+from tqdm import tqdm
+from typing import Iterable
 
 
 def set_seed(seed: int):
@@ -28,3 +31,17 @@ def set_device(gpu_id: int) -> torch.device:
         return torch.device(
             "cuda:" + str(gpu_id) if torch.cuda.is_available() else "cpu"
         )
+
+
+def get_tqdm(iterable: Iterable | None = None, desc: str = None, total: int = None):
+    """
+    Get a tqdm progress bar for the given iterable. If iterable is None, total must be provided.
+    If desc is provided, it will be used as the description of the progress bar.
+    If total is provided, it will be used to set the total number of iterations.
+    """
+    assert iterable is not None or total is not None, "Either iterable or total must be provided for tqdm progress bar."
+    if int(os.environ.get("LOCAL_RANK", 0)) != 0:
+        return iterable
+    if desc is None:
+        desc = "Processing"
+    return tqdm(iterable, desc=desc, total=total)

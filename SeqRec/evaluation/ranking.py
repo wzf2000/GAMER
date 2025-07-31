@@ -2,7 +2,7 @@ import math
 import torch
 
 
-def get_topk_results(predictions: list[str], scores: torch.Tensor, targets: list[str], k: int) -> list[list[int]]:
+def get_topk_results(predictions: list[str], scores: torch.Tensor, targets: list[str] | list[list[str]], k: int) -> list[list[int]]:
     results = []
     B = len(targets)
     predictions = [_.split("Response:")[-1] for _ in predictions]
@@ -17,26 +17,47 @@ def get_topk_results(predictions: list[str], scores: torch.Tensor, targets: list
         target_item = targets[b]
         one_results = []
         for sorted_pred in sorted_pairs:
-            if sorted_pred[0] == target_item:
-                one_results.append(1)
+            if isinstance(target_item, list):
+                if sorted_pred[0] in target_item:
+                    one_results.append(1)
+                else:
+                    one_results.append(0)
             else:
-                one_results.append(0)
+                if sorted_pred[0] == target_item:
+                    one_results.append(1)
+                else:
+                    one_results.append(0)
         results.append(one_results)
 
     return results
 
 
-def ndcg_k(topk_results: list[list[int]], k: int) -> float:
+def ndcg_k(topk_results: list[list[int]], k: int, targets: list[list[str]] | None = None) -> float:
     ndcg = 0.0
-    for row in topk_results:
+    for i, row in enumerate(topk_results):
         res = row[:k]
         one_ndcg = 0.0
-        for i in range(len(res)):
-            one_ndcg += res[i] / math.log(i + 2, 2)
-            if res[i] == 1:
+        for j in range(len(res)):
+            one_ndcg += res[j] / math.log(j + 2, 2)
+            if res[j] == 1 and targets is None:
                 break
+        if targets is not None:
+            ideal_dcg = 0.0
+            max_length = min(k, len(targets[i]))
+            for j in range(max_length):
+                ideal_dcg += 1 / math.log(j + 2, 2)
+            assert ideal_dcg > 0, "Ideal DCG should be greater than 0"
+            one_ndcg /= ideal_dcg
         ndcg += one_ndcg
     return ndcg
+
+
+def recall_k(topk_results: list[list[int]], k: int, targets: list[list[str]] | None = None) -> float:
+    recall = 0.0
+    for i, row in enumerate(topk_results):
+        res = row[:k]
+        recall += sum(res) / len(targets[i]) if targets is not None else sum(res)
+    return recall
 
 
 def hit_k(topk_results: list[list[int]], k: int) -> float:
@@ -48,7 +69,7 @@ def hit_k(topk_results: list[list[int]], k: int) -> float:
     return hit
 
 
-def get_metrics_results(topk_results: list[list[int]], metrics: list[str]) -> dict[str, float]:
+def get_metrics_results(topk_results: list[list[int]], metrics: list[str], targets: list[list[str]] | None = None) -> dict[str, float]:
     res = {}
     for m in metrics:
         if m.lower().startswith("hit"):
@@ -56,7 +77,10 @@ def get_metrics_results(topk_results: list[list[int]], metrics: list[str]) -> di
             res[m] = hit_k(topk_results, k)
         elif m.lower().startswith("ndcg"):
             k = int(m.split("@")[1])
-            res[m] = ndcg_k(topk_results, k)
+            res[m] = ndcg_k(topk_results, k, targets)
+        elif m.lower().startswith("recall"):
+            k = int(m.split("@")[1])
+            res[m] = recall_k(topk_results, k, targets)
         else:
             raise NotImplementedError
     return res

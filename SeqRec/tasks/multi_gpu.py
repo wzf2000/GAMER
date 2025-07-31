@@ -2,6 +2,7 @@ import os
 import wandb
 import torch
 from typing import Any
+from loguru import logger
 import torch.distributed as dist
 
 from SeqRec.tasks.base import Task
@@ -33,6 +34,16 @@ class MultiGPUTask(Task):
             return f"cuda:{self.local_rank}"
         else:
             return "cuda"
+
+    def info(self, msg: str | list[str]):
+        if self.ddp:
+            dist.barrier()
+        if self.local_rank == 0:
+            if isinstance(msg, list):
+                for m in msg:
+                    logger.info(m)
+            else:
+                logger.info(msg)
 
     def init(
         self,

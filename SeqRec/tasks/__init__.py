@@ -3,7 +3,9 @@ from SeqRec.tasks.semantic_emb import SemanticEmbedding
 from SeqRec.tasks.RQVAE import TrainRQVAE
 from SeqRec.tasks.tokenize import Tokenize
 from SeqRec.tasks.train_decoder import TrainDecoder
+from SeqRec.tasks.train_SMB_decoder import TrainSMBDecoder
 from SeqRec.tasks.test_decoder import TestDecoder
+from SeqRec.tasks.test_SMB_decoder import TestSMBDecoder
 from SeqRec.utils.func_util import subclasses_recursive
 
 

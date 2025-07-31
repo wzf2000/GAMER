@@ -12,6 +12,7 @@ data/*/*
 !data/**/*.inter.json
 !data/**/*.item.json
 !data/**/*.behavior.json
+!data/**/*.session.json
 !data/**/*.behavior_level.json
 *.pth
 *.ipynb
