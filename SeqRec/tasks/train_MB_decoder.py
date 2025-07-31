@@ -4,8 +4,8 @@ from loguru import logger
 from transformers import EarlyStoppingCallback, T5Config, T5Tokenizer, Qwen3Config, Qwen2Tokenizer
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
-from SeqRec.datasets.SMB_dataset import BaseSMBDataset, SMBExplicitDatasetForDecoder
-from SeqRec.datasets.loading_SMB import load_SMB_datasets
+from SeqRec.datasets.MB_dataset import BaseMBDataset, MBExplicitDatasetForDecoder
+from SeqRec.datasets.loading_MB import load_MB_datasets
 from SeqRec.datasets.collator import EncoderDecoderCollator, DecoderOnlyCollator
 from SeqRec.models.TIGER import TIGER
 from SeqRec.models.PBATransformers import (
@@ -17,22 +17,22 @@ from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 
 
-class TrainSMBDecoder(MultiGPUTask):
+class TrainMBDecoder(MultiGPUTask):
     """
-    Train a SMB decoder for the SeqRec model.
+    Train a MB decoder for the SeqRec model.
     """
 
     @staticmethod
     def parser_name() -> str:
-        return "train_SMB_decoder"
+        return "train_MB_decoder"
 
     @staticmethod
     def add_sub_parsers(sub_parsers: SubParsersAction):
         """
-        Add subparsers for the TrainSMBDecoder task.
+        Add subparsers for the TrainMBDecoder task.
         """
         parser = sub_parsers.add_parser(
-            "train_SMB_decoder", help="Train a decoder for session-wise multi-behavior recommendation."
+            "train_MB_decoder", help="Train a MB decoder for SeqRec."
         )
         parser = parse_global_args(parser)
         parser = parse_dataset_args(parser)
@@ -189,7 +189,7 @@ class TrainSMBDecoder(MultiGPUTask):
             (
                 wandb_run_name
                 if wandb_run_name != "default"
-                else output_dir.split("checkpoint/decoder/")[-1]
+                else output_dir.split("checkpoint/MB-decoder/")[-1]
             ),
             "train",
             f"Training decoder on {data_path} with base model {base_model}",
@@ -233,14 +233,14 @@ class TrainSMBDecoder(MultiGPUTask):
             raise ValueError(f"Unsupported backbone model: {backbone}")
         deepspeed = None
 
-        train_data, valid_data = load_SMB_datasets(
+        train_data, valid_data = load_MB_datasets(
             dataset=dataset,
             data_path=data_path,
             max_his_len=max_his_len,
             index_file=index_file,
             tasks=tasks,
         )
-        first_dataset: BaseSMBDataset = train_data.datasets[0]
+        first_dataset: BaseMBDataset = train_data.datasets[0]
         add_num = tokenizer.add_tokens(first_dataset.get_new_tokens())
         config.vocab_size = len(tokenizer)
         self.info([
@@ -252,7 +252,7 @@ class TrainSMBDecoder(MultiGPUTask):
             config.save_pretrained(output_dir)
 
         if backbone == "Qwen3":
-            collator = DecoderOnlyCollator(tokenizer, only_train_response=not isinstance(first_dataset, SMBExplicitDatasetForDecoder))
+            collator = DecoderOnlyCollator(tokenizer, only_train_response=not isinstance(first_dataset, MBExplicitDatasetForDecoder))
         else:
             collator = EncoderDecoderCollator(tokenizer)
 
@@ -343,7 +343,7 @@ class TrainSMBDecoder(MultiGPUTask):
             run_name=(
                 wandb_run_name
                 if wandb_run_name != "default"
-                else output_dir.split("checkpoint/SMB-decoder/")[-1]
+                else output_dir.split("checkpoint/MB-decoder/")[-1]
             ),
         )
         trainer = transformers.trainer.Trainer(

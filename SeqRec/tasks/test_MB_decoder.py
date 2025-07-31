@@ -3,6 +3,7 @@ import json
 import torch
 import torch.distributed as dist
 from loguru import logger
+from typing import Callable
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -11,7 +12,8 @@ from transformers.generation import GenerationMixin
 from transformers.generation.utils import GenerateBeamOutput
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
-from SeqRec.datasets.loading import load_test_dataset
+from SeqRec.datasets.loading_MB import load_MB_test_dataset
+from SeqRec.datasets.MB_dataset import BaseMBDataset, EvaluationType
 from SeqRec.datasets.collator import EncoderDecoderTestCollator, DecoderOnlyTestCollator
 from SeqRec.models.TIGER import TIGER
 from SeqRec.models.PBATransformers import PBATransformerConfig, PBATransformersForConditionalGeneration
@@ -23,21 +25,21 @@ from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_datase
 from SeqRec.utils.pipe import get_tqdm
 
 
-class TestDecoder(MultiGPUTask):
+class TestMBDecoder(MultiGPUTask):
     """
-    Test a decoder for the SeqRec model.
+    Test a MB decoder for the SeqRec model.
     """
 
     @staticmethod
     def parser_name() -> str:
-        return "test_decoder"
+        return "test_MB_decoder"
 
     @staticmethod
     def add_sub_parsers(sub_parsers: SubParsersAction):
         """
-        Add subparsers for the TestDecoder task.
+        Add subparsers for the TestMBDecoder task.
         """
-        parser = sub_parsers.add_parser("test_decoder", help="Train a decoder for SeqRec.")
+        parser = sub_parsers.add_parser("test_MB_decoder", help="Train a MB decoder for SeqRec.")
         parser = parse_global_args(parser)
         parser = parse_dataset_args(parser)
         parser.add_argument("--ckpt_path", type=str, default="./checkpoint", help="The checkpoint path")
@@ -62,48 +64,67 @@ class TestDecoder(MultiGPUTask):
             help="Filter out the collision items from the test data",
         )
 
-    def check_collision_items(self, filter: bool = False) -> dict[str, int | float]:
-        collision_cnt = 0
-        new_inter_data = []
-        for i, test_sample in enumerate(self.dataset):
-            target_item = test_sample["labels"]
-            if target_item in self.dataset.collision_items:
-                collision_cnt += 1
-            else:
-                new_inter_data.append(self.dataset.inter_data[i])
-        self.info([
-            f"Total test data num: {len(self.dataset)}",
-            f"Collision items num: {len(self.dataset.collision_items)}",
-            f"Collision sample num: {collision_cnt}",
-            f"Collision items ratio: {collision_cnt / len(self.dataset):.4f}",
-        ])
-        ret = {
-            "total": len(self.dataset),
-            "collision_items": len(self.dataset.collision_items),
-            "collision_samples": collision_cnt,
-            "collision_ratio": collision_cnt / len(self.dataset),
-        }
-        if filter:
-            # Filter out the collision items from the test data
-            self.dataset.inter_data = new_inter_data
-            self.info(f"Filtered test data num: {len(self.dataset)}")
-        return ret
+    def check_collision_items(self, filter: bool = False) -> list[dict[str, int | float]]:
+        ret_list = []
+        for test_dataset in self.datasets:
+            collision_cnt = 0
+            new_inter_data = []
+            for i, test_sample in enumerate(test_dataset):
+                target_item = test_sample["labels"]
+                if target_item in test_dataset.collision_items:
+                    collision_cnt += 1
+                else:
+                    new_inter_data.append(test_dataset.inter_data[i])
+            self.info([
+                f"Total test data num: {len(test_dataset)}",
+                f"Collision items num: {len(test_dataset.collision_items)}",
+                f"Collision sample num: {collision_cnt}",
+                f"Collision items ratio: {collision_cnt / len(test_dataset):.4f}",
+            ])
+            ret = {
+                "total": len(test_dataset),
+                "collision_items": len(test_dataset.collision_items),
+                "collision_samples": collision_cnt,
+                "collision_ratio": collision_cnt / len(test_dataset),
+            }
+            ret_list.append(ret)
+            if filter:
+                # Filter out the collision items from the test data
+                test_dataset.inter_data = new_inter_data
+                self.info(f"Filtered test data num: {len(test_dataset)}")
+        return ret_list
 
-    def test_single_type(self, loader: DataLoader, num_beams: int) -> dict[str, float]:
+    def test_single_type(self, loader: DataLoader, num_beams: int, eval_type: EvaluationType | None = None) -> dict[str, float]:
         results: dict[str, float] = {}
         total = 0
-        pbar = get_tqdm(desc="Testing", total=len(loader))
+        pbar = get_tqdm(desc="Testing" if eval_type is None else f"Testing ({eval_type.value})", total=len(loader))
 
         for batch in loader:
             batch: tuple[BatchEncoding, list[str], torch.LongTensor]
             inputs = batch[0].to(self.device)
             targets = batch[1]
-            if self.backbone == 'Qwen3':
-                max_new_tokens = self.item_len
-                inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
-                inputs.attention_mask = inputs.attention_mask[:, :-max_new_tokens]
-            decoder_input_ids = [[self.config.decoder_start_token_id] for _ in targets]
-            prefix_allowed_tokens_fn = self.prefix_allowed_tokens
+            if eval_type in [EvaluationType.TARGET_BEHAVIOR, EvaluationType.BEHAVIOR_SPECIFIC]:
+                behaviors: list[str] = inputs.pop("target_behavior", None)
+                dataset: BaseMBDataset = loader.dataset
+                behavior_tokens = [''.join(dataset.get_behavior_tokens(b)) for b in behaviors]
+                behavior_tokens = self.tokenizer.batch_encode_plus(behavior_tokens, add_special_tokens=False)["input_ids"]
+                decoder_input_ids = [[self.config.decoder_start_token_id] + tokens for tokens in behavior_tokens]
+                if self.backbone == 'Qwen3':
+                    # Get any item in all_items
+                    max_new_tokens = self.sole_item_len
+                    inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
+                    inputs.attention_mask = inputs.attention_mask[:, :-max_new_tokens]
+                if eval_type == EvaluationType.TARGET_BEHAVIOR:
+                    prefix_allowed_tokens_fn = self.prefix_allowed_tokens_by_behavior[dataset.target_behavior]
+                else:
+                    prefix_allowed_tokens_fn = self.prefix_allowed_tokens
+            else:
+                if self.backbone == 'Qwen3':
+                    max_new_tokens = self.item_len
+                    inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
+                    inputs.attention_mask = inputs.attention_mask[:, :-max_new_tokens]
+                decoder_input_ids = [[self.config.decoder_start_token_id] for _ in targets]
+                prefix_allowed_tokens_fn = self.prefix_allowed_tokens
             batch_size = len(targets)
 
             if self.backbone == 'Qwen3':
@@ -194,9 +215,20 @@ class TestDecoder(MultiGPUTask):
 
         return results
 
-    def test(self, num_beams: int) -> dict[str, float]:
-        results = self.test_single_type(self.loader, num_beams)
-        results['collision_info'] = self.collision_info
+    def test(self, num_beams: int) -> list[dict[str, float]]:
+        results = []
+        result = self.test_single_type(self.loaders[1], num_beams, EvaluationType.TARGET_BEHAVIOR)
+        result['eval_type'] = "Target Behavior"
+        result['collision_info'] = self.collision_info[1]
+        results.append(result)
+        result = self.test_single_type(self.loaders[0], num_beams, EvaluationType.BEHAVIOR_SPECIFIC)
+        result['eval_type'] = "Behavior Specific"
+        result['collision_info'] = self.collision_info[0]
+        results.append(result)
+        result = self.test_single_type(self.loaders[0], num_beams, EvaluationType.BEHAVIOR_ITEM)
+        result['eval_type'] = "Behavior Item"
+        result['collision_info'] = self.collision_info[0]
+        results.append(result)
         return results
 
     def invoke(
@@ -224,7 +256,7 @@ class TestDecoder(MultiGPUTask):
         **kwargs
     ):
         """
-        Test the decoder using the provided arguments.
+        Test the MB decoder using the provided arguments.
         """
         # Implementation of the training logic goes here.
         self.init(seed, False)
@@ -245,59 +277,82 @@ class TestDecoder(MultiGPUTask):
         else:
             raise ValueError(f"Unsupported backbone: {backbone}")
         assert isinstance(self.model, GenerationMixin), "Model must be a generation model."
-        self.dataset = load_test_dataset(
+
+        self.datasets = [load_MB_test_dataset(
             dataset,
             data_path,
             max_his_len,
             index_file,
             test_task,
-        )
+        )]
+        self.datasets.append(self.datasets[0].filter_by_behavior(self.datasets[0].target_behavior))
+
         if self.ddp:
-            self.sampler = DistributedSampler(
-                self.dataset,
+            self.samplers = [DistributedSampler(
+                test_dataset,
                 num_replicas=self.world_size,
                 rank=self.local_rank,
-            )
+            ) for test_dataset in self.datasets]
             self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model).to(self.device)
             self.model = DDP(self.model, device_ids=[self.local_rank])
         else:
-            self.sampler = None
+            self.samplers = [None] * len(self.datasets)
 
         if backbone == 'Qwen3':
             collator = DecoderOnlyTestCollator(self.tokenizer)
         else:
             collator = EncoderDecoderTestCollator(self.tokenizer)
 
-        self.all_items = self.dataset.get_all_items()
+        for test_dataset in self.datasets:
+            test_dataset.get_all_items()
+        self.all_items = self.datasets[0].get_all_items()
         self.collision_info = self.check_collision_items(filter)
 
-        item_reps = list(self.all_items)
+        self.all_behavior_items = self.datasets[0].get_all_items("all")
+        item_reps = list(self.all_behavior_items)
         items_tokens = self.tokenizer.batch_encode_plus(item_reps, add_special_tokens=False)["input_ids"]
         self.item_len = len(items_tokens[0])
+        self.sole_item_len = len(self.tokenizer.encode(next(iter(self.all_items)), add_special_tokens=False))
         last_token_set: set[int] = set([tokens[-1] for tokens in items_tokens])
         last_token_set.add(self.config.pad_token_id)  # Ensure pad token is included
+        self.info("Complete get all behavior items last token set.")
         if backbone == 'Qwen3':
             candidate_trie = Trie(items_tokens)
             self.prefix_allowed_tokens = prefix_allowed_tokens_fn_by_last_token(candidate_trie, last_token_set)
         else:
-            candidate_tokens = self.tokenizer.batch_encode_plus(item_reps)["input_ids"]
+            candidate_tokens = self.tokenizer.batch_encode_plus(list(self.all_behavior_items))["input_ids"]
             # Add decoder start token id to each candidate
             candidate_tokens = [[self.config.decoder_start_token_id] + tokens for tokens in candidate_tokens]
             candidate_trie = Trie(candidate_tokens)
             self.prefix_allowed_tokens = prefix_allowed_tokens_fn(candidate_trie)
-        self.info("Complete building candidate trie for prefix allowed tokens function.")
+        self.info("Complete building all behavior candidate trie for prefix allowed tokens function.")
+        self.prefix_allowed_tokens_by_behavior: dict[str, Callable[[int, torch.Tensor], list[int]]] = {}
+        behaviors = self.datasets[0].behaviors
+        for behavior in behaviors:
+            all_items = self.datasets[0].get_all_items(behavior)
+            if backbone == 'Qwen3':
+                candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items), add_special_tokens=False)["input_ids"]
+                behavior_trie = Trie(candidate_tokens)
+                self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn_by_last_token(behavior_trie, last_token_set)
+            else:
+                candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items))["input_ids"]
+                # Add decoder start token id to each candidate
+                candidate_tokens = [[self.config.decoder_start_token_id] + tokens for tokens in candidate_tokens]
+                behavior_trie = Trie(candidate_tokens)
+                self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn(behavior_trie)
+            self.info(f"Complete building candidate trie for behavior {behavior} prefix allowed tokens function.")
 
-        self.loader = DataLoader(
-            self.dataset,
+        self.info("Complete building candidate trie for prefix allowed tokens function.")
+        self.loaders = [DataLoader(
+            test_dataset,
             batch_size=test_batch_size,
             collate_fn=collator,
-            sampler=self.sampler,
+            sampler=sampler,
             num_workers=2,
             pin_memory=True,
-        )
-        self.info([
-            "Complete loading test datasets and collators.",
-            f"Dataset num: {len(self.dataset)}",
+        ) for sampler, test_dataset in zip(self.samplers, self.datasets)]
+        self.info(["Complete loading test datasets and collators."] + [
+            f"Dataset {i} num: {len(test_dataset)}" for i, test_dataset in enumerate(self.datasets)
         ])
 
         self.model.eval()
@@ -307,8 +362,12 @@ class TestDecoder(MultiGPUTask):
         if self.local_rank == 0:
             logger.success("======================================================")
             logger.success("Results:")
-            for m in results:
-                logger.success(f"\t{m} = {results[m]:.4f}")
+            for res in results:
+                logger.success("======================================================")
+                logger.success(f"{res['eval_type']} results:")
+                for m in res:
+                    if isinstance(res[m], float):
+                        logger.success(f"\t{m} = {res[m]:.4f}")
             logger.success("======================================================")
             ensure_dir(os.path.dirname(results_file))
             with open(results_file, "w") as f:

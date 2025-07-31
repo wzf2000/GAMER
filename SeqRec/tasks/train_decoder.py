@@ -5,7 +5,6 @@ from transformers import EarlyStoppingCallback, T5Config, T5Tokenizer, Qwen3Conf
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.seq_dataset import BaseSeqDataset
-from SeqRec.datasets.MB_dataset import BaseMBDataset, MBExplicitDatasetForDecoder
 from SeqRec.datasets.loading import load_datasets
 from SeqRec.datasets.collator import EncoderDecoderCollator, DecoderOnlyCollator
 from SeqRec.models.TIGER import TIGER
@@ -241,7 +240,7 @@ class TrainDecoder(MultiGPUTask):
             index_file=index_file,
             tasks=tasks,
         )
-        first_dataset: BaseSeqDataset | BaseMBDataset = train_data.datasets[0]
+        first_dataset: BaseSeqDataset = train_data.datasets[0]
         add_num = tokenizer.add_tokens(first_dataset.get_new_tokens())
         config.vocab_size = len(tokenizer)
         self.info([
@@ -253,45 +252,21 @@ class TrainDecoder(MultiGPUTask):
             config.save_pretrained(output_dir)
 
         if backbone == "Qwen3":
-            collator = DecoderOnlyCollator(tokenizer, only_train_response=not isinstance(first_dataset, MBExplicitDatasetForDecoder))
+            collator = DecoderOnlyCollator(tokenizer, only_train_response=True)
         else:
             collator = EncoderDecoderCollator(tokenizer)
+
         if backbone == "TIGER":
             model = TIGER(config)
             model.set_hyper(temperature)
         elif backbone == "PBATransformers":
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
-            if isinstance(first_dataset, BaseMBDataset):
-                single_item = first_dataset.get_behavior_item(
-                    single_item, first_dataset.target_behavior
-                )
-                behavior_tokens = []
-                for behavior in first_dataset.behaviors:
-                    behavior_tokens.extend(first_dataset.get_behavior_tokens(behavior))
-                behavior_tokens = [
-                    tokenizer.encode(b, add_special_tokens=False)[0]
-                    for b in behavior_tokens
-                ]
-                behavior_maps = {
-                    behavior_token: i
-                    for i, behavior_token in enumerate(behavior_tokens)
-                }
-                config.num_behavior = len(behavior_maps)
-                config.behavior_maps = behavior_maps
-                config.use_behavior_token = (
-                    len(
-                        first_dataset.get_behavior_tokens(first_dataset.target_behavior)
-                    )
-                    > 0
-                )
-            else:
-                config.num_behavior = 0
-                config.use_behavior_token = False
-            if not config.use_behavior_token:
-                config.behavior_injection = False
-                config.behavior_injection_encoder = []
-                config.behavior_injection_decoder = []
+            config.num_behavior = 0
+            config.use_behavior_token = False
+            config.behavior_injection = False
+            config.behavior_injection_encoder = []
+            config.behavior_injection_decoder = []
             single_item_ids = tokenizer.encode(single_item, add_special_tokens=False)
             config.num_positions = len(single_item_ids)
             if not config.Moe_behavior_only:

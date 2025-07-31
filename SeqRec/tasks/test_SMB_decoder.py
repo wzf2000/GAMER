@@ -212,7 +212,7 @@ class TestSMBDecoder(MultiGPUTask):
 
         return results
 
-    def test(self, num_beams: int) -> dict[str, float] | list[dict[str, float]]:
+    def test(self, num_beams: int) -> list[dict[str, float]]:
         results = []
         merge_results = {m: 0.0 for m in self.metric_list}
         total = 0
@@ -255,7 +255,7 @@ class TestSMBDecoder(MultiGPUTask):
         **kwargs
     ):
         """
-        Test the decoder using the provided arguments.
+        Test the SMB decoder using the provided arguments.
         """
         # Implementation of the training logic goes here.
         self.init(seed, False)
@@ -276,6 +276,7 @@ class TestSMBDecoder(MultiGPUTask):
         else:
             raise ValueError(f"Unsupported backbone: {backbone}")
         assert isinstance(self.model, GenerationMixin), "Model must be a generation model."
+
         self.base_dataset = load_SMB_test_dataset(
             dataset,
             data_path,
@@ -287,6 +288,7 @@ class TestSMBDecoder(MultiGPUTask):
         for behavior in self.base_dataset.behaviors:
             self.datasets.append(self.base_dataset.filter_by_behavior(behavior))
             self.info(f"Loaded dataset for behavior {behavior} with {len(self.datasets[-1])} samples.")
+
         if self.ddp:
             self.samplers = [DistributedSampler(
                 test_dataset,
@@ -297,10 +299,12 @@ class TestSMBDecoder(MultiGPUTask):
             self.model = DDP(self.model, device_ids=[self.local_rank])
         else:
             self.samplers = [None] * len(self.datasets)
+
         if backbone == 'Qwen3':
             collator = DecoderOnlyTestCollator(self.tokenizer)
         else:
             collator = EncoderDecoderTestCollator(self.tokenizer)
+
         for test_dataset in self.datasets:
             test_dataset.get_all_items()
         self.all_items = self.datasets[0].get_all_items()
