@@ -8,6 +8,7 @@ from SeqRec.tasks.train_SMB_decoder import TrainSMBDecoder
 from SeqRec.tasks.test_decoder import TestDecoder
 from SeqRec.tasks.test_MB_decoder import TestMBDecoder
 from SeqRec.tasks.test_SMB_decoder import TestSMBDecoder
+from SeqRec.tasks.test_SMB_rule import TestSMBRule
 from SeqRec.utils.func_util import subclasses_recursive
 
 

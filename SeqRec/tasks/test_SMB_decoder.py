@@ -257,7 +257,6 @@ class TestSMBDecoder(MultiGPUTask):
         """
         Test the SMB decoder using the provided arguments.
         """
-        # Implementation of the training logic goes here.
         self.init(seed, False)
         if backbone == 'TIGER':
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)

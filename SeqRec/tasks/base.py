@@ -1,4 +1,5 @@
 from typing import Any
+from loguru import logger
 
 from SeqRec.utils.parse import SubParsersAction
 from SeqRec.utils.func_util import log_arguments, create_meta_class
@@ -9,6 +10,13 @@ class Task(metaclass=create_meta_class("Task", ("invoke", ), log_arguments)):
 
     def __init__(self):
         pass
+
+    def info(self, msg: str | list[str]):
+        if isinstance(msg, list):
+            for m in msg:
+                logger.info(m)
+        else:
+            logger.info(msg)
 
     @staticmethod
     def parser_name() -> str:

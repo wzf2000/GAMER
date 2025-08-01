@@ -120,6 +120,11 @@ class BaseSMBDataset(Dataset):
         ]
         return "".join(history_behavior_items)
 
+    def _get_inters_with_only_items(self, history_items: list[str]) -> list[str]:
+        if self.max_his_len > 0:
+            history_items = history_items[-self.max_his_len:]
+        return history_items
+
     def _generate_session_ids(self, session_ids: list[int], items: list[str], behaviors: list[str]) -> list[int]:
         assert len(session_ids) == len(items) == len(behaviors), (
             f"Session IDs, items, and behaviors must have the same length. "
@@ -188,6 +193,7 @@ class BaseSMBDataset(Dataset):
             inter_data.append({
                 "item": session_items,
                 "inters": self._get_inters(items[:self.test_pos[uid]], behaviors[:self.test_pos[uid]]),
+                "inters_item_list": self._get_inters_with_only_items(items[:self.test_pos[uid]]),
                 # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
                 "session_ids": self._generate_session_ids(self.session[uid][:self.test_pos[uid]], items[:self.test_pos[uid]], behaviors[:self.test_pos[uid]]),
                 "behavior": session_behaviors,
@@ -280,7 +286,7 @@ class BaseSMBDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, str | list[str] | list[int]]:
         d = self.inter_data[index]
-        return dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], session_ids=d["session_ids"])
+        return dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], session_ids=d["session_ids"], inters_item_list=d.get("inters_item_list", []))
 
 
 class SMBDataset(BaseSMBDataset):
