@@ -27,10 +27,18 @@ class EncoderDecoderCollator:
         inputs["labels"][inputs["labels"] == self.tokenizer.pad_token_id] = -100
         if "behavior" in batch[0]:
             # If the batch contains target behavior, add it to the inputs
-            inputs["target_behavior"] = [d["behavior"] for d in batch]
+            inputs["behavior"] = [d["behavior"] for d in batch]
         if "session_ids" in batch[0]:
             # If the batch contains session IDs, add it to the inputs
-            inputs["session_ids"] = torch.tensor([d["session_ids"] for d in batch], dtype=torch.long)
+            session_ids = [d["session_ids"] for d in batch]
+            max_length = max([len(sub) for sub in session_ids])
+            session_ids = [session + [0] * (max_length - len(session)) for session in session_ids]
+            inputs["session_ids"] = torch.tensor(session_ids, dtype=torch.long)
+        if "time" in batch[0]:
+            time = [d["time"] for d in batch]
+            max_length = max([len(sub) for sub in time])
+            time = [t + [-1] * (max_length - len(t)) for t in time]
+            inputs["time"] = torch.tensor(time, dtype=torch.float32)
 
         return inputs
 
@@ -90,12 +98,21 @@ class EncoderDecoderTestCollator:
             truncation=True,
             return_attention_mask=True,
         )
+
         if "behavior" in batch[0]:
             # If the batch contains target behavior, add it to the inputs
-            inputs["target_behavior"] = [d["behavior"] for d in batch]
+            inputs["behavior"] = [d["behavior"] for d in batch]
         if "session_ids" in batch[0]:
             # If the batch contains session IDs, add it to the inputs
-            inputs["session_ids"] = [d["session_ids"] for d in batch]
+            session_ids = [d["session_ids"] for d in batch]
+            max_length = max([len(sub) for sub in session_ids])
+            session_ids = [session + [0] * (max_length - len(session)) for session in session_ids]
+            inputs["session_ids"] = torch.tensor(session_ids, dtype=torch.long)
+        if "time" in batch[0]:
+            time = [d["time"] for d in batch]
+            max_length = max([len(sub) for sub in time])
+            time = [t + [-1] * (max_length - len(t)) for t in time]
+            inputs["time"] = torch.tensor(time, dtype=torch.float32)
 
         return (inputs, targets)
 

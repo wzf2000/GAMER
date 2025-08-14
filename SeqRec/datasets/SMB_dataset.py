@@ -73,7 +73,15 @@ class BaseSMBDataset(Dataset):
                 if len(unique_sids) >= 3:
                     train_sids = unique_sids[:-2]
                     self.train_pos[uid] = {sid: np.where(self.session[uid] == sid)[0].min() for sid in train_sids}
-
+        with open(os.path.join(self.data_path, self.dataset + '.SMB.time.json'), 'r') as f:
+            self.time: dict[str, list[str]] = json.load(f)
+            import pandas as pd
+            for uid in self.time:
+                timestamps = pd.to_datetime(self.time[uid], format="%Y-%m-%d %H:%M:%S")
+                base_time = timestamps[0]
+                diffs = [t - base_time for t in timestamps]
+                halfhour_diffs = [diff.total_seconds() / 1800 for diff in diffs]
+                self.time[uid] = halfhour_diffs
         assert os.path.exists(os.path.join(self.data_path, self.dataset + '.behavior_level.json')), (
             f"Behavior level file {self.data_path}/{self.dataset}.behavior_level.json does not exist."
         )
@@ -131,6 +139,12 @@ class BaseSMBDataset(Dataset):
             f"Got {len(session_ids)}, {len(items)}, and {len(behaviors)}."
         )
         ret = []
+        max_his_len = self.max_his_len
+        if self.mode in ["train", "valid"]:
+            max_his_len += 1
+        session_ids = session_ids[-max_his_len:]
+        items = items[-max_his_len:]
+        behaviors = behaviors[-max_his_len:]
         for sid, item, behavior in zip(session_ids, items, behaviors):
             item_rep = self.get_behavior_item(item, behavior)
             # TODO: generalize this to handle different item representations
@@ -142,6 +156,30 @@ class BaseSMBDataset(Dataset):
             ret.extend([sid] * token_count)
         return ret
 
+    def _generate_times(self, times: list[int], items: list[str], behaviors: list[str]) -> list[int]:
+        assert len(times) == len(items) == len(behaviors), (
+            f"Session IDs, items, and behaviors must have the same length. "
+            f"Got {len(times)}, {len(items)}, and {len(behaviors)}."
+        )
+        ret = []
+        max_his_len = self.max_his_len + 1
+        times = times[-max_his_len:]
+        base_time = times[-1]
+        times = [abs(t - base_time) for t in times]
+        times = times[-max_his_len:-1]
+        items = items[-max_his_len:-1]
+        behaviors = behaviors[-max_his_len:-1]
+        for time, item, behavior in zip(times, items, behaviors):
+            item_rep = self.get_behavior_item(item, behavior)
+            # TODO: generalize this to handle different item representations
+            # get the token count for the item representation, suppose each token is like <XXX>
+            assert item_rep.count("<") == item_rep.count(">"), (
+                f"Item representation '{item_rep}' must have balanced '<' and '>' tokens."
+            )
+            token_count = item_rep.count("<")  # Each token is like <XXX>, so count '<' to get the number of tokens
+            ret.extend([time] * token_count)
+        return ret
+
     def _process_train_data(self) -> list[dict[str, str | list[int]]]:
         inter_data = []
         pbar = get_tqdm(self.remapped_inters, desc="Processing training data")
@@ -150,12 +188,14 @@ class BaseSMBDataset(Dataset):
                 continue
             items = self.remapped_inters[uid][: self.valid_pos[uid]]
             behaviors = self.history_behaviors[uid][: self.valid_pos[uid]]
+            times = self.time[uid][: self.valid_pos[uid]]
             for i in range(1, len(items)):
                 pos = self.train_pos[uid][self.session[uid][i]]
                 inter_data.append({
                     "item": self.get_behavior_item(items[i], behaviors[i]),
                     "inters": self._get_inters(items[:pos], behaviors[:pos]),
                     "session_ids": self._generate_session_ids(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
+                    "time": self._generate_times(times[:pos + 1], items[:pos + 1], behaviors[:pos + 1]),
                     "behavior": behaviors[i],
                 })
 
@@ -168,12 +208,14 @@ class BaseSMBDataset(Dataset):
                 continue
             items = self.remapped_inters[uid][: self.test_pos[uid]]
             behaviors = self.history_behaviors[uid][: self.test_pos[uid]]
+            times = self.time[uid][: self.test_pos[uid]]
             for i in range(self.valid_pos[uid], len(items)):
                 pos = self.valid_pos[uid]
                 inter_data.append({
                     "item": self.get_behavior_item(items[i], behaviors[i]),
                     "inters": self._get_inters(items[:pos], behaviors[:pos]),
                     "session_ids": self._generate_session_ids(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
+                    "time": self._generate_times(times[:pos + 1], items[:pos + 1], behaviors[:pos + 1]),
                     "behavior": behaviors[i],
                 })
 
@@ -184,6 +226,7 @@ class BaseSMBDataset(Dataset):
         for uid in self.remapped_inters:
             items = self.remapped_inters[uid]
             behaviors = self.history_behaviors[uid]
+            times = self.time[uid]
             session_items: list[str] = []
             session_behaviors: list[str] = []
             for i in range(self.test_pos[uid], len(items)):
@@ -196,6 +239,7 @@ class BaseSMBDataset(Dataset):
                 "inters_item_list": self._get_inters_with_only_items(items[:self.test_pos[uid]]),
                 # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
                 "session_ids": self._generate_session_ids(self.session[uid][:self.test_pos[uid]], items[:self.test_pos[uid]], behaviors[:self.test_pos[uid]]),
+                "time": self._generate_times(times[:self.test_pos[uid] + 1], items[:self.test_pos[uid] + 1], behaviors[:self.test_pos[uid] + 1]),
                 "behavior": session_behaviors,
             })
 
@@ -271,6 +315,7 @@ class BaseSMBDataset(Dataset):
                     "inters": d["inters"],
                     "session_ids": d["session_ids"],
                     "behavior": behaviors,
+                    "time": d["time"],
                 })
         else:
             filtered_data = [
@@ -286,7 +331,7 @@ class BaseSMBDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, str | list[str] | list[int]]:
         d = self.inter_data[index]
-        return dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], session_ids=d["session_ids"], inters_item_list=d.get("inters_item_list", []))
+        return dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], session_ids=d["session_ids"], time=d["time"], inters_item_list=d.get("inters_item_list", []))
 
 
 class SMBDataset(BaseSMBDataset):

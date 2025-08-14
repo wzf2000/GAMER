@@ -13,6 +13,7 @@ from SeqRec.models.PBATransformers import (
     PBATransformersForConditionalGeneration,
 )
 from SeqRec.models.Qwen import Qwen3WithTemperature
+from SeqRec.models.Qwen_Moe import Qwen3WithTemperatureMoe
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 
@@ -220,7 +221,7 @@ class TrainMBDecoder(MultiGPUTask):
             assert isinstance(
                 tokenizer, T5Tokenizer
             ), "Expected T5Tokenizer for PBATransformers backbone"
-        elif backbone == "Qwen3":
+        elif backbone == "Qwen3" or backbone == "Qwen3Moe":
             config: Qwen3Config = Qwen3Config.from_pretrained(base_model)
             tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(
                 base_model,
@@ -251,7 +252,7 @@ class TrainMBDecoder(MultiGPUTask):
             tokenizer.save_pretrained(output_dir)
             config.save_pretrained(output_dir)
 
-        if backbone == "Qwen3":
+        if backbone == "Qwen3" or backbone == "Qwen3Moe":
             collator = DecoderOnlyCollator(tokenizer, only_train_response=not isinstance(first_dataset, MBExplicitDatasetForDecoder))
         else:
             collator = EncoderDecoderCollator(tokenizer)
@@ -304,6 +305,55 @@ class TrainMBDecoder(MultiGPUTask):
             model = PBATransformersForConditionalGeneration(config)
         elif backbone == "Qwen3":
             model = Qwen3WithTemperature(config)
+            model.set_hyper(temperature)
+        elif backbone == "Qwen3Moe":
+            all_items = first_dataset.get_all_items()
+            single_item = list(all_items)[0]
+            if isinstance(first_dataset, BaseMBDataset):
+                single_item = first_dataset.get_behavior_item(
+                    single_item, first_dataset.target_behavior
+                )
+                behavior_tokens = []
+                for behavior in first_dataset.behaviors:
+                    behavior_tokens.extend(first_dataset.get_behavior_tokens(behavior))
+                behavior_tokens = [
+                    tokenizer.encode(b, add_special_tokens=False)[0]
+                    for b in behavior_tokens
+                ]
+                behavior_maps = {
+                    behavior_token: i
+                    for i, behavior_token in enumerate(behavior_tokens)
+                }
+                config.num_behavior = len(behavior_maps)
+                config.behavior_maps = behavior_maps
+                config.use_behavior_token = (
+                    len(
+                        first_dataset.get_behavior_tokens(first_dataset.target_behavior)
+                    )
+                    > 0
+                )
+            else:
+                config.num_behavior = 0
+                config.use_behavior_token = False
+            if not config.use_behavior_token:
+                config.behavior_injection = False
+                config.behavior_injection_encoder = []
+                config.behavior_injection_decoder = []
+            single_item_ids = tokenizer.encode(single_item, add_special_tokens=False)
+            config.num_positions = len(single_item_ids)
+            if not config.Moe_behavior_only:
+                config.num_experts = (
+                    config.num_positions + 1
+                )  # 1 for the BOS, EOS, PAD tokens
+            else:
+                config.num_experts = (
+                    2  # 1 for the item semantic tokens, 1 for the other tokens
+                )
+            config.n_positions = max_his_len + 1
+            config.use_user_token = False
+            if self.local_rank == 0:
+                logger.info(f"Model Config: {config}")
+            model = Qwen3WithTemperatureMoe(config)
             model.set_hyper(temperature)
         else:
             raise ValueError(f"Unsupported backbone model: {backbone}")
