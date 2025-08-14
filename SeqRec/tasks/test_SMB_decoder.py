@@ -18,7 +18,9 @@ from SeqRec.datasets.SMB_dataset import BaseSMBDataset
 from SeqRec.datasets.collator import EncoderDecoderTestCollator, DecoderOnlyTestCollator
 from SeqRec.models.TIGER import TIGER
 from SeqRec.models.PBATransformers import PBATransformerConfig, PBATransformersForConditionalGeneration
+from SeqRec.models.PBATransformers_session import PBATransformerConfigSession, PBATransformersForConditionalGenerationSession
 from SeqRec.models.Qwen import Qwen3WithTemperature
+from SeqRec.models.Qwen_Moe import Qwen3WithTemperatureMoe
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.generation.trie import Trie, prefix_allowed_tokens_fn, prefix_allowed_tokens_fn_by_last_token
 from SeqRec.utils.futils import ensure_dir
@@ -101,7 +103,7 @@ class TestSMBDecoder(MultiGPUTask):
             behavior_tokens = self.tokenizer.batch_encode_plus(behavior_tokens, add_special_tokens=False)
             bahavior_attention_mask = behavior_tokens["attention_mask"]
             behavior_tokens = behavior_tokens["input_ids"]
-            if self.backbone == 'Qwen3':
+            if self.backbone == 'Qwen3' or self.backbone == "Qwen3Moe":
                 inputs.input_ids = torch.cat([inputs.input_ids, torch.tensor(behavior_tokens, device=self.device)], dim=1)
                 inputs.attention_mask = torch.cat([inputs.attention_mask, torch.tensor(bahavior_attention_mask, device=self.device)], dim=1)
             else:
@@ -109,7 +111,7 @@ class TestSMBDecoder(MultiGPUTask):
             prefix_allowed_tokens_fn = self.prefix_allowed_tokens_by_behavior[behavior]
 
             self.info("Start generating items for the batch.")
-            if self.backbone == 'Qwen3':
+            if self.backbone == 'Qwen3' or self.backbone == "Qwen3Moe":
                 output: GenerateBeamOutput = (
                     self.model
                     if isinstance(self.model, GenerationMixin)
@@ -125,6 +127,26 @@ class TestSMBDecoder(MultiGPUTask):
                     output_scores=True,
                     return_dict_in_generate=True,
                     early_stopping=True,
+                )
+            elif self.backbone in ["PBATransformers_session", "PBATransformers_time"]:
+                output: GenerateBeamOutput = (
+                    self.model
+                    if isinstance(self.model, GenerationMixin)
+                    else
+                    self.model.module
+                ).generate(
+                    input_ids=inputs.input_ids,
+                    attention_mask=inputs.attention_mask,
+                    decoder_input_ids=torch.tensor(decoder_input_ids, device=self.device),
+                    max_new_tokens=self.sole_item_len,
+                    prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                    num_beams=num_beams,
+                    num_return_sequences=num_beams,
+                    output_scores=True,
+                    return_dict_in_generate=True,
+                    early_stopping=True,
+                    session_ids=inputs.session_ids,
+                    time=inputs.time,
                 )
             else:
                 output: GenerateBeamOutput = (
@@ -148,7 +170,7 @@ class TestSMBDecoder(MultiGPUTask):
             output_ids = output.sequences
             scores = output.sequences_scores
 
-            if self.backbone == 'Qwen3':
+            if self.backbone == 'Qwen3' or self.backbone == "Qwen3Moe":
                 output_ids = output_ids[:, -self.item_len:]
 
             output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
@@ -266,9 +288,19 @@ class TestSMBDecoder(MultiGPUTask):
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
             self.model = PBATransformersForConditionalGeneration.from_pretrained(ckpt_path).to(self.device)
             self.config: PBATransformerConfig = self.model.config
+        elif backbone in ['PBATransformers_session', 'PBATransformers_time']:
+            self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
+            self.model = PBATransformersForConditionalGenerationSession.from_pretrained(ckpt_path).to(self.device)
+            self.config: PBATransformerConfigSession = self.model.config
         elif backbone == 'Qwen3':
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3WithTemperature.from_pretrained(ckpt_path).to(self.device)
+            if self.model.config.pad_token_id is None:
+                self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
+            self.config: Qwen3Config = self.model.config
+        elif backbone == 'Qwen3Moe':
+            self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
+            self.model = Qwen3WithTemperatureMoe.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3Config = self.model.config
@@ -299,7 +331,7 @@ class TestSMBDecoder(MultiGPUTask):
         else:
             self.samplers = [None] * len(self.datasets)
 
-        if backbone == 'Qwen3':
+        if backbone == 'Qwen3' or backbone == 'Qwen3Moe':
             collator = DecoderOnlyTestCollator(self.tokenizer)
         else:
             collator = EncoderDecoderTestCollator(self.tokenizer)
@@ -319,7 +351,7 @@ class TestSMBDecoder(MultiGPUTask):
         last_token_set.add(self.config.pad_token_id)  # Ensure pad token is included
         self.info("Complete get all behavior items last token set.")
 
-        if backbone == 'Qwen3':
+        if backbone == 'Qwen3' or backbone == "Qwen3Moe":
             candidate_trie = Trie(items_tokens)
             self.prefix_allowed_tokens = prefix_allowed_tokens_fn_by_last_token(candidate_trie, last_token_set)
         else:
@@ -334,7 +366,7 @@ class TestSMBDecoder(MultiGPUTask):
         behaviors = self.datasets[0].behaviors
         for behavior in behaviors:
             all_items = self.datasets[0].get_all_items(behavior)
-            if backbone == 'Qwen3':
+            if backbone == 'Qwen3' or backbone == "Qwen3Moe":
                 candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items), add_special_tokens=False)["input_ids"]
                 behavior_trie = Trie(candidate_tokens)
                 self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn_by_last_token(behavior_trie, last_token_set)
