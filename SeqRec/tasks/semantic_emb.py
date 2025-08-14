@@ -57,9 +57,10 @@ class SemanticEmbedding(Task):
             help="Path to the pre-trained language model checkpoint."
         )
         parser.add_argument("--max_sent_len", type=int, default=2048, help="Maximum sentence length for the model.")
+        parser.add_argument("--data_type", type=str, default="SMB", help="Type of data to process, e.g., SMB, MB, single, etc", choices=["SMB", "MB", "single"])
 
     def load_data(self) -> dict[str, dict[str, Any]]:
-        item2feature_path = os.path.join(self.data_path, f"{self.dataset}.item.json")
+        item2feature_path = os.path.join(self.data_path, f"{self.dataset}.{self.data_type}.item.json" if self.data_type != "single" else f"{self.dataset}.item.json")
         if not os.path.exists(item2feature_path):
             raise FileNotFoundError(f"Item feature file not found: {item2feature_path}")
         item2feature = load_json(item2feature_path)
@@ -123,7 +124,7 @@ class SemanticEmbedding(Task):
             return self.amazon_text(["title", "description"])
         elif self.dataset == 'KuaiRec':
             return self.kuairec_text()
-        elif self.dataset == "Tmall":
+        elif self.dataset in ["Tmall", "Tmall-24-0.25"]:
             return self.Tmall_text()
         else:
             raise ValueError(f"Unsupported dataset: {self.dataset}.")
@@ -202,6 +203,7 @@ class SemanticEmbedding(Task):
         plm_name: str,
         plm_checkpoint: str,
         max_sent_len: int,
+        data_type: str,
         *args,
         **kwargs
     ):
@@ -209,6 +211,7 @@ class SemanticEmbedding(Task):
         Execute the process to get item semantic embeddings.
         """
         # Implementation of the semantic embedding logic goes here.
+        self.data_type = data_type
         self.data_path = os.path.join(root, dataset)
         self.device = set_device(gpu_id)
         self.dataset = dataset
