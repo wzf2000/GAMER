@@ -57,5 +57,13 @@
   "behavior_injection_encoder": [0, 1],
   "behavior_injection_decoder": [0, 1],
   "activation_function": "relu",
-  "feed_forward_proj": "relu"
+  "feed_forward_proj": "relu",
+  "num_session": 7,
+  "use_session_token": true,
+  "session_embedding_dim": 64,
+  "session_injection_encoder": [0, 1, 2, 3],
+  "session_injection_decoder": [0, 1, 2, 3],
+  "freqnum": 64,
+  "time_embedding_encoder": [0, 1, 2, 3],
+  "time_embedding_decoder": [0, 1, 2, 3]
 }

@@ -3,7 +3,7 @@
     "Qwen3ForCausalLM"
   ],
   "attention_bias": false,
-  "attention_dropout": 0.0,
+  "attention_dropout": 0.1,
   "bos_token_id": 4,
   "pad_token_id": 4,
   "eos_token_id": 8,
