@@ -21,8 +21,14 @@ if [ "${backbone}" = "TIGER" ]; then
     base_model=./ckpt/s2s-models/TIGER
 elif [ "${backbone}" = "PBATransformers" ]; then
     base_model=./ckpt/s2s-models/PBATransformers
+elif [ "${backbone}" = "PBATransformers_session" ]; then
+    base_model=./ckpt/s2s-models/PBATransformers_session
+elif [ "${backbone}" = "PBATransformers_time" ]; then
+    base_model=./ckpt/s2s-models/PBATransformers_session
 elif [ "${backbone}" = "Qwen3" ]; then
     base_model=./ckpt/s2s-models/Qwen3-Light
+elif [ "${backbone}" = "Qwen3Moe" ]; then
+    base_model=./ckpt/s2s-models/Qwen3-Moe
 else
     echo "Unsupported backbone model: ${backbone}."
     exit 1
