@@ -127,7 +127,7 @@ class DecoderOnlyTestCollator(object):
 
     def __call__(self, batch: list[dict]) -> tuple[BatchEncoding, list[str] | list[list[str]]]:
         targets = [d["labels"] for d in batch]
-        if isinstance(batch[0]["input_ids"], str):
+        if isinstance(batch[0]["labels"], str):
             full_texts = [d["input_ids"] + d["labels"] for d in batch]
         else:
             assert isinstance(batch[0]["labels"], list), "labels should be a string or a list of strings"
