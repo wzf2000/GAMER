@@ -331,7 +331,7 @@ class BaseSMBDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, str | list[str] | list[int]]:
         d = self.inter_data[index]
-        return dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], session_ids=d["session_ids"], time=d["time"], inters_item_list=d.get("inters_item_list", []))
+        return dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], session_ids=d["session_ids"], time=d["time"], inters_item_list=d.get("inters_item_list", []), split=self.mode)
 
 
 class SMBDataset(BaseSMBDataset):

@@ -141,4 +141,4 @@ class SeqRecDataset(BaseSeqDataset):
 
     def __getitem__(self, index: int) -> dict[str, str]:
         d = self.inter_data[index]
-        return dict(input_ids=d["inters"], labels=d["item"])
+        return dict(input_ids=d["inters"], labels=d["item"], split=self.mode)

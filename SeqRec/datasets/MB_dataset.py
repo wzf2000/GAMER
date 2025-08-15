@@ -223,7 +223,7 @@ class BaseMBDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, str]:
         d = self.inter_data[index]
-        return dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"])
+        return dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], split=self.mode)
 
 
 class MBDataset(BaseMBDataset):
