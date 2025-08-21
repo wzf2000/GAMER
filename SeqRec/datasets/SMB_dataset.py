@@ -2,6 +2,7 @@ import os
 import json
 import copy
 import torch
+import pickle
 import numpy as np
 from loguru import logger
 from torch.utils.data import Dataset
@@ -36,16 +37,24 @@ class BaseSMBDataset(Dataset):
         self._remap_items()
 
         # process data
-        if self.mode == "train":
-            self.inter_data = self._process_train_data()
-        elif self.mode == "valid":
-            self.inter_data = self._process_valid_data()
-        elif self.mode == "test":
-            self.inter_data = self._process_test_data()
-        elif self.mode == "valid_test":
-            self.inter_data = self._process_valid_test_data()
+        cached_file_name = os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.SMB.{self.mode}.pkl")
+        if os.path.exists(cached_file_name):
+            with open(cached_file_name, "rb") as f:
+                self.inter_data = pickle.load(f)
+            logger.info(f"Loaded cached {len(self.inter_data)} interactions from {cached_file_name} for {self.mode}.")
         else:
-            raise NotImplementedError
+            if self.mode == "train":
+                self.inter_data = self._process_train_data()
+            elif self.mode == "valid":
+                self.inter_data = self._process_valid_data()
+            elif self.mode == "test":
+                self.inter_data = self._process_test_data()
+            elif self.mode == "valid_test":
+                self.inter_data = self._process_valid_test_data()
+            else:
+                raise NotImplementedError
+            with open(cached_file_name, "wb") as f:
+                pickle.dump(self.inter_data, f)
 
         if int(os.environ.get("LOCAL_RANK", 0)) == 0:
             logger.info(f"Loaded {len(self.inter_data)} interactions for {self.mode} set.")
