@@ -18,7 +18,8 @@ class PBATransformersBlockSession(nn.Module):
         layer_idx: int | None = None,
         behavior_injection: bool = False,
         session_injection: bool = False,
-        time_injection: bool = False,
+        time_embedding: bool = False,
+        session_embedding: bool = False,
     ):
         super().__init__()
         self.is_decoder = config.is_decoder
@@ -38,10 +39,14 @@ class PBATransformersBlockSession(nn.Module):
             )
         )
 
-        self.time_embedding = time_injection
+        self.time_embedding = time_embedding
         if self.time_embedding:
             self.freq = torch.arange(0, config.freqnum) * 2 * torch.pi / config.freqnum
             self.time_mlp = nn.Sequential(nn.Linear(config.freqnum, config.d_model), nn.ReLU())
+        self.session_embedding = session_embedding
+        if self.session_embedding:
+            self.num_session = config.num_session
+            self.session_embedding = nn.Embedding(config.num_session + 2, config.d_model)
 
     def forward(
         self,
@@ -73,6 +78,13 @@ class PBATransformersBlockSession(nn.Module):
             times_position_embedding = self.time_mlp(times_position)
             times_position_embedding = times_position_embedding * (1 - mask.float())
             hidden_states = hidden_states + times_position_embedding
+        if self.session_embedding:
+            session = - session_indices + session_indices.max(dim=1)[0].unsqueeze(1) + 2
+            session[session_indices == -2] = 0
+            session[session_indices == -1] = 1
+            session[session > (self.num_session + 1)] = self.num_session + 1
+            session_position_embedding = self.session_embedding(session)
+            hidden_states = hidden_states + session_position_embedding
         self_attention_outputs = self.layer[0](
             hidden_states,
             attention_mask=attention_mask,

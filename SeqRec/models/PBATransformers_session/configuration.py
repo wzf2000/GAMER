@@ -51,6 +51,8 @@ class PBATransformerConfigSession(SwitchTransformersConfig):
         freqnum: int = 64,
         time_embedding_encoder: list[int] = [],
         time_embedding_decoder: list[int] = [],
+        session_embedding_encoder: list[int] = [],
+        session_embedding_decoder: list[int] = [],
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -75,3 +77,5 @@ class PBATransformerConfigSession(SwitchTransformersConfig):
         self.freqnum = freqnum
         self.time_embedding_encoder = time_embedding_encoder
         self.time_embedding_decoder = time_embedding_decoder
+        self.session_embedding_encoder = session_embedding_encoder
+        self.session_embedding_decoder = session_embedding_decoder

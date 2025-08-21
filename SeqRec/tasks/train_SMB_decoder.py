@@ -383,9 +383,7 @@ class TrainSMBDecoder(MultiGPUTask):
             model.is_parallelizable = True
             model.model_parallel = True
 
-        if backbone == "PBATransformers_session":
-            label_names = ['input_ids', 'labels', 'behavior', 'session_ids']
-        elif backbone == "PBATransformers_time":
+        if backbone in ["PBATransformers_session", "PBATransformers_time"]:
             label_names = ['input_ids', 'labels', 'behavior', 'session_ids', 'time']
         elif backbone == "Qwen3Session":
             label_names = ['input_ids', 'labels', 'extended_session_ids', 'attention_mask']

@@ -196,10 +196,15 @@ class PBATransformersStackSession(PBATransformersPreTrainedModel):
             if self.is_decoder
             else config.session_injection_encoder
         )
-        time_injection_layers = (
+        time_embedding_layers = (
             config.time_embedding_decoder
             if self.is_decoder
             else config.time_embedding_encoder
+        )
+        session_embedding_layers = (
+            config.session_embedding_decoder
+            if self.is_decoder
+            else config.session_embedding_encoder
         )
         config.num_layers = (
             config.num_decoder_layers if self.is_decoder else config.num_layers
@@ -209,7 +214,8 @@ class PBATransformersStackSession(PBATransformersPreTrainedModel):
             is_sparse = i in self.sparse_layers
             is_injection = i in behavior_injection_layers
             is_session = i in session_injection_layers
-            is_time = i in time_injection_layers
+            is_time_embedding = i in time_embedding_layers
+            is_session_embedding = i in session_embedding_layers
             self.block.append(
                 PBATransformersBlockSession(
                     config,
@@ -218,7 +224,8 @@ class PBATransformersStackSession(PBATransformersPreTrainedModel):
                     layer_idx=i,
                     behavior_injection=is_injection,
                     session_injection=is_session,
-                    time_injection=is_time,
+                    time_embedding=is_time_embedding,
+                    session_embedding=is_session_embedding,
                 )
             )
 
@@ -804,7 +811,7 @@ class PBATransformersForConditionalGenerationSession(PBATransformersPreTrainedMo
             output_router_logits=output_router_logits,
             return_dict=return_dict,
             cache_position=cache_position,
-            session_ids=session_ids,
+            session_ids=None,
             time=None,
         )
 
