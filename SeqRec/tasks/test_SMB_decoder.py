@@ -21,6 +21,7 @@ from SeqRec.models.PBATransformers import PBATransformerConfig, PBATransformersF
 from SeqRec.models.PBATransformers_session import PBATransformerConfigSession, PBATransformersForConditionalGenerationSession
 from SeqRec.models.Qwen import Qwen3WithTemperature
 from SeqRec.models.Qwen_Moe import Qwen3WithTemperatureMoe
+from SeqRec.models.Qwen_session import Qwen3SessionWithTemperature
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.generation.trie import Trie, prefix_allowed_tokens_fn, prefix_allowed_tokens_fn_by_last_token
 from SeqRec.utils.futils import ensure_dir
@@ -304,6 +305,12 @@ class TestSMBDecoder(MultiGPUTask):
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3Config = self.model.config
+        elif backbone == 'Qwen3Session':
+            self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
+            self.model = Qwen3SessionWithTemperature.from_pretrained(ckpt_path).to(self.device)
+            if self.model.config.pad_token_id is None:
+                self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
+            self.config: Qwen3Config = self.model.config
         else:
             raise ValueError(f"Unsupported backbone: {backbone}")
         assert isinstance(self.model, GenerationMixin), "Model must be a generation model."
@@ -331,7 +338,7 @@ class TestSMBDecoder(MultiGPUTask):
         else:
             self.samplers = [None] * len(self.datasets)
 
-        if backbone == 'Qwen3' or backbone == 'Qwen3Moe':
+        if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
             collator = DecoderOnlyTestCollator(self.tokenizer)
         else:
             collator = EncoderDecoderTestCollator(self.tokenizer)
@@ -351,7 +358,7 @@ class TestSMBDecoder(MultiGPUTask):
         last_token_set.add(self.config.pad_token_id)  # Ensure pad token is included
         self.info("Complete get all behavior items last token set.")
 
-        if backbone == 'Qwen3' or backbone == "Qwen3Moe":
+        if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
             candidate_trie = Trie(items_tokens)
             self.prefix_allowed_tokens = prefix_allowed_tokens_fn_by_last_token(candidate_trie, last_token_set)
         else:
@@ -366,7 +373,7 @@ class TestSMBDecoder(MultiGPUTask):
         behaviors = self.datasets[0].behaviors
         for behavior in behaviors:
             all_items = self.datasets[0].get_all_items(behavior)
-            if backbone == 'Qwen3' or backbone == "Qwen3Moe":
+            if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
                 candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items), add_special_tokens=False)["input_ids"]
                 behavior_trie = Trie(candidate_tokens)
                 self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn_by_last_token(behavior_trie, last_token_set)

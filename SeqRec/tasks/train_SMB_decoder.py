@@ -18,6 +18,7 @@ from SeqRec.models.PBATransformers_session import (
 )
 from SeqRec.models.Qwen import Qwen3WithTemperature
 from SeqRec.models.Qwen_Moe import Qwen3WithTemperatureMoe
+from SeqRec.models.Qwen_session import Qwen3SessionWithTemperature
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 
@@ -237,7 +238,7 @@ class TrainSMBDecoder(MultiGPUTask):
             assert isinstance(
                 tokenizer, T5Tokenizer
             ), "Expected T5Tokenizer for PBATransformers backbone"
-        elif backbone == "Qwen3" or backbone == "Qwen3Moe":
+        elif backbone == "Qwen3" or backbone == "Qwen3Moe" or backbone == "Qwen3Session":
             config: Qwen3Config = Qwen3Config.from_pretrained(base_model)
             tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(
                 base_model,
@@ -268,8 +269,17 @@ class TrainSMBDecoder(MultiGPUTask):
             tokenizer.save_pretrained(output_dir)
             config.save_pretrained(output_dir)
 
-        if backbone == "Qwen3" or backbone == "Qwen3Moe":
-            collator = DecoderOnlyCollator(tokenizer, only_train_response=not isinstance(first_dataset, SMBExplicitDatasetForDecoder))
+        behavior_tokens = []
+        for behavior in first_dataset.behaviors:
+            behavior_tokens.extend(first_dataset.get_behavior_tokens(behavior))
+        behavior_tokens = [
+            tokenizer.encode(b, add_special_tokens=False)[0]
+            for b in behavior_tokens
+        ]
+
+        if backbone == "Qwen3" or backbone == "Qwen3Moe" or backbone == "Qwen3Session":
+            # default to ignore behavior tokens in Qwen3 models
+            collator = DecoderOnlyCollator(tokenizer, only_train_response=not isinstance(first_dataset, SMBExplicitDatasetForDecoder), ignore_behavior_tokens=behavior_tokens)
         else:
             collator = EncoderDecoderCollator(tokenizer)
 
@@ -282,13 +292,6 @@ class TrainSMBDecoder(MultiGPUTask):
             single_item = first_dataset.get_behavior_item(
                 single_item, first_dataset.target_behavior
             )
-            behavior_tokens = []
-            for behavior in first_dataset.behaviors:
-                behavior_tokens.extend(first_dataset.get_behavior_tokens(behavior))
-            behavior_tokens = [
-                tokenizer.encode(b, add_special_tokens=False)[0]
-                for b in behavior_tokens
-            ]
             behavior_maps = {
                 behavior_token: i
                 for i, behavior_token in enumerate(behavior_tokens)
@@ -368,6 +371,9 @@ class TrainSMBDecoder(MultiGPUTask):
                 logger.info(f"Model Config: {config}")
             model = Qwen3WithTemperatureMoe(config)
             model.set_hyper(temperature)
+        elif backbone == "Qwen3Session":
+            model = Qwen3SessionWithTemperature(config)
+            model.set_hyper(temperature)
         else:
             raise ValueError(f"Unsupported backbone model: {backbone}")
         model.resize_token_embeddings(len(tokenizer))
@@ -377,11 +383,14 @@ class TrainSMBDecoder(MultiGPUTask):
             model.is_parallelizable = True
             model.model_parallel = True
 
-        label_names = None
         if backbone == "PBATransformers_session":
             label_names = ['input_ids', 'labels', 'behavior', 'session_ids']
-        if backbone == "PBATransformers_time":
+        elif backbone == "PBATransformers_time":
             label_names = ['input_ids', 'labels', 'behavior', 'session_ids', 'time']
+        elif backbone == "Qwen3Session":
+            label_names = ['input_ids', 'labels', 'extended_session_ids', 'attention_mask']
+        else:
+            label_names = None
         training_args = transformers.training_args.TrainingArguments(
             output_dir=output_dir,
             seed=seed,

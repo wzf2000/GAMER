@@ -1,6 +1,7 @@
 import os
 import json
 import copy
+import torch
 import numpy as np
 from loguru import logger
 from torch.utils.data import Dataset
@@ -156,7 +157,74 @@ class BaseSMBDataset(Dataset):
             ret.extend([sid] * token_count)
         return ret
 
-    def _generate_times(self, times: list[int], items: list[str], behaviors: list[str]) -> list[int]:
+    def _generate_extended_session_ids(self, session_ids: list[int], items: list[str], behaviors: list[str]) -> list[int]:
+        assert len(session_ids) == len(items) == len(behaviors), (
+            f"Session IDs, items, and behaviors must have the same length. "
+            f"Got {len(session_ids)}, {len(items)}, and {len(behaviors)}."
+        )
+        ret = []
+        max_his_len = self.max_his_len
+        if self.mode in ["train", "valid"]:
+            max_his_len += 1
+        session_ids = session_ids[-max_his_len:]
+        items = items[-max_his_len:]
+        behaviors = behaviors[-max_his_len:]
+        last_sid: int | None = None
+        remapped_sid = -1
+        for sid, item, behavior in zip(session_ids, items, behaviors):
+            item_rep = self.get_behavior_item(item, behavior)
+            # TODO: generalize this to handle different item representations
+            # get the token count for the item representation, suppose each token is like <XXX>
+            assert item_rep.count("<") == item_rep.count(">"), (
+                f"Item representation '{item_rep}' must have balanced '<' and '>' tokens."
+            )
+            token_count = item_rep.count("<")  # Each token is like <XXX>, so count '<' to get the number of tokens
+            if last_sid != sid:
+                last_sid = sid
+                remapped_sid += 1
+            ret.extend([remapped_sid * token_count + i for i in range(token_count)])
+        return ret
+
+    def _generate_attention_mask(self, session_ids: list[int], items: list[str], behaviors: list[str]) -> torch.FloatTensor:
+        assert len(session_ids) == len(items) == len(behaviors), (
+            f"Session IDs, items, and behaviors must have the same length. "
+            f"Got {len(session_ids)}, {len(items)}, and {len(behaviors)}."
+        )
+        max_his_len = self.max_his_len
+        if self.mode in ["train", "valid"]:
+            max_his_len += 1
+        session_ids = session_ids[-max_his_len:]
+        items = items[-max_his_len:]
+        behaviors = behaviors[-max_his_len:]
+        total_len = 0
+        for sid, item, behavior in zip(session_ids, items, behaviors):
+            item_rep = self.get_behavior_item(item, behavior)
+            # TODO: generalize this to handle different item representations
+            # get the token count for the item representation, suppose each token is like <XXX>
+            assert item_rep.count("<") == item_rep.count(">"), (
+                f"Item representation '{item_rep}' must have balanced '<' and '>' tokens."
+            )
+            token_count = item_rep.count("<")  # Each token is like <XXX>, so count '<' to get the number of tokens
+            total_len += token_count
+        attention_mask = torch.full(
+            (total_len, total_len), fill_value=torch.finfo(torch.float32).min, dtype=torch.float32
+        )
+        last_sid: int | None = None
+        accum_tokens = 0
+        last_session_pos = 0
+        for sid, item, behavior in zip(session_ids, items, behaviors):
+            item_rep = self.get_behavior_item(item, behavior)
+            token_count = item_rep.count("<")  # Each token is like <XXX>, so count '<' to get the number of tokens
+            if last_sid != sid:
+                last_sid = sid
+                last_session_pos = accum_tokens
+            if last_session_pos > 0:
+                attention_mask[accum_tokens: accum_tokens + token_count, :last_session_pos] = 0  # set the attention mask to 0 for previous session items
+            attention_mask[accum_tokens: accum_tokens + token_count, accum_tokens: accum_tokens + token_count] *= torch.triu(torch.ones((token_count, token_count), dtype=torch.float32))  # set the attention mask to 0 within the current item by a triangular matrix
+            accum_tokens += token_count
+        return attention_mask
+
+    def _generate_times(self, times: list[float], items: list[str], behaviors: list[str]) -> list[float]:
         assert len(times) == len(items) == len(behaviors), (
             f"Session IDs, items, and behaviors must have the same length. "
             f"Got {len(times)}, {len(items)}, and {len(behaviors)}."
@@ -180,7 +248,7 @@ class BaseSMBDataset(Dataset):
             ret.extend([time] * token_count)
         return ret
 
-    def _process_train_data(self) -> list[dict[str, str | list[int]]]:
+    def _process_train_data(self) -> list[dict[str, str | list[int] | torch.FloatTensor]]:
         inter_data = []
         pbar = get_tqdm(self.remapped_inters, desc="Processing training data")
         for uid in pbar:
@@ -195,13 +263,15 @@ class BaseSMBDataset(Dataset):
                     "item": self.get_behavior_item(items[i], behaviors[i]),
                     "inters": self._get_inters(items[:pos], behaviors[:pos]),
                     "session_ids": self._generate_session_ids(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
+                    "extended_session_ids": self._generate_extended_session_ids(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
+                    "attention_mask": self._generate_attention_mask(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
                     "time": self._generate_times(times[:pos + 1], items[:pos + 1], behaviors[:pos + 1]),
                     "behavior": behaviors[i],
                 })
 
         return inter_data
 
-    def _process_valid_data(self) -> list[dict[str, str | list[int]]]:
+    def _process_valid_data(self) -> list[dict[str, str | list[int] | torch.FloatTensor]]:
         inter_data = []
         for uid in self.remapped_inters:
             if self.valid_pos[uid] < 0:
@@ -215,13 +285,15 @@ class BaseSMBDataset(Dataset):
                     "item": self.get_behavior_item(items[i], behaviors[i]),
                     "inters": self._get_inters(items[:pos], behaviors[:pos]),
                     "session_ids": self._generate_session_ids(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
+                    "extended_session_ids": self._generate_extended_session_ids(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
+                    "attention_mask": self._generate_attention_mask(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
                     "time": self._generate_times(times[:pos + 1], items[:pos + 1], behaviors[:pos + 1]),
                     "behavior": behaviors[i],
                 })
 
         return inter_data
 
-    def _process_test_data(self) -> list[dict[str, str | list[str] | list[int]]]:
+    def _process_test_data(self) -> list[dict[str, str | list[str] | list[int] | torch.FloatTensor]]:
         inter_data = []
         for uid in self.remapped_inters:
             items = self.remapped_inters[uid]
@@ -239,6 +311,8 @@ class BaseSMBDataset(Dataset):
                 "inters_item_list": self._get_inters_with_only_items(items[:self.test_pos[uid]]),
                 # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
                 "session_ids": self._generate_session_ids(self.session[uid][:self.test_pos[uid]], items[:self.test_pos[uid]], behaviors[:self.test_pos[uid]]),
+                "extended_session_ids": self._generate_extended_session_ids(self.session[uid][:self.test_pos[uid]], items[:self.test_pos[uid]], behaviors[:self.test_pos[uid]]),
+                "attention_mask": self._generate_attention_mask(self.session[uid][:self.test_pos[uid]], items[:self.test_pos[uid]], behaviors[:self.test_pos[uid]]),
                 "time": self._generate_times(times[:self.test_pos[uid] + 1], items[:self.test_pos[uid] + 1], behaviors[:self.test_pos[uid] + 1]),
                 "behavior": session_behaviors,
             })
@@ -314,6 +388,8 @@ class BaseSMBDataset(Dataset):
                     "item": items,
                     "inters": d["inters"],
                     "session_ids": d["session_ids"],
+                    "extended_session_ids": d["extended_session_ids"],
+                    "attention_mask": d["attention_mask"],
                     "behavior": behaviors,
                     "time": d["time"],
                 })
@@ -329,9 +405,9 @@ class BaseSMBDataset(Dataset):
     def __len__(self) -> int:
         return len(self.inter_data)
 
-    def __getitem__(self, index: int) -> dict[str, str | list[str] | list[int]]:
+    def __getitem__(self, index: int) -> dict[str, str | list[str] | list[int] | torch.FloatTensor]:
         d = self.inter_data[index]
-        return dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], session_ids=d["session_ids"], time=d["time"], inters_item_list=d.get("inters_item_list", []), split=self.mode)
+        return dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], session_ids=d["session_ids"], extended_session_ids=d["extended_session_ids"], time=d["time"], attention_mask=d["attention_mask"], inters_item_list=d.get("inters_item_list", []), split=self.mode)
 
 
 class SMBDataset(BaseSMBDataset):
@@ -394,9 +470,9 @@ class SMBExplicitDatasetForDecoder(SMBExplicitDataset):
             raise ValueError("augment must be greater than or equal to 1")
         super().__init__(**kwargs)
 
-    def _augment_interactions(self, items: list[str], behaviors: list[str], sids: list[int]) -> tuple[list[list[str]], list[list[str]], list[list[int]]]:
+    def _augment_interactions(self, items: list[str], behaviors: list[str], sids: list[int], times: list[float]) -> tuple[list[list[str]], list[list[str]], list[list[int]], list[list[float]]]:
         if not self.augment:
-            return [items], [behaviors], [sids]
+            return [items], [behaviors], [sids], [times]
         downsample_ratios = np.arange(1, self.augment + 1) / self.augment
         behavior_indices = {}
         for behavior in self.behavior_level:
@@ -404,6 +480,7 @@ class SMBExplicitDatasetForDecoder(SMBExplicitDataset):
         items_list = [items]
         behaviors_list = [behaviors]
         sids_list = [sids]
+        times_list = [times]
         for ratio in downsample_ratios:
             if ratio == 0:
                 continue
@@ -422,24 +499,28 @@ class SMBExplicitDatasetForDecoder(SMBExplicitDataset):
             items_copy = copy.deepcopy(items)
             behaviors_copy = copy.deepcopy(behaviors)
             sids_copy = copy.deepcopy(sids)
+            times_copy = copy.deepcopy(times)
             items_array = np.array(items_copy)
             behaviors_array = np.array(behaviors_copy)
             sids_array = np.array(sids_copy)
+            times_array = np.array(times_copy)
             items_copy: list[str] = items_array[drop_mask].tolist()
             behaviors_copy: list[str] = behaviors_array[drop_mask].tolist()
             sids_copy: list[int] = sids_array[drop_mask].tolist()
+            times_copy: list[float] = times_array[drop_mask].tolist()
             if len(items_copy) < 2:
                 continue
             items_list.append(items_copy)
             behaviors_list.append(behaviors_copy)
             sids_list.append(sids_copy)
-        return items_list, behaviors_list, sids_list
+            times_list.append(times_copy)
+        return items_list, behaviors_list, sids_list, times_list
 
     def _process_train_data(self) -> list[dict[str, str]]:
         set_seed(42)  # For reproducibility
         inter_data = []
         if self.augment and int(os.environ.get("LOCAL_RANK", 0)) == 0:
-            logger.info(f"Augmenting interactions {self.augment} times for each interaction.")
+            logger.info(f"Augmenting interactions {self.augment} times for each user.")
         pbar = get_tqdm(self.remapped_inters, desc="Processing training data")
         for uid in pbar:
             if self.valid_pos[uid] <= 0:
@@ -447,12 +528,16 @@ class SMBExplicitDatasetForDecoder(SMBExplicitDataset):
             items = self.remapped_inters[uid][:self.valid_pos[uid]]
             behaviors = self.history_behaviors[uid][:self.valid_pos[uid]]
             sids = self.session[uid][:self.valid_pos[uid]]
-            items_list, behaviors_list, sids_list = self._augment_interactions(items, behaviors, sids)
-            for items, behaviors, sids in zip(items_list, behaviors_list, sids_list):
+            times = self.time[uid][:self.valid_pos[uid]]
+            items_list, behaviors_list, sids_list, times_list = self._augment_interactions(items, behaviors, sids, times)
+            for items, behaviors, sids, times in zip(items_list, behaviors_list, sids_list, times_list):
                 inter_data.append({
                     "item": self.get_behavior_item(items[-1], behaviors[-1]),
                     "inters": self._get_inters(items[:-1], behaviors[:-1]),
                     "session_ids": self._generate_session_ids(sids, items, behaviors),
+                    "extended_session_ids": self._generate_extended_session_ids(sids, items, behaviors),
+                    "attention_mask": self._generate_attention_mask(sids, items, behaviors),
+                    "time": self._generate_times(times, items, behaviors),
                     "behavior": behaviors[-1],
                 })
 

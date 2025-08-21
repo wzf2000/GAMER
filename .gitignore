@@ -13,6 +13,7 @@ data/*/*
 !data/**/*.item.json
 !data/**/*.behavior.json
 !data/**/*.session.json
+!data/**/*.time.json
 !data/**/*.behavior_level.json
 *.pth
 *.ipynb

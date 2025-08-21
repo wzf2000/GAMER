@@ -29,6 +29,8 @@ elif [ "${backbone}" = "Qwen3" ]; then
     base_model=./ckpt/s2s-models/Qwen3-Light
 elif [ "${backbone}" = "Qwen3Moe" ]; then
     base_model=./ckpt/s2s-models/Qwen3-Moe
+elif [ "${backbone}" = "Qwen3Session" ]; then
+    base_model=./ckpt/s2s-models/Qwen3-Light
 else
     echo "Unsupported backbone model: ${backbone}."
     exit 1

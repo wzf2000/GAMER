@@ -1,1 +1,1 @@
-from SeqRec.models.Qwen.qwen3_model import Qwen3WithTemperature
+from SeqRec.models.Qwen.model import Qwen3WithTemperature
