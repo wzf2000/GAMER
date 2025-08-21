@@ -37,9 +37,12 @@ def ndcg_k(topk_results: list[list[int]], k: int, targets: list[list[str]] | Non
     for i, row in enumerate(topk_results):
         res = row[:k]
         one_ndcg = 0.0
+        cnt = 0
         for j in range(len(res)):
+            if res[j] == 1:
+                cnt += 1
             one_ndcg += res[j] / math.log(j + 2, 2)
-            if res[j] == 1 and targets is None:
+            if cnt == 1 and targets is None or cnt == len(targets[i]):
                 break
         if targets is not None:
             ideal_dcg = 0.0
@@ -56,7 +59,7 @@ def recall_k(topk_results: list[list[int]], k: int, targets: list[list[str]] | N
     recall = 0.0
     for i, row in enumerate(topk_results):
         res = row[:k]
-        recall += sum(res) / len(targets[i]) if targets is not None else sum(res)
+        recall += min(sum(res), len(targets[i])) / len(targets[i]) if targets is not None else sum(res)
     return recall
 
 

@@ -180,6 +180,7 @@ class Qwen3SessionWithTemperature(Qwen3ForCausalLM):
         cache_position: torch.LongTensor | None = None,
         logits_to_keep: int | torch.Tensor = 0,
         extended_session_ids: torch.LongTensor | None = None,
+        generation_attention_mask: torch.Tensor | None = None,
         **kwargs: Unpack[KwargsForCausalLM],
     ) -> CausalLMOutputWithPast:
         r"""
@@ -218,6 +219,21 @@ class Qwen3SessionWithTemperature(Qwen3ForCausalLM):
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
 
+        if generation_attention_mask is not None and cache_position is not None and cache_position.min() == 0:
+            # the first time to generate
+            attention_mask = generation_attention_mask
+            if extended_session_ids is not None:
+                self.max_extended_session_id = extended_session_ids.max(dim=-1)[0]
+        elif generation_attention_mask is not None and cache_position:
+            # not the first time to generate
+            if extended_session_ids is not None:
+                assert cache_position.shape[-1] == 1
+                if self.max_extended_session_id.ndim == 1:
+                    self.max_extended_session_id += 1
+                    extended_session_ids = self.max_extended_session_id[:, None]
+                else:
+                    self.max_extended_session_id += 1
+                    extended_session_ids = self.max_extended_session_id[None]
         if extended_session_ids is not None:
             position_ids = extended_session_ids
 

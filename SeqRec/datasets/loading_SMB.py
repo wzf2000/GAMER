@@ -111,6 +111,45 @@ def load_SMB_datasets(
     return train_data, valid_data
 
 
+def load_SMB_valid_dataset(
+    dataset: str,
+    data_path: str,
+    max_his_len: int,
+    index_file: str,
+    task: str,
+) -> SMBDataset | SMBExplicitDataset:
+    if task.lower() == "smb":
+        valid_data = SMBDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="valid",
+        )
+    elif task.lower() == "smb_explicit":
+        valid_data = SMBExplicitDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="valid",
+            behavior_first=True,  # Default behavior first for explicit token dataset
+        )
+    elif task.lower() == "smb_explicit_back":
+        valid_data = SMBExplicitDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="valid",
+            behavior_first=False,  # Default behavior last for explicit token dataset
+        )
+    else:
+        raise NotImplementedError
+
+    return valid_data
+
+
 def load_SMB_test_dataset(
     dataset: str,
     data_path: str,
@@ -133,6 +172,15 @@ def load_SMB_test_dataset(
             max_his_len=max_his_len,
             index_file=index_file,
             mode="test",
+            behavior_first=True,  # Default behavior first for explicit token dataset
+        )
+    elif test_task.lower() == "smb_explicit_valid":
+        test_data = SMBExplicitDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="valid_test",
             behavior_first=True,  # Default behavior first for explicit token dataset
         )
     elif test_task.lower() == "smb_explicit_back":

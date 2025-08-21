@@ -42,6 +42,8 @@ class BaseSMBDataset(Dataset):
             self.inter_data = self._process_valid_data()
         elif self.mode == "test":
             self.inter_data = self._process_test_data()
+        elif self.mode == "valid_test":
+            self.inter_data = self._process_valid_test_data()
         else:
             raise NotImplementedError
 
@@ -273,7 +275,8 @@ class BaseSMBDataset(Dataset):
 
     def _process_valid_data(self) -> list[dict[str, str | list[int] | torch.FloatTensor]]:
         inter_data = []
-        for uid in self.remapped_inters:
+        pbar = get_tqdm(self.remapped_inters, desc="Processing validation data")
+        for uid in pbar:
             if self.valid_pos[uid] < 0:
                 continue
             items = self.remapped_inters[uid][: self.test_pos[uid]]
@@ -293,9 +296,37 @@ class BaseSMBDataset(Dataset):
 
         return inter_data
 
+    def _process_valid_test_data(self) -> list[dict[str, str | list[str] | list[int] | torch.FloatTensor]]:
+        inter_data = []
+        pbar = get_tqdm(self.remapped_inters, desc="Processing validation data for testing")
+        for uid in pbar:
+            items = self.remapped_inters[uid][: self.test_pos[uid]]
+            behaviors = self.history_behaviors[uid][: self.test_pos[uid]]
+            times = self.time[uid][: self.test_pos[uid]]
+            session_items: list[str] = []
+            session_behaviors: list[str] = []
+            for i in range(self.valid_pos[uid], len(items)):
+                session_items.append(self.get_behavior_item(items[i], behaviors[i]))
+                session_behaviors.append(behaviors[i])
+            assert len(session_items) > 0, f"Session for user {uid} is empty after valid position {self.valid_pos[uid]}."
+            inter_data.append({
+                "item": session_items,
+                "inters": self._get_inters(items[:self.valid_pos[uid]], behaviors[:self.valid_pos[uid]]),
+                "inters_item_list": self._get_inters_with_only_items(items[:self.valid_pos[uid]]),
+                # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
+                "session_ids": self._generate_session_ids(self.session[uid][:self.valid_pos[uid]], items[:self.valid_pos[uid]], behaviors[:self.valid_pos[uid]]),
+                "extended_session_ids": self._generate_extended_session_ids(self.session[uid][:self.valid_pos[uid]], items[:self.valid_pos[uid]], behaviors[:self.valid_pos[uid]]),
+                "attention_mask": self._generate_attention_mask(self.session[uid][:self.valid_pos[uid]], items[:self.valid_pos[uid]], behaviors[:self.valid_pos[uid]]),
+                "time": self._generate_times(times[:self.valid_pos[uid] + 1], items[:self.valid_pos[uid] + 1], behaviors[:self.valid_pos[uid] + 1]),
+                "behavior": session_behaviors,
+            })
+
+        return inter_data
+
     def _process_test_data(self) -> list[dict[str, str | list[str] | list[int] | torch.FloatTensor]]:
         inter_data = []
-        for uid in self.remapped_inters:
+        pbar = get_tqdm(self.remapped_inters, desc="Processing test data")
+        for uid in pbar:
             items = self.remapped_inters[uid]
             behaviors = self.history_behaviors[uid]
             times = self.time[uid]

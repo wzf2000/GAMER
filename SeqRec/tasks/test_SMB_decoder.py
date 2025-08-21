@@ -1,6 +1,7 @@
 import os
 import json
 import torch
+import numpy as np
 import torch.distributed as dist
 from loguru import logger
 from typing import Callable
@@ -10,12 +11,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from transformers import BatchEncoding, T5Config, T5Tokenizer, Qwen3Config, Qwen2Tokenizer
 from transformers.generation import GenerationMixin
 from transformers.generation.utils import GenerateBeamOutput
+from transformers.utils import ModelOutput
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
-from SeqRec.datasets.loading_SMB import load_SMB_test_dataset
+from SeqRec.datasets.loading_SMB import load_SMB_test_dataset, load_SMB_valid_dataset
 from SeqRec.datasets.MB_dataset import EvaluationType
 from SeqRec.datasets.SMB_dataset import BaseSMBDataset
-from SeqRec.datasets.collator import EncoderDecoderTestCollator, DecoderOnlyTestCollator
+from SeqRec.datasets.collator import EncoderDecoderTestCollator, DecoderOnlyTestCollator, EncoderDecoderCollator, DecoderOnlyCollator
 from SeqRec.models.TIGER import TIGER
 from SeqRec.models.PBATransformers import PBATransformerConfig, PBATransformersForConditionalGeneration
 from SeqRec.models.PBATransformers_session import PBATransformerConfigSession, PBATransformersForConditionalGenerationSession
@@ -62,6 +64,7 @@ class TestSMBDecoder(MultiGPUTask):
             help="test metrics, separate by comma",
         )
         parser.add_argument("--test_task", type=str, default="SeqRec")
+        parser.add_argument("--valid_loss", action="store_true", help="Whether to calculate valid loss instead of testing.")
 
     def check_collision_items(self) -> list[dict[str, int | float]]:
         ret_list = []
@@ -104,15 +107,16 @@ class TestSMBDecoder(MultiGPUTask):
             behavior_tokens = self.tokenizer.batch_encode_plus(behavior_tokens, add_special_tokens=False)
             bahavior_attention_mask = behavior_tokens["attention_mask"]
             behavior_tokens = behavior_tokens["input_ids"]
-            if self.backbone == 'Qwen3' or self.backbone == "Qwen3Moe":
+            if self.backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
                 inputs.input_ids = torch.cat([inputs.input_ids, torch.tensor(behavior_tokens, device=self.device)], dim=1)
-                inputs.attention_mask = torch.cat([inputs.attention_mask, torch.tensor(bahavior_attention_mask, device=self.device)], dim=1)
+                if self.backbone != 'Qwen3Session':
+                    inputs.attention_mask = torch.cat([inputs.attention_mask, torch.tensor(bahavior_attention_mask, device=self.device)], dim=1)
             else:
                 decoder_input_ids = [[self.config.decoder_start_token_id] + tokens for tokens in behavior_tokens]
             prefix_allowed_tokens_fn = self.prefix_allowed_tokens_by_behavior[behavior]
 
             self.info("Start generating items for the batch.")
-            if self.backbone == 'Qwen3' or self.backbone == "Qwen3Moe":
+            if self.backbone in ['Qwen3', 'Qwen3Moe']:
                 output: GenerateBeamOutput = (
                     self.model
                     if isinstance(self.model, GenerationMixin)
@@ -121,6 +125,24 @@ class TestSMBDecoder(MultiGPUTask):
                 ).generate(
                     input_ids=inputs.input_ids,
                     attention_mask=inputs.attention_mask,
+                    max_new_tokens=self.sole_item_len,
+                    prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                    num_beams=num_beams,
+                    num_return_sequences=num_beams,
+                    output_scores=True,
+                    return_dict_in_generate=True,
+                    early_stopping=True,
+                )
+            elif self.backbone == 'Qwen3Session':
+                output: GenerateBeamOutput = (
+                    self.model
+                    if isinstance(self.model, GenerationMixin)
+                    else
+                    self.model.module
+                ).generate(
+                    input_ids=inputs.input_ids,
+                    generation_attention_mask=inputs.attention_mask,
+                    extended_session_ids=inputs.extended_session_ids,
                     max_new_tokens=self.sole_item_len,
                     prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
                     num_beams=num_beams,
@@ -171,7 +193,7 @@ class TestSMBDecoder(MultiGPUTask):
             output_ids = output.sequences
             scores = output.sequences_scores
 
-            if self.backbone == 'Qwen3' or self.backbone == "Qwen3Moe":
+            if self.backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
                 output_ids = output_ids[:, -self.item_len:]
 
             output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
@@ -254,6 +276,21 @@ class TestSMBDecoder(MultiGPUTask):
         results.append(merge_results)
         return results
 
+    def validation(self):
+        for i, loader in enumerate(self.loaders):
+            pbar = get_tqdm(desc=f"Validating {i}", total=len(loader))
+            losses = []
+            for batch in loader:
+                output: ModelOutput = self.model(**batch)
+                assert "loss" in output, "Model output must contain 'loss' for validation."
+                loss = output["loss"].item()
+                losses.append(loss)
+                if pbar:
+                    pbar.set_postfix({"Average loss": f"{np.mean(losses):.4f}"})
+            if pbar:
+                pbar.close()
+            self.info(f"Validation loss: {np.mean(losses):.4f} for dataset {i}.")
+
     def invoke(
         self,
         # global arguments
@@ -274,6 +311,7 @@ class TestSMBDecoder(MultiGPUTask):
         num_beams: int,
         metrics: str,
         test_task: str,
+        valid_loss: bool,
         *args,
         **kwargs
     ):
@@ -315,17 +353,27 @@ class TestSMBDecoder(MultiGPUTask):
             raise ValueError(f"Unsupported backbone: {backbone}")
         assert isinstance(self.model, GenerationMixin), "Model must be a generation model."
 
-        self.base_dataset = load_SMB_test_dataset(
-            dataset,
-            data_path,
-            max_his_len,
-            index_file,
-            test_task,
-        )
-        self.datasets: list[BaseSMBDataset] = []
-        for behavior in self.base_dataset.behaviors:
-            self.datasets.append(self.base_dataset.filter_by_behavior(behavior))
-            self.info(f"Loaded dataset for behavior {behavior} with {len(self.datasets[-1])} samples.")
+        if valid_loss:
+            self.valid_dataset = load_SMB_valid_dataset(
+                dataset,
+                data_path,
+                max_his_len,
+                index_file,
+                test_task,
+            )
+            self.datasets: list[BaseSMBDataset] = [self.valid_dataset]
+        else:
+            self.base_dataset = load_SMB_test_dataset(
+                dataset,
+                data_path,
+                max_his_len,
+                index_file,
+                test_task,
+            )
+            self.datasets: list[BaseSMBDataset] = []
+            for behavior in self.base_dataset.behaviors:
+                self.datasets.append(self.base_dataset.filter_by_behavior(behavior))
+                self.info(f"Loaded dataset for behavior {behavior} with {len(self.datasets[-1])} samples.")
 
         if self.ddp:
             self.samplers = [DistributedSampler(
@@ -338,53 +386,66 @@ class TestSMBDecoder(MultiGPUTask):
         else:
             self.samplers = [None] * len(self.datasets)
 
-        if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
-            collator = DecoderOnlyTestCollator(self.tokenizer)
-        else:
-            collator = EncoderDecoderTestCollator(self.tokenizer)
-
-        for test_dataset in self.datasets:
-            test_dataset.get_all_items()
-        self.all_items = self.datasets[0].get_all_items()
-        self.collision_info = self.check_collision_items()
-
-        self.all_behavior_items = self.datasets[0].get_all_items("all")
-        item_reps = list(self.all_behavior_items)
-        items_tokens = self.tokenizer.batch_encode_plus(item_reps, add_special_tokens=False)["input_ids"]
-        self.item_len = len(items_tokens[0])
-        self.sole_item_len = len(self.tokenizer.encode(next(iter(self.all_items)), add_special_tokens=False))
-
-        last_token_set: set[int] = set([tokens[-1] for tokens in items_tokens])
-        last_token_set.add(self.config.pad_token_id)  # Ensure pad token is included
-        self.info("Complete get all behavior items last token set.")
-
-        if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
-            candidate_trie = Trie(items_tokens)
-            self.prefix_allowed_tokens = prefix_allowed_tokens_fn_by_last_token(candidate_trie, last_token_set)
-        else:
-            candidate_tokens = self.tokenizer.batch_encode_plus(list(self.all_behavior_items))["input_ids"]
-            # Add decoder start token id to each candidate
-            candidate_tokens = [[self.config.decoder_start_token_id] + tokens for tokens in candidate_tokens]
-            candidate_trie = Trie(candidate_tokens)
-            self.prefix_allowed_tokens = prefix_allowed_tokens_fn(candidate_trie)
-        self.info("Complete building all behavior candidate trie for prefix allowed tokens function.")
-
-        self.prefix_allowed_tokens_by_behavior: dict[str, Callable[[int, torch.Tensor], list[int]]] = {}
-        behaviors = self.datasets[0].behaviors
-        for behavior in behaviors:
-            all_items = self.datasets[0].get_all_items(behavior)
+        if valid_loss:
+            behavior_tokens: list[str] = []
+            for behavior in self.datasets[0].behaviors:
+                behavior_tokens.extend(self.datasets[0].get_behavior_tokens(behavior))
+            behavior_tokens = [
+                self.tokenizer.encode(b, add_special_tokens=False)[0]
+                for b in behavior_tokens
+            ]
             if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
-                candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items), add_special_tokens=False)["input_ids"]
-                behavior_trie = Trie(candidate_tokens)
-                self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn_by_last_token(behavior_trie, last_token_set)
+                collator = DecoderOnlyCollator(self.tokenizer, ignore_behavior_tokens=behavior_tokens)
             else:
-                candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items))["input_ids"]
+                collator = EncoderDecoderCollator(self.tokenizer)
+        else:
+            if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
+                collator = DecoderOnlyTestCollator(self.tokenizer)
+            else:
+                collator = EncoderDecoderTestCollator(self.tokenizer)
+
+            for test_dataset in self.datasets:
+                test_dataset.get_all_items()
+            self.all_items = self.datasets[0].get_all_items()
+            self.collision_info = self.check_collision_items()
+
+            self.all_behavior_items = self.datasets[0].get_all_items("all")
+            item_reps = list(self.all_behavior_items)
+            items_tokens = self.tokenizer.batch_encode_plus(item_reps, add_special_tokens=False)["input_ids"]
+            self.item_len = len(items_tokens[0])
+            self.sole_item_len = len(self.tokenizer.encode(next(iter(self.all_items)), add_special_tokens=False))
+
+            last_token_set: set[int] = set([tokens[-1] for tokens in items_tokens])
+            last_token_set.add(self.config.pad_token_id)  # Ensure pad token is included
+            self.info("Complete get all behavior items last token set.")
+
+            if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
+                candidate_trie = Trie(items_tokens)
+                self.prefix_allowed_tokens = prefix_allowed_tokens_fn_by_last_token(candidate_trie, last_token_set)
+            else:
+                candidate_tokens = self.tokenizer.batch_encode_plus(list(self.all_behavior_items))["input_ids"]
                 # Add decoder start token id to each candidate
                 candidate_tokens = [[self.config.decoder_start_token_id] + tokens for tokens in candidate_tokens]
-                behavior_trie = Trie(candidate_tokens)
-                self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn(behavior_trie)
-            self.info(f"Complete building candidate trie for behavior {behavior} prefix allowed tokens function.")
-        self.info("Complete building candidate trie for prefix allowed tokens function.")
+                candidate_trie = Trie(candidate_tokens)
+                self.prefix_allowed_tokens = prefix_allowed_tokens_fn(candidate_trie)
+            self.info("Complete building all behavior candidate trie for prefix allowed tokens function.")
+
+            self.prefix_allowed_tokens_by_behavior: dict[str, Callable[[int, torch.Tensor], list[int]]] = {}
+            behaviors = self.datasets[0].behaviors
+            for behavior in behaviors:
+                all_items = self.datasets[0].get_all_items(behavior)
+                if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
+                    candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items), add_special_tokens=False)["input_ids"]
+                    behavior_trie = Trie(candidate_tokens)
+                    self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn_by_last_token(behavior_trie, last_token_set)
+                else:
+                    candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items))["input_ids"]
+                    # Add decoder start token id to each candidate
+                    candidate_tokens = [[self.config.decoder_start_token_id] + tokens for tokens in candidate_tokens]
+                    behavior_trie = Trie(candidate_tokens)
+                    self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn(behavior_trie)
+                self.info(f"Complete building candidate trie for behavior {behavior} prefix allowed tokens function.")
+            self.info("Complete building candidate trie for prefix allowed tokens function.")
 
         self.loaders = [DataLoader(
             test_dataset,
@@ -394,27 +455,32 @@ class TestSMBDecoder(MultiGPUTask):
             num_workers=2,
             pin_memory=True,
         ) for sampler, test_dataset in zip(self.samplers, self.datasets)]
-        self.info(["Complete loading test datasets and collators."] + [
+        self.info(["Complete loading datasets and collators."] + [
             f"Dataset {i} num: {len(test_dataset)}" for i, test_dataset in enumerate(self.datasets)
         ])
 
         self.model.eval()
         self.metric_list = metrics.split(",")
         self.backbone = backbone
-        results = self.test(num_beams)
-        if self.local_rank == 0:
-            logger.success("======================================================")
-            logger.success("Results:")
-            for res in results:
+
+        if valid_loss:
+            self.info("Testing valid dataset...")
+            self.validation()
+        else:
+            results = self.test(num_beams)
+            if self.local_rank == 0:
                 logger.success("======================================================")
-                logger.success(f"{res['eval_type']} results:")
-                for m in res:
-                    if isinstance(res[m], float):
-                        logger.success(f"\t{m} = {res[m]:.4f}")
-            logger.success("======================================================")
-            ensure_dir(os.path.dirname(results_file))
-            with open(results_file, "w") as f:
-                json.dump(results, f, indent=4)
-            logger.success(f"Results saved to {results_file}.")
+                logger.success("Results:")
+                for res in results:
+                    logger.success("======================================================")
+                    logger.success(f"{res['eval_type']} results:")
+                    for m in res:
+                        if isinstance(res[m], float):
+                            logger.success(f"\t{m} = {res[m]:.4f}")
+                logger.success("======================================================")
+                ensure_dir(os.path.dirname(results_file))
+                with open(results_file, "w") as f:
+                    json.dump(results, f, indent=4)
+                logger.success(f"Results saved to {results_file}.")
 
         self.finish(False)

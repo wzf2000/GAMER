@@ -102,6 +102,11 @@ extra_args_out=$(echo "$extra_args" | awk -F, '{
 }')
 echo "Extra arguments: ${extra_args_out}"
 
+: ${extra_flags:=}
+# transform the format of "X,Y" into "--X --Y"
+extra_flags_out=$(echo "$extra_flags" | awk -F, '{for(i=1; i<=NF; i++) printf "--%s ", $i}')
+echo "Extra flags: ${extra_flags_out}"
+
 if [ $gpu_num -eq 1 ]; then
     echo "Using single GPU: ${gpu}"
     python main.py test_SMB_decoder \
@@ -114,7 +119,8 @@ if [ $gpu_num -eq 1 ]; then
         --num_beams 20 \
         --index_file ${index_file} \
         --test_task ${test_task} \
-        ${extra_args_out}
+        ${extra_args_out} \
+        ${extra_flags_out}
 else
     echo "Using multiple GPUs: ${gpu}"
     torchrun --nproc_per_node=${gpu_num} --master_port=${port} ./main.py test_SMB_decoder \
@@ -127,5 +133,6 @@ else
         --num_beams 20 \
         --index_file ${index_file} \
         --test_task ${test_task} \
-        ${extra_args_out}
+        ${extra_args_out} \
+        ${extra_flags_out}
 fi
