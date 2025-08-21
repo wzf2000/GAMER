@@ -287,6 +287,7 @@ class TestSMBDecoder(MultiGPUTask):
                 losses.append(loss)
                 if pbar:
                     pbar.set_postfix({"Average loss": f"{np.mean(losses):.4f}"})
+                    pbar.update(1)
             if pbar:
                 pbar.close()
             self.info(f"Validation loss: {np.mean(losses):.4f} for dataset {i}.")
