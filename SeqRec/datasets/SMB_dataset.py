@@ -37,11 +37,12 @@ class BaseSMBDataset(Dataset):
         self._remap_items()
 
         # process data
-        cached_file_name = os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.SMB.{self.mode}.pkl")
+        cached_file_name = os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}.pkl")
         if os.path.exists(cached_file_name):
             with open(cached_file_name, "rb") as f:
                 self.inter_data = pickle.load(f)
-            logger.info(f"Loaded cached {len(self.inter_data)} interactions from {cached_file_name} for {self.mode}.")
+            if int(os.environ.get("LOCAL_RANK", 0)) == 0:
+                logger.info(f"Loaded cached {len(self.inter_data)} interactions from {cached_file_name} for {self.mode}.")
         else:
             if self.mode == "train":
                 self.inter_data = self._process_train_data()
