@@ -115,7 +115,6 @@ class TestSMBDecoder(MultiGPUTask):
                 decoder_input_ids = [[self.config.decoder_start_token_id] + tokens for tokens in behavior_tokens]
             prefix_allowed_tokens_fn = self.prefix_allowed_tokens_by_behavior[behavior]
 
-            self.info("Start generating items for the batch.")
             if self.backbone in ['Qwen3', 'Qwen3Moe']:
                 output: GenerateBeamOutput = (
                     self.model
@@ -189,7 +188,6 @@ class TestSMBDecoder(MultiGPUTask):
                     return_dict_in_generate=True,
                     early_stopping=True,
                 )
-            self.info("Finished generating items for the batch.")
             output_ids = output.sequences
             scores = output.sequences_scores
 
@@ -197,7 +195,6 @@ class TestSMBDecoder(MultiGPUTask):
                 output_ids = output_ids[:, -self.item_len:]
 
             output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
-            self.info("Finished decoding output ids to strings.")
 
             topk_res = get_topk_results(
                 output_str,
@@ -205,7 +202,6 @@ class TestSMBDecoder(MultiGPUTask):
                 targets,
                 num_beams,
             )
-            self.info(f"Got top-{num_beams} results for the batch with {len(topk_res)} items.")
 
             if self.ddp:
                 batch_size_gather_list = [None for _ in range(self.world_size)]
@@ -227,7 +223,6 @@ class TestSMBDecoder(MultiGPUTask):
                 targets = all_device_targets
             else:
                 total += batch_size
-            self.info(f"Gathered top-{num_beams} results from all devices, total samples: {total}.")
 
             batch_metrics_res = get_metrics_results(topk_res, self.metric_list, targets)
             for m, res in batch_metrics_res.items():
@@ -235,7 +230,6 @@ class TestSMBDecoder(MultiGPUTask):
                     results[m] = res
                 else:
                     results[m] += res
-            self.info(f"Calculated metrics for the batch: {batch_metrics_res}.")
 
             if self.local_rank == 0:
                 show_metric_keys = self.metric_list[:2]  # Show only the first two metrics
@@ -244,10 +238,8 @@ class TestSMBDecoder(MultiGPUTask):
                 }
                 pbar.set_postfix(show_metric_dict)
                 pbar.update(1)
-            self.info(f"Updated progress bar for behavior {behavior} with {batch_size} samples.")
             if self.ddp:
                 dist.barrier()
-            self.info(f"Finished processing batch with {batch_size} samples for behavior {behavior}.")
         if pbar:
             pbar.close()
 
@@ -281,6 +273,8 @@ class TestSMBDecoder(MultiGPUTask):
             pbar = get_tqdm(desc=f"Validating {i}", total=len(loader))
             losses = []
             for batch in loader:
+                batch: BatchEncoding
+                batch = batch.to(self.device)
                 output: ModelOutput = self.model(**batch)
                 assert "loss" in output, "Model output must contain 'loss' for validation."
                 loss = output["loss"].item()
@@ -396,12 +390,12 @@ class TestSMBDecoder(MultiGPUTask):
                 for b in behavior_tokens
             ]
             if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
-                collator = DecoderOnlyCollator(self.tokenizer, ignore_behavior_tokens=behavior_tokens)
+                collator = DecoderOnlyCollator(self.tokenizer, ignore_behavior_tokens=behavior_tokens, attention_mask=(backbone == 'Qwen3Session'))
             else:
                 collator = EncoderDecoderCollator(self.tokenizer)
         else:
             if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
-                collator = DecoderOnlyTestCollator(self.tokenizer)
+                collator = DecoderOnlyTestCollator(self.tokenizer, attention_mask=(backbone == 'Qwen3Session'))
             else:
                 collator = EncoderDecoderTestCollator(self.tokenizer)
 

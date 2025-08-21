@@ -38,7 +38,9 @@ class BaseSMBDataset(Dataset):
 
         # process data
         cached_file_name = os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}.pkl")
-        if os.path.exists(cached_file_name):
+        if os.path.exists(cached_file_name) and self.mode != 'train':
+            if int(os.environ.get("LOCAL_RANK", 0)) == 0:
+                logger.info(f"Loading cached interactions from {cached_file_name} for {self.mode}.")
             with open(cached_file_name, "rb") as f:
                 self.inter_data = pickle.load(f)
             if int(os.environ.get("LOCAL_RANK", 0)) == 0:
@@ -232,7 +234,7 @@ class BaseSMBDataset(Dataset):
                 last_session_pos = accum_tokens
             if last_session_pos > 0:
                 attention_mask[accum_tokens: accum_tokens + token_count, :last_session_pos] = 0  # set the attention mask to 0 for previous session items
-            attention_mask[accum_tokens: accum_tokens + token_count, accum_tokens: accum_tokens + token_count] *= torch.triu(torch.ones((token_count, token_count), dtype=torch.float32))  # set the attention mask to 0 within the current item by a triangular matrix
+            attention_mask[accum_tokens: accum_tokens + token_count, accum_tokens: accum_tokens + token_count] *= torch.triu(torch.ones((token_count, token_count), dtype=torch.float32), diagonal=1)  # set the attention mask to 0 within the current item by a triangular matrix
             accum_tokens += token_count
         return attention_mask
 
