@@ -38,7 +38,7 @@ class BaseSMBDataset(Dataset):
 
         # process data
         cached_file_name = os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}.pkl")
-        if os.path.exists(cached_file_name) and self.mode != 'train':
+        if os.path.exists(cached_file_name):
             if int(os.environ.get("LOCAL_RANK", 0)) == 0:
                 logger.info(f"Loading cached interactions from {cached_file_name} for {self.mode}.")
             with open(cached_file_name, "rb") as f:
@@ -56,8 +56,9 @@ class BaseSMBDataset(Dataset):
                 self.inter_data = self._process_valid_test_data()
             else:
                 raise NotImplementedError
-            with open(cached_file_name, "wb") as f:
-                pickle.dump(self.inter_data, f)
+            if self.mode != "train":
+                with open(cached_file_name, "wb") as f:
+                    pickle.dump(self.inter_data, f)
 
         if int(os.environ.get("LOCAL_RANK", 0)) == 0:
             logger.info(f"Loaded {len(self.inter_data)} interactions for {self.mode} set.")
