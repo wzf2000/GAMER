@@ -109,8 +109,7 @@ class TestSMBDecoder(MultiGPUTask):
             behavior_tokens = behavior_tokens["input_ids"]
             if self.backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
                 inputs.input_ids = torch.cat([inputs.input_ids, torch.tensor(behavior_tokens, device=self.device)], dim=1)
-                if self.backbone != 'Qwen3Session':
-                    inputs.attention_mask = torch.cat([inputs.attention_mask, torch.tensor(bahavior_attention_mask, device=self.device)], dim=1)
+                inputs.attention_mask = torch.cat([inputs.attention_mask, torch.tensor(bahavior_attention_mask, device=self.device)], dim=1)
             else:
                 decoder_input_ids = [[self.config.decoder_start_token_id] + tokens for tokens in behavior_tokens]
             prefix_allowed_tokens_fn = self.prefix_allowed_tokens_by_behavior[behavior]
@@ -140,7 +139,8 @@ class TestSMBDecoder(MultiGPUTask):
                     self.model.module
                 ).generate(
                     input_ids=inputs.input_ids,
-                    generation_attention_mask=inputs.attention_mask,
+                    attention_mask=inputs.attention_mask,
+                    session_ids=inputs.session_ids,
                     extended_session_ids=inputs.extended_session_ids,
                     max_new_tokens=self.sole_item_len,
                     prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
@@ -390,12 +390,12 @@ class TestSMBDecoder(MultiGPUTask):
                 for b in behavior_tokens
             ]
             if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
-                collator = DecoderOnlyCollator(self.tokenizer, ignore_behavior_tokens=behavior_tokens, attention_mask=(backbone == 'Qwen3Session'))
+                collator = DecoderOnlyCollator(self.tokenizer, ignore_behavior_tokens=behavior_tokens)
             else:
                 collator = EncoderDecoderCollator(self.tokenizer)
         else:
             if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
-                collator = DecoderOnlyTestCollator(self.tokenizer, attention_mask=(backbone == 'Qwen3Session'))
+                collator = DecoderOnlyTestCollator(self.tokenizer)
             else:
                 collator = EncoderDecoderTestCollator(self.tokenizer)
 

@@ -44,10 +44,9 @@ class EncoderDecoderCollator:
 
 
 class DecoderOnlyCollator:
-    def __init__(self, tokenizer: PreTrainedTokenizer, only_train_response: bool = False, ignore_behavior_tokens: list[int] | None = None, attention_mask: bool = False):
+    def __init__(self, tokenizer: PreTrainedTokenizer, only_train_response: bool = False, ignore_behavior_tokens: list[int] | None = None):
         self.only_train_response = only_train_response
         self.ignore_behavior_tokens = ignore_behavior_tokens if ignore_behavior_tokens is not None else []
-        self.attention_mask = attention_mask
         self.tokenizer = tokenizer
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.unk_token_id
@@ -91,14 +90,6 @@ class DecoderOnlyCollator:
             max_length = max([len(sub) for sub in extended_session_ids])
             extended_session_ids = [session + [0] * (max_length - len(session)) for session in extended_session_ids]
             inputs["extended_session_ids"] = torch.tensor(extended_session_ids, dtype=torch.long)
-        if "attention_mask" in batch[0] and self.attention_mask:
-            # If the batch contains attention mask, add it to the inputs
-            attention_masks = [d["attention_mask"] for d in batch]
-            max_length = max([sub.shape[0] for sub in attention_masks])
-            attention_mask = torch.full((len(attention_masks), 1, max_length, max_length), fill_value=torch.finfo(torch.float32).min, dtype=torch.float32)
-            for i, mask in enumerate(attention_masks):
-                attention_mask[i, 0, :mask.shape[0], :mask.shape[1]] = mask
-            inputs["attention_mask"] = attention_mask
         if "time" in batch[0]:
             time = [d["time"] for d in batch]
             max_length = max([len(sub) for sub in time])
@@ -145,14 +136,13 @@ class EncoderDecoderTestCollator:
 
 
 class DecoderOnlyTestCollator(object):
-    def __init__(self, tokenizer: PreTrainedTokenizer, add_behavior_token: bool = True, attention_mask: bool = False):
+    def __init__(self, tokenizer: PreTrainedTokenizer, add_behavior_token: bool = True):
         self.tokenizer = tokenizer
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = 0
         # Allow batched inference
         self.tokenizer.padding_side = "left"
         self.add_behavior_token = add_behavior_token
-        self.attention_mask = attention_mask
 
     def __call__(self, batch: list[dict]) -> tuple[BatchEncoding, list[str] | list[list[str]]]:
         targets = [d["labels"] for d in batch]
@@ -176,7 +166,11 @@ class DecoderOnlyTestCollator(object):
             # If the batch contains session IDs, add it to the inputs
             session_ids = [d["session_ids"] for d in batch]
             max_length = max([len(sub) for sub in session_ids])
-            session_ids = [[0] * (max_length - len(session)) + session for session in session_ids]
+            if self.add_behavior_token:
+                max_session_id = max([max(sub) for sub in session_ids])
+                session_ids = [[0] * (max_length - len(session)) + session + [max_session_id + 1] for session in session_ids]
+            else:
+                session_ids = [[0] * (max_length - len(session)) + session for session in session_ids]
             inputs["session_ids"] = torch.tensor(session_ids, dtype=torch.long)
         if "extended_session_ids" in batch[0]:
             # If the batch contains extended session IDs, add it to the inputs
@@ -188,21 +182,5 @@ class DecoderOnlyTestCollator(object):
             else:
                 extended_session_ids = [[0] * (max_length - len(session)) + session for session in extended_session_ids]
             inputs["extended_session_ids"] = torch.tensor(extended_session_ids, dtype=torch.long)
-        if "attention_mask" in batch[0] and self.attention_mask:
-            # If the batch contains attention mask, add it to the inputs
-            attention_masks = [d["attention_mask"] for d in batch]
-            max_length = max([sub.shape[0] for sub in attention_masks])
-            if self.add_behavior_token:
-                attention_mask = torch.full((len(attention_masks), 1, max_length + 1, max_length + 1), fill_value=torch.finfo(torch.float32).min, dtype=torch.float32)
-                for i, mask in enumerate(attention_masks):
-                    new_mask = torch.full((mask.shape[0] + 1, mask.shape[1] + 1), fill_value=torch.finfo(torch.float32).min, dtype=torch.float32)
-                    new_mask[:mask.shape[0], :mask.shape[1]] = mask
-                    new_mask[-1] = 0  # all tokens can be seen from the first behavior token
-                    attention_mask[i, 0, -new_mask.shape[0]:, -new_mask.shape[1]:] = new_mask
-            else:
-                attention_mask = torch.full((len(attention_masks), 1, max_length, max_length), fill_value=torch.finfo(torch.float32).min, dtype=torch.float32)
-                for i, mask in enumerate(attention_masks):
-                    attention_mask[i, 0, -mask.shape[0]:, -mask.shape[1]:] = mask
-            inputs["attention_mask"] = attention_mask
 
         return (inputs, targets)

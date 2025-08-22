@@ -1,7 +1,7 @@
 import torch
 from loguru import logger
 from typing import Unpack
-from functools import partial
+from functools import partial, wraps
 from transformers.utils import can_return_tuple
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.loss.loss_utils import ForCausalLMLoss
@@ -12,6 +12,73 @@ from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutpu
 
 
 class Qwen3SessionModel(Qwen3Model):
+    def __init__(self, config: Qwen3Config):
+        assert 'num_positions' in config and isinstance(config.num_positions, int), "Config must have 'num_positions' attribute for Qwen3SessionModel."
+        assert 'model_max_length' in config and isinstance(config.model_max_length, int), "Config must have 'model_max_length' attribute for Qwen3SessionModel."
+        super().__init__(config)
+        max_item_num = config.model_max_length // config.num_positions
+        self.in_item_mask = torch.eye(config.num_positions * max_item_num)
+        block_lower = torch.tril(torch.ones(config.num_positions, config.num_positions), diagonal=-1)
+        for i in range(max_item_num):
+            st = i * config.num_positions
+            ed = (i + 1) * config.num_positions
+            self.in_item_mask[st:ed, st:ed] += block_lower
+        self.in_item_mask = 1 - self.in_item_mask
+
+    def _update_session_wise_causal_mask(
+        self,
+        attention_mask: torch.Tensor | None = None,
+        input_tensor: torch.FloatTensor | None = None,
+        cache_position: torch.LongTensor | None = None,
+        past_key_values: Cache | None = None,
+        session_ids: torch.LongTensor | None = None,  # [B, S]
+    ) -> torch.Tensor:
+        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+        batch_size = input_tensor.shape[0]
+        sequence_length = input_tensor.shape[1]
+        dtype, device = input_tensor.dtype, input_tensor.device
+        min_dtype = torch.finfo(dtype).min
+        if past_seen_tokens == 0:
+            assert session_ids is not None, "Session IDs must be provided to generate session-wise causal mask."
+            # during training or the first time to generate, generate the complete causal mask
+            target_length = sequence_length
+            causal_mask = torch.full(
+                (sequence_length, sequence_length),
+                fill_value=min_dtype,
+                dtype=dtype,
+                device=device
+            )
+            causal_mask *= self.in_item_mask[:sequence_length, :sequence_length].to(device)
+            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
+            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            session_mask = (session_ids[:, None] >= session_ids[..., None])[:, None]  # [B, 1, S, S]
+            causal_mask *= session_mask
+        else:
+            # not the first time to generate, generate the causal mask for the new tokens
+            target_length = len(cache_position) + past_seen_tokens
+            causal_mask = torch.full(
+                (sequence_length, target_length),
+                fill_value=min_dtype,
+                dtype=dtype,
+                device=device,
+            )
+            diagonal_attend_mask = torch.arange(target_length, device=device) > cache_position.reshape(-1, 1)
+            causal_mask *= diagonal_attend_mask
+            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
+        if attention_mask is not None:
+            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            if attention_mask.shape[-1] > target_length:
+                attention_mask = attention_mask[:, :target_length]
+            mask_length = attention_mask.shape[-1]
+            padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :].to(
+                causal_mask.device
+            )
+            padding_mask = padding_mask == 0
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                padding_mask, min_dtype
+            )
+        return causal_mask
+
     @can_return_tuple
     def forward(
         self,
@@ -24,6 +91,7 @@ class Qwen3SessionModel(Qwen3Model):
         output_attentions: bool | None = None,
         output_hidden_states: bool | None = None,
         cache_position: torch.LongTensor | None = None,
+        session_ids: torch.LongTensor | None = None,
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ) -> BaseModelOutputWithPast:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -60,8 +128,12 @@ class Qwen3SessionModel(Qwen3Model):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        causal_mask = self._update_causal_mask(
-            attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
+        causal_mask = self._update_session_wise_causal_mask(
+            attention_mask=attention_mask,
+            input_tensor=inputs_embeds,
+            cache_position=cache_position,
+            past_key_values=past_key_values,
+            session_ids=session_ids,
         )
 
         hidden_states = inputs_embeds
@@ -179,8 +251,8 @@ class Qwen3SessionWithTemperature(Qwen3ForCausalLM):
         output_hidden_states: bool | None = None,
         cache_position: torch.LongTensor | None = None,
         logits_to_keep: int | torch.Tensor = 0,
+        session_ids: torch.LongTensor | None = None,
         extended_session_ids: torch.LongTensor | None = None,
-        generation_attention_mask: torch.Tensor | None = None,
         **kwargs: Unpack[KwargsForCausalLM],
     ) -> CausalLMOutputWithPast:
         r"""
@@ -219,12 +291,11 @@ class Qwen3SessionWithTemperature(Qwen3ForCausalLM):
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
 
-        if generation_attention_mask is not None and cache_position is not None and cache_position.min() == 0:
+        if cache_position is not None and cache_position.min() == 0:
             # the first time to generate
-            attention_mask = generation_attention_mask
             if extended_session_ids is not None:
                 self.max_extended_session_id = extended_session_ids.max(dim=-1)[0]
-        elif generation_attention_mask is not None and cache_position:
+        elif cache_position:
             # not the first time to generate
             if extended_session_ids is not None:
                 assert cache_position.shape[-1] == 1
@@ -248,6 +319,7 @@ class Qwen3SessionWithTemperature(Qwen3ForCausalLM):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             cache_position=cache_position,
+            session_ids=session_ids,
             **kwargs,
         )
 

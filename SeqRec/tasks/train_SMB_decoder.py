@@ -372,6 +372,14 @@ class TrainSMBDecoder(MultiGPUTask):
             model = Qwen3WithTemperatureMoe(config)
             model.set_hyper(temperature)
         elif backbone == "Qwen3Session":
+            all_items = first_dataset.get_all_items()
+            single_item = list(all_items)[0]
+            single_item = first_dataset.get_behavior_item(
+                single_item, first_dataset.target_behavior
+            )
+            single_item_ids = tokenizer.encode(single_item, add_special_tokens=False)
+            config.num_positions = len(single_item_ids)
+            config.model_max_length = model_max_length
             model = Qwen3SessionWithTemperature(config)
             model.set_hyper(temperature)
         else:
@@ -386,7 +394,7 @@ class TrainSMBDecoder(MultiGPUTask):
         if backbone in ["PBATransformers_session", "PBATransformers_time"]:
             label_names = ['input_ids', 'labels', 'behavior', 'session_ids', 'time']
         elif backbone == "Qwen3Session":
-            label_names = ['input_ids', 'labels', 'extended_session_ids', 'attention_mask']
+            label_names = ['input_ids', 'labels', 'session_ids', 'extended_session_ids']
         else:
             label_names = None
         training_args = transformers.training_args.TrainingArguments(
