@@ -272,15 +272,25 @@ class BaseSMBDataset(Dataset):
             items = self.remapped_inters[uid][: self.valid_pos[uid]]
             behaviors = self.history_behaviors[uid][: self.valid_pos[uid]]
             times = self.time[uid][: self.valid_pos[uid]]
+            session_ids_map = {}
+            extended_session_ids_map = {}
+            attention_mask_map = {}
+            times_map = {}
             for i in range(1, len(items)):
-                pos = self.train_pos[uid][self.session[uid][i]]
+                sid = self.session[uid][i]
+                pos = self.train_pos[uid][sid]
+                if sid not in session_ids_map:
+                    session_ids_map[sid] = self._generate_session_ids(self.session[uid][:pos + 1], items[:pos + 1], behaviors[:pos + 1])
+                    extended_session_ids_map[sid] = self._generate_extended_session_ids(self.session[uid][:pos + 1], items[:pos + 1], behaviors[:pos + 1])
+                    attention_mask_map[sid] = self._generate_attention_mask(self.session[uid][:pos + 1], items[:pos + 1], behaviors[:pos + 1])
+                    times_map[sid] = self._generate_times(times[:pos + 1], items[:pos + 1], behaviors[:pos + 1])
                 inter_data.append({
                     "item": self.get_behavior_item(items[i], behaviors[i]),
                     "inters": self._get_inters(items[:pos], behaviors[:pos]),
-                    "session_ids": self._generate_session_ids(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
-                    "extended_session_ids": self._generate_extended_session_ids(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
-                    "attention_mask": self._generate_attention_mask(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
-                    "time": self._generate_times(times[:pos + 1], items[:pos + 1], behaviors[:pos + 1]),
+                    "session_ids": session_ids_map[sid],
+                    "extended_session_ids": extended_session_ids_map[sid],
+                    "attention_mask": attention_mask_map[sid],
+                    "time": times_map[sid],
                     "behavior": behaviors[i],
                 })
 
@@ -295,15 +305,19 @@ class BaseSMBDataset(Dataset):
             items = self.remapped_inters[uid][: self.test_pos[uid]]
             behaviors = self.history_behaviors[uid][: self.test_pos[uid]]
             times = self.time[uid][: self.test_pos[uid]]
+            pos = self.valid_pos[uid]
+            session_ids = self._generate_session_ids(self.session[uid][: pos + 1], items[: pos + 1], behaviors[: pos + 1])
+            extended_session_ids = self._generate_extended_session_ids(self.session[uid][: pos + 1], items[: pos + 1], behaviors[: pos + 1])
+            attention_mask = self._generate_attention_mask(self.session[uid][: pos + 1], items[: pos + 1], behaviors[: pos + 1])
+            times = self._generate_times(times[: pos + 1], items[: pos + 1], behaviors[: pos + 1])
             for i in range(self.valid_pos[uid], len(items)):
-                pos = self.valid_pos[uid]
                 inter_data.append({
                     "item": self.get_behavior_item(items[i], behaviors[i]),
                     "inters": self._get_inters(items[:pos], behaviors[:pos]),
-                    "session_ids": self._generate_session_ids(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
-                    "extended_session_ids": self._generate_extended_session_ids(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
-                    "attention_mask": self._generate_attention_mask(self.session[uid][:pos] + [self.session[uid][i]], items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
-                    "time": self._generate_times(times[:pos + 1], items[:pos + 1], behaviors[:pos + 1]),
+                    "session_ids": session_ids,
+                    "extended_session_ids": extended_session_ids,
+                    "attention_mask": attention_mask,
+                    "time": times,
                     "behavior": behaviors[i],
                 })
 
