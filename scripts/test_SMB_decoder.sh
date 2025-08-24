@@ -29,18 +29,18 @@ if [ $rq_kmeans -eq 0 ]; then
                 : ${alpha:=0.02}
                 : ${beta:=0.0001}
                 : ${epoch:=20000}
-                results_file=./results/${task_dir}/results-alpha${alpha}-beta${beta}.json
+                results_file=./results/${task_dir}/results-${test_task}-alpha${alpha}-beta${beta}.json
                 ckpt_path=./checkpoint/SMB-decoder/${task_dir}/alpha${alpha}-beta${beta}/
                 index_file=.index.epoch${epoch}.alpha${alpha}-beta${beta}.json
                 echo "Testing SMB decoder on ${dataset} using RQ-VAE with alpha=${alpha}, beta=${beta}, epoch=${epoch} using GPU ${gpu}."
             else
-                results_file=./results/${task_dir}/results-original.json
+                results_file=./results/${task_dir}/results-${test_task}-original.json
                 ckpt_path=./checkpoint/SMB-decoder/${task_dir}/original/
                 index_file=.index.json
                 echo "Testing SMB decoder on ${dataset} using original index file from LETTER repository."
             fi
         else
-            results_file=./results/${task_dir}/results-rid.json
+            results_file=./results/${task_dir}/results-${test_task}-rid.json
             ckpt_path=./checkpoint/SMB-decoder/${task_dir}/rid/
             index_file=.index.rid.json
             echo "Testing SMB decoder on ${dataset} using random ID tokenization."
@@ -49,12 +49,12 @@ if [ $rq_kmeans -eq 0 ]; then
         : ${chunk_size:=64}
         : ${shuffle:=0}
         if [ $shuffle -eq 1 ]; then
-            results_file=./results/${task_dir}/results-cid-shuffle-${chunk_size}.json
+            results_file=./results/${task_dir}/results-${test_task}-cid-shuffle-${chunk_size}.json
             ckpt_path=./checkpoint/SMB-decoder/${task_dir}/cid-shuffle-${chunk_size}/
             index_file=.index.cid.shuffle.chunk${chunk_size}.json
             echo "Testing SMB decoder on ${dataset} using chunked ID tokenization with chunk size ${chunk_size} and shuffling."
         else
-            results_file=./results/${task_dir}/results-cid-${chunk_size}.json
+            results_file=./results/${task_dir}/results-${test_task}-cid-${chunk_size}.json
             ckpt_path=./checkpoint/SMB-decoder/${task_dir}/cid-${chunk_size}/
             index_file=.index.cid.chunk${chunk_size}.json
             echo "Testing SMB decoder on ${dataset} using chunked ID tokenization with chunk size ${chunk_size}."
@@ -63,19 +63,19 @@ if [ $rq_kmeans -eq 0 ]; then
 else
     : ${cf_emb:=0}
     if [ $cf_emb -eq 0 ]; then
-        results_file=./results/${task_dir}/results-rq-kmeans.json
+        results_file=./results/${task_dir}/results-${test_task}-rq-kmeans.json
         ckpt_path=./checkpoint/SMB-decoder/${task_dir}/rq-kmeans/
         index_file=.index.rq-kmeans.json
         echo "Testing SMB decoder on ${dataset} using RQ-Kmeans without CF embeddings."
     else
         : ${reduce:=0}
         if [ $reduce -eq 0 ]; then
-            results_file=./results/${task_dir}/results-rq-kmeans-cf.json
+            results_file=./results/${task_dir}/results-${test_task}-rq-kmeans-cf.json
             ckpt_path=./checkpoint/SMB-decoder/${task_dir}/rq-kmeans-cf/
             index_file=.index.rq-kmeans-cf.json
             echo "Testing SMB decoder on ${dataset} using RQ-Kmeans with CF embeddings."
         else
-            results_file=./results/${task_dir}/results-rq-kmeans-cf-reduce.json
+            results_file=./results/${task_dir}/results-${test_task}-rq-kmeans-cf-reduce.json
             ckpt_path=./checkpoint/SMB-decoder/${task_dir}/rq-kmeans-cf-reduce/
             index_file=.index.rq-kmeans-cf-reduce.json
             echo "Testing SMB decoder on ${dataset} using RQ-Kmeans with CF embeddings and reduced semantic embeddings."

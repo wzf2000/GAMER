@@ -35,14 +35,13 @@ class BaseSMBDataset(Dataset):
         self._remap_items()
 
         # process data
-        cached_file_name = os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}.pkl")
-        if os.path.exists(cached_file_name):
+        if os.path.exists(self.cached_file_name):
             if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-                logger.info(f"Loading cached interactions from {cached_file_name} for {self.mode}.")
-            with open(cached_file_name, "rb") as f:
+                logger.info(f"Loading cached interactions from {self.cached_file_name} for {self.mode}.")
+            with open(self.cached_file_name, "rb") as f:
                 self.inter_data = pickle.load(f)
             if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-                logger.info(f"Loaded cached {len(self.inter_data)} interactions from {cached_file_name} for {self.mode}.")
+                logger.info(f"Loaded cached {len(self.inter_data)} interactions from {self.cached_file_name} for {self.mode}.")
         else:
             if self.mode == "train":
                 self.inter_data = self._process_train_data()
@@ -55,11 +54,15 @@ class BaseSMBDataset(Dataset):
             else:
                 raise NotImplementedError
             if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-                with open(cached_file_name, "wb") as f:
+                with open(self.cached_file_name, "wb") as f:
                     pickle.dump(self.inter_data, f)
 
         if int(os.environ.get("LOCAL_RANK", 0)) == 0:
             logger.info(f"Loaded {len(self.inter_data)} interactions for {self.mode} set.")
+
+    @property
+    def cached_file_name(self) -> str:
+        return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}.pkl")
 
     def _load_data(self):
         with open(os.path.join(self.data_path, self.dataset + ".SMB.inter.json"), "r") as f:
@@ -461,6 +464,13 @@ class SMBExplicitDataset(BaseSMBDataset):
         self.behavior_first = behavior_first
         super().__init__(**kwargs)
 
+    @property
+    def cached_file_name(self) -> str:
+        if self.behavior_first:
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}.pkl")
+        else:
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.{self.mode}.pkl")
+
     def _update_behavior_tokens(self):
         for behavior in self.behaviors:
             behavior_token = f"<behavior_{behavior}>"
@@ -483,6 +493,13 @@ class SMBExplicitDatasetForDecoder(SMBExplicitDataset):
         if augment is not None and augment < 1:
             raise ValueError("augment must be greater than or equal to 1")
         super().__init__(**kwargs)
+
+    @property
+    def cached_file_name(self) -> str:
+        if self.behavior_first:
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.aug{self.augment if self.augment else ''}.{self.mode}.pkl")
+        else:
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.aug{self.augment if self.augment else ''}.{self.mode}.pkl")
 
     def _augment_interactions(self, items: list[str], behaviors: list[str], sids: list[int], times: list[float]) -> tuple[list[list[str]], list[list[str]], list[list[int]], list[list[float]]]:
         if not self.augment:
