@@ -1,6 +1,11 @@
+import sys
 import logging
 import inspect
+from tqdm import tqdm
 from loguru import logger
+from transformers.trainer import Trainer
+from transformers.training_args import TrainingArguments
+from transformers.trainer_callback import TrainerCallback, TrainerState, TrainerControl, ProgressCallback
 
 
 class InterceptHandler(logging.Handler):
@@ -23,6 +28,58 @@ class InterceptHandler(logging.Handler):
             depth += 1
 
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+
+class LoguruCallback(TrainerCallback):
+    """
+    A custom callback for Hugging Face Trainer to log training progress using Loguru.
+    """
+
+    def on_log(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, logs: dict | None = None, **kwargs):
+        if state.is_world_process_zero and logs is not None:
+            # make a shallow copy of logs so we can mutate the fields copied
+            # but avoid doing any value pickling.
+            shallow_logs = {}
+            for k, v in logs.items():
+                if isinstance(v, str) and len(v) > self.max_str_len:
+                    shallow_logs[k] = (
+                        f"[String too long to display, length: {len(v)} > {self.max_str_len}. "
+                        "Consider increasing `max_str_len` if needed.]"
+                    )
+                else:
+                    shallow_logs[k] = v
+            _ = shallow_logs.pop("total_flos", None)
+            # round numbers so that it looks better in console
+            if "epoch" in shallow_logs:
+                shallow_logs["epoch"] = round(shallow_logs["epoch"], 2)
+            logger.info(shallow_logs)
+
+
+class ProgressCallbackWithLoguru(ProgressCallback):
+    def on_log(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, logs: dict | None = None, **kwargs):
+        if state.is_world_process_zero and logs is not None and self.training_bar is not None:
+            # make a shallow copy of logs so we can mutate the fields copied
+            # but avoid doing any value pickling.
+            shallow_logs = {}
+            for k, v in logs.items():
+                if isinstance(v, str) and len(v) > self.max_str_len:
+                    shallow_logs[k] = (
+                        f"[String too long to display, length: {len(v)} > {self.max_str_len}. "
+                        "Consider increasing `max_str_len` if needed.]"
+                    )
+                else:
+                    shallow_logs[k] = v
+            _ = shallow_logs.pop("total_flos", None)
+            # round numbers so that it looks better in console
+            if "epoch" in shallow_logs:
+                shallow_logs["epoch"] = round(shallow_logs["epoch"], 2)
+            with tqdm.external_write_mode(sys.stdout, nolock=False):
+                logger.info(shallow_logs)
+
+
+def replace_progress_callback(trainer: Trainer):
+    trainer.remove_callback(ProgressCallback)
+    trainer.add_callback(ProgressCallbackWithLoguru())
 
 
 def intercept_logging():
