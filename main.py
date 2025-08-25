@@ -1,9 +1,8 @@
 import os
-import time
 import argparse
-from loguru import logger
 
-import SeqRec.utils.logging
+from SeqRec.utils.futils import ensure_dir
+from SeqRec.utils.logging import init_logger
 from SeqRec.tasks import task_list
 
 
@@ -30,9 +29,8 @@ def main():
     del args.pipeline
     if task_name in task_list:
         log_dir = os.path.join("logs", task_name)
-        os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, f"{time.strftime('%Y%m%d_%H%M%S')}.log")
-        logger.add(log_file, rotation="1 week", level="INFO", backtrace=True, diagnose=True)
+        ensure_dir(log_dir)
+        init_logger(log_dir)
         task = task_list[task_name]()
         task.invoke(**vars(args))
     else:

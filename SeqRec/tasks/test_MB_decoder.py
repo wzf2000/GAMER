@@ -358,19 +358,19 @@ class TestMBDecoder(MultiGPUTask):
         self.metric_list = metrics.split(",")
         self.backbone = backbone
         results = self.test(num_beams)
+        logger.success("======================================================")
+        logger.success("Results:")
+        for res in results:
+            logger.success("======================================================")
+            logger.success(f"{res['eval_type']} results:")
+            for m in res:
+                if isinstance(res[m], float):
+                    logger.success(f"\t{m} = {res[m]:.4f}")
+        logger.success("======================================================")
         if self.local_rank == 0:
-            logger.success("======================================================")
-            logger.success("Results:")
-            for res in results:
-                logger.success("======================================================")
-                logger.success(f"{res['eval_type']} results:")
-                for m in res:
-                    if isinstance(res[m], float):
-                        logger.success(f"\t{m} = {res[m]:.4f}")
-            logger.success("======================================================")
             ensure_dir(os.path.dirname(results_file))
             with open(results_file, "w") as f:
                 json.dump(results, f, indent=4)
-            logger.success(f"Results saved to {results_file}.")
+        logger.success(f"Results saved to {results_file}.")
 
         self.finish(False)

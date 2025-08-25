@@ -196,7 +196,7 @@ class TrainDecoder(MultiGPUTask):
             self.param_dict,
         )
         ensure_dir(output_dir)
-        if len(args) > 0 or len(kwargs) > 0 and self.local_rank == 0:
+        if len(args) > 0 or len(kwargs) > 0:
             logger.warning("Unused parameters:", args, kwargs)
         if backbone == "TIGER":
             config: T5Config = T5Config.from_pretrained(base_model)

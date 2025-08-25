@@ -4,6 +4,7 @@ import copy
 import torch
 import pickle
 import numpy as np
+import pandas as pd
 from loguru import logger
 from torch.utils.data import Dataset
 
@@ -36,12 +37,10 @@ class BaseSMBDataset(Dataset):
 
         # process data
         if os.path.exists(self.cached_file_name):
-            if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-                logger.info(f"Loading cached interactions from {self.cached_file_name} for {self.mode}.")
+            logger.info(f"Loading cached interactions from {self.cached_file_name} for {self.mode}.")
             with open(self.cached_file_name, "rb") as f:
                 self.inter_data = pickle.load(f)
-            if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-                logger.info(f"Loaded cached {len(self.inter_data)} interactions from {self.cached_file_name} for {self.mode}.")
+            logger.info(f"Loaded cached {len(self.inter_data)} interactions from {self.cached_file_name} for {self.mode}.")
         else:
             if self.mode == "train":
                 self.inter_data = self._process_train_data()
@@ -57,8 +56,7 @@ class BaseSMBDataset(Dataset):
                 with open(self.cached_file_name, "wb") as f:
                     pickle.dump(self.inter_data, f)
 
-        if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-            logger.info(f"Loaded {len(self.inter_data)} interactions for {self.mode} set.")
+        logger.info(f"Loaded {len(self.inter_data)} interactions for {self.mode} set.")
 
     @property
     def cached_file_name(self) -> str:
@@ -71,34 +69,56 @@ class BaseSMBDataset(Dataset):
             self.history_behaviors: dict[str, list[str]] = json.load(f)
         with open(os.path.join(self.data_path, self.dataset + self.index_file), "r") as f:
             self.indices: dict[str, list[str]] = json.load(f)
-        with open(os.path.join(self.data_path, self.dataset + '.SMB.session.json'), 'r') as f:
-            self.session: dict[str, list[int]] = json.load(f)
-            self.train_pos: dict[str, dict[int, int]] = {}
-            self.valid_pos: dict[str, int] = {}
-            self.test_pos: dict[str, int] = {}
-            for uid in get_tqdm(self.session, desc="Processing session data"):
-                min_sid = np.min(self.session[uid])
-                self.session[uid] = [sid - min_sid for sid in self.session[uid]]  # Normalize session IDs to start from 0
-                unique_sids = np.unique(self.session[uid])
-                test_sid = unique_sids[-1]
-                self.test_pos[uid] = np.where(self.session[uid] == test_sid)[0].min()
-                if len(unique_sids) >= 2:
-                    valid_sid = unique_sids[-2]
-                    self.valid_pos[uid] = np.where(self.session[uid] == valid_sid)[0].min()
-                else:
-                    self.valid_pos[uid] = -1
-                if len(unique_sids) >= 3:
-                    train_sids = unique_sids[:-2]
-                    self.train_pos[uid] = {sid: np.where(self.session[uid] == sid)[0].min() for sid in train_sids}
-        with open(os.path.join(self.data_path, self.dataset + '.SMB.time.json'), 'r') as f:
-            self.time: dict[str, list[str]] = json.load(f)
-            import pandas as pd
-            for uid in get_tqdm(self.time, desc="Processing time data"):
-                timestamps = pd.to_datetime(self.time[uid], format="%Y-%m-%d %H:%M:%S")
-                base_time = timestamps[0]
-                diffs = [t - base_time for t in timestamps]
-                halfhour_diffs = [diff.total_seconds() / 1800 for diff in diffs]
-                self.time[uid] = halfhour_diffs
+
+        cached_processed_data_file = os.path.join(self.data_path, self.dataset + ".SMB.data.pkl")
+        if os.path.exists(cached_processed_data_file):
+            logger.info(f"Loading cached processed data from {cached_processed_data_file}.")
+            with open(cached_processed_data_file, "rb") as f:
+                cached_data = pickle.load(f)
+                self.session = cached_data["session"]
+                self.train_pos = cached_data["train_pos"]
+                self.valid_pos = cached_data["valid_pos"]
+                self.test_pos = cached_data["test_pos"]
+                self.time = cached_data["time"]
+        else:
+            with open(os.path.join(self.data_path, self.dataset + '.SMB.session.json'), 'r') as f:
+                self.session: dict[str, list[int]] = json.load(f)
+                self.train_pos: dict[str, dict[int, int]] = {}
+                self.valid_pos: dict[str, int] = {}
+                self.test_pos: dict[str, int] = {}
+                for uid in get_tqdm(self.session, desc="Processing session data"):
+                    min_sid = np.min(self.session[uid])
+                    self.session[uid] = [sid - min_sid for sid in self.session[uid]]  # Normalize session IDs to start from 0
+                    unique_sids = np.unique(self.session[uid])
+                    test_sid = unique_sids[-1]
+                    self.test_pos[uid] = np.where(self.session[uid] == test_sid)[0].min()
+                    if len(unique_sids) >= 2:
+                        valid_sid = unique_sids[-2]
+                        self.valid_pos[uid] = np.where(self.session[uid] == valid_sid)[0].min()
+                    else:
+                        self.valid_pos[uid] = -1
+                    if len(unique_sids) >= 3:
+                        train_sids = unique_sids[:-2]
+                        self.train_pos[uid] = {sid: np.where(self.session[uid] == sid)[0].min() for sid in train_sids}
+            with open(os.path.join(self.data_path, self.dataset + '.SMB.time.json'), 'r') as f:
+                raw_time: dict[str, list[str]] = json.load(f)
+                self.time: dict[str, list[float]] = {}
+                for uid in get_tqdm(raw_time, desc="Processing time data"):
+                    timestamps = pd.to_datetime(raw_time[uid], format="%Y-%m-%d %H:%M:%S")
+                    base_time = timestamps[0]
+                    diffs = [t - base_time for t in timestamps]
+                    halfhour_diffs = [diff.total_seconds() / 1800 for diff in diffs]
+                    self.time[uid] = halfhour_diffs
+            if int(os.environ.get("LOCAL_RANK", 0)) == 0:
+                with open(cached_processed_data_file, "wb") as f:
+                    pickle.dump({
+                        "session": self.session,
+                        "train_pos": self.train_pos,
+                        "valid_pos": self.valid_pos,
+                        "test_pos": self.test_pos,
+                        "time": self.time,
+                    }, f)
+
         assert os.path.exists(os.path.join(self.data_path, self.dataset + '.behavior_level.json')), (
             f"Behavior level file {self.data_path}/{self.dataset}.behavior_level.json does not exist."
         )
@@ -550,7 +570,7 @@ class SMBExplicitDatasetForDecoder(SMBExplicitDataset):
     def _process_train_data(self) -> list[dict[str, str]]:
         set_seed(42)  # For reproducibility
         inter_data = []
-        if self.augment and int(os.environ.get("LOCAL_RANK", 0)) == 0:
+        if self.augment:
             logger.info(f"Augmenting interactions {self.augment} times for each user.")
         for uid in get_tqdm(self.remapped_inters, desc="Processing training data"):
             if self.valid_pos[uid] <= 0:

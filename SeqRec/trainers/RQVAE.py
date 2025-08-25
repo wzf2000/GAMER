@@ -35,7 +35,6 @@ class Trainer:
         local_rank: int,
     ):
         self.model = model
-        self.logger = logger
 
         self.lr: float = lr
         self.learner: str = learner
@@ -88,10 +87,9 @@ class Trainer:
         elif learner.lower() == "adamw":
             optimizer = optim.AdamW(params, lr=learning_rate, weight_decay=weight_decay)
         else:
-            if self.local_rank == 0:
-                self.logger.warning(
-                    "Received unrecognized optimizer, set default Adam optimizer"
-                )
+            logger.warning(
+                "Received unrecognized optimizer, set default Adam optimizer"
+            )
             optimizer = optim.Adam(params, lr=learning_rate)
         return optimizer
 
@@ -109,8 +107,7 @@ class Trainer:
             shuffle=True,
             pin_memory=True,
         )
-        if self.local_rank == 0:
-            logger.info("Initializing of vq...")
+        logger.info("Initializing of vq...")
         # Train
         for batch in init_loader:
             batch: tuple[torch.Tensor, torch.Tensor]
@@ -121,8 +118,7 @@ class Trainer:
                 self.model.module.vq_initialization(data)
             else:
                 self.model.vq_initialization(data)
-        if self.local_rank == 0:
-            logger.success("Initialization of vq finished.")
+        logger.success("Initialization of vq finished.")
 
     def _train_step(self, data: torch.Tensor, emb_idx: int) -> tuple[float, float, float, float]:
         data = data.to(self.device)
@@ -194,7 +190,7 @@ class Trainer:
     def _valid_epoch(self, valid_data: DataLoader):
         self.model.eval()
 
-        pbar = get_tqdm(desc=set_color("Evaluating", "pink"), total=len(valid_data))
+        pbar = get_tqdm(desc="Evaluating", total=len(valid_data))
         indices_set = set()
 
         num_sample = 0
@@ -241,7 +237,7 @@ class Trainer:
             if ckpt_file
             else os.path.join(
                 self.ckpt_dir,
-                "epoch_%d_collision_%.4f_model.pth" % (epoch, collision_rate),
+                f"epoch_{epoch}_collision_{collision_rate:.4f}_model.pth",
             )
         )
         state = {
@@ -254,13 +250,13 @@ class Trainer:
         }
         torch.save(state, ckpt_path, pickle_protocol=4)
 
-        self.logger.info(set_color("Saving current", "blue") + f": {ckpt_path}")
+        logger.opt(colors=True).info(f"{set_color("Saving Current", "blue")}: {ckpt_path}")
 
     def fit(self, data: DataLoader):
         cur_eval_step = 0
         self.vq_init()
         total_steps = self.epochs * len(data)
-        self.pbar = get_tqdm(total=total_steps, desc=set_color("Training", "pink"))
+        self.pbar = get_tqdm(total=total_steps, desc="Training")
         for epoch_idx in range(self.epochs):
             # train
             train_loss, train_recon_loss, cf_loss, quant_loss = self._train_epoch(
@@ -278,10 +274,8 @@ class Trainer:
                 if collision_rate < self.best_collision_rate:
                     self.best_collision_rate = collision_rate
                     cur_eval_step = 0
+                    logger.opt(colors=True).info(set_color("Best collision rate updated", "green"))
                     if self.local_rank == 0:
-                        self.logger.info(
-                            set_color("Best collision rate updated", "green")
-                        )
                         self._save_checkpoint(
                             epoch_idx,
                             collision_rate=collision_rate,
@@ -292,16 +286,16 @@ class Trainer:
 
                 valid_end_time = time()
                 valid_score_output = (
-                    set_color("epoch %d evaluating", "green")
+                    set_color(f"epoch {epoch_idx} evaluating", "green")
                     + " ["
                     + set_color("time", "blue")
-                    + ": %.2fs, "
+                    + f": {valid_end_time - valid_start_time:.2f}s, "
                     + set_color("collision_rate", "blue")
-                    + ": %f]"
-                ) % (epoch_idx, valid_end_time - valid_start_time, collision_rate)
+                    + f": {collision_rate:.4f}]"
+                )
 
+                logger.info(valid_score_output)
                 if self.local_rank == 0:
-                    self.logger.info(valid_score_output)
                     wandb.log({
                         "eval/epoch": epoch_idx,
                         "eval/collision_rate": collision_rate,

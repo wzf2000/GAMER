@@ -203,7 +203,7 @@ class TrainSMBDecoder(MultiGPUTask):
             self.param_dict,
         )
         ensure_dir(output_dir)
-        if len(args) > 0 or len(kwargs) > 0 and self.local_rank == 0:
+        if len(args) > 0 or len(kwargs) > 0:
             logger.warning("Unused parameters:", args, kwargs)
         if backbone == "TIGER":
             config: T5Config = T5Config.from_pretrained(base_model)
@@ -368,8 +368,7 @@ class TrainSMBDecoder(MultiGPUTask):
                 )
             config.n_positions = max_his_len + 1
             config.use_user_token = False
-            if self.local_rank == 0:
-                logger.info(f"Model Config: {config}")
+            self.info(f"Model Config: {config}")
             model = Qwen3WithTemperatureMoe(config)
             model.set_hyper(temperature)
         elif backbone == "Qwen3Session":

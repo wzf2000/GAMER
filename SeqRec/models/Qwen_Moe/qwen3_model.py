@@ -2,13 +2,15 @@ import torch
 from torch import nn
 from transformers.loss.loss_utils import ForCausalLMLoss
 from transformers.models.qwen3_moe.modeling_qwen3_moe import (
+    logger,
     KwargsForCausalLM,
     QWEN3_MOE_INPUTS_DOCSTRING,
     Qwen3MoePreTrainedModel,
     Qwen3MoeAttention,
     Qwen3MoeRMSNorm,
     Qwen3MoeRotaryEmbedding,
-    load_balancing_loss_func)
+    load_balancing_loss_func
+)
 from transformers.generation import GenerationMixin
 from functools import partial
 from typing import List, Optional, Tuple, Union
@@ -31,8 +33,6 @@ from transformers.utils.deprecation import deprecate_kwarg
 from transformers.models.qwen3_moe import Qwen3MoeConfig
 from SeqRec.models.Qwen_Moe.router import QwenMoeDecoderRouter
 from SeqRec.models.Qwen_Moe.FFN import PBATransformersSparseMLP
-
-logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "Qwen3MoeConfig"
 

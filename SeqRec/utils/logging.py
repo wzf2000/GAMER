@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import logging
 import inspect
 from tqdm import tqdm
@@ -17,8 +18,6 @@ class InterceptHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         # Get corresponding Loguru level if it exists.
-        if os.environ.get("LOCAL_RANK", "0") != "0":
-            return
         try:
             level: str | int = logger.level(record.levelname).name
         except ValueError:
@@ -108,19 +107,15 @@ def intercept_logging():
     _replace_handler(logging.getLogger("transformers"), filter_level='WARNING')
 
 
-def set_color(log: str, color: str, highlight: bool = True) -> str:
-    color_set = ["black", "red", "green", "yellow", "blue", "pink", "cyan", "white"]
-    try:
-        index = color_set.index(color)
-    except Exception:
-        index = len(color_set) - 1
-    prev_log = "\033["
-    if highlight:
-        prev_log += "1;3"
-    else:
-        prev_log += "0;3"
-    prev_log += str(index) + "m"
-    return prev_log + log + "\033[0m"
+def init_logger(log_dir: str, level: str = "INFO"):
+    log_file = os.path.join(log_dir, f"{time.strftime('%Y%m%d_%H%M%S')}.log")
+    logger.remove()
+    logger.add(log_file, rotation="1 week", level="DEBUG", backtrace=True, diagnose=True, filter=lambda _: os.environ.get("LOCAL_RANK", "0") == "0")
+    logger.add(sys.stdout, level=level, filter=lambda _: os.environ.get("LOCAL_RANK", "0") == "0")
+
+
+def set_color(log: str, color: str) -> str:
+    return f"<{color}>log</{color}>"
 
 
 intercept_logging()

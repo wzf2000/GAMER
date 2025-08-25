@@ -38,12 +38,7 @@ class MultiGPUTask(Task):
     def info(self, msg: str | list[str]):
         if self.ddp:
             dist.barrier()
-        if self.local_rank == 0:
-            if isinstance(msg, list):
-                for m in msg:
-                    logger.info(m)
-            else:
-                logger.info(msg)
+        super().info(msg)
 
     def init(
         self,

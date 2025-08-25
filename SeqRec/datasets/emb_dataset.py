@@ -11,11 +11,10 @@ class EmbDataset(Dataset):
         self.local_rank = local_rank
         std = self.embeddings.std()
         if std < 0.2:
-            if self.local_rank == 0:
-                logger.warning(
-                    f"Standard deviation of embeddings is too low: {std:.4f}. "
-                    "This may lead to poor performance. Consider normalizing the embeddings."
-                )
+            logger.warning(
+                f"Standard deviation of embeddings is too low: {std:.4f}. "
+                "This may lead to poor performance. Consider normalizing the embeddings."
+            )
             self.embeddings /= std
         self.dim: int = self.embeddings.shape[-1]
 

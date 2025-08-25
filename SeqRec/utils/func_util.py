@@ -1,4 +1,3 @@
-import os
 import inspect
 from loguru import logger
 from typing import TypeVar
@@ -24,8 +23,7 @@ def log_arguments(func):
             param_dict.pop('args')
         if 'kwargs' in param_dict and param_dict['kwargs'] == {}:
             param_dict.pop('kwargs')
-        if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-            logger.info(f"Calling {func.__name__} with arguments: {param_dict}")
+        logger.info(f"Calling {func.__name__} with arguments: {param_dict}")
         return func(*args, **kwargs)
     return wrapper
 

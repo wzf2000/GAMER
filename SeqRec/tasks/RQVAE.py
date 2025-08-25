@@ -155,7 +155,7 @@ class TrainRQVAE(MultiGPUTask):
             f"Training RQVAE on {data_path} with alpha={alpha}, beta={beta}",
             self.param_dict,
         )
-        if len(args) > 0 or len(kwargs) > 0 and self.local_rank == 0:
+        if len(args) > 0 or len(kwargs) > 0:
             logger.warning("Unused parameters:", args, kwargs)
 
         self.dataset = EmbDataset(data_path, local_rank=self.local_rank)
@@ -217,6 +217,5 @@ class TrainRQVAE(MultiGPUTask):
             local_rank=self.local_rank,
         )
         best_loss, best_collision_rate = self.trainer.fit(self.data_loader)
-        if self.local_rank == 0:
-            logger.success(f"Best loss: {best_loss}, Best collision rate: {best_collision_rate}")
+        logger.success(f"Best loss: {best_loss}, Best collision rate: {best_collision_rate}")
         self.finish(True)

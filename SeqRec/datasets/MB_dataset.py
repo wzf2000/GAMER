@@ -53,8 +53,7 @@ class BaseMBDataset(Dataset):
         else:
             raise NotImplementedError
 
-        if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-            logger.info(f"Loaded {len(self.inter_data)} interactions for {self.mode} set.")
+        logger.info(f"Loaded {len(self.inter_data)} interactions for {self.mode} set.")
 
     def _load_data(self):
         with open(os.path.join(self.data_path, self.dataset + f".{self.inter_suffix}.json"), "r") as f:
@@ -325,7 +324,7 @@ class MBExplicitDatasetForDecoder(MBExplicitDataset):
     def _process_train_data(self) -> list[dict[str, str]]:
         set_seed(42)  # For reproducibility
         inter_data = []
-        if self.augment and int(os.environ.get("LOCAL_RANK", 0)) == 0:
+        if self.augment:
             logger.info(f"Augmenting interactions {self.augment} times for each interaction.")
         pbar = get_tqdm(self.remapped_inters, desc="Processing training data")
         for uid in pbar:
