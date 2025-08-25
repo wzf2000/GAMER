@@ -115,7 +115,7 @@ def init_logger(log_dir: str, level: str = "INFO"):
 
 
 def set_color(log: str, color: str) -> str:
-    return f"<{color}>log</{color}>"
+    return f"<{color}>{log}</{color}>"
 
 
 intercept_logging()
