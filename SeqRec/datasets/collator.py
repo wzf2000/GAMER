@@ -25,6 +25,7 @@ class EncoderDecoderCollator:
         )
 
         inputs["labels"][inputs["labels"] == self.tokenizer.pad_token_id] = -100
+        inputs["split"] = batch[0].get("split", "train")
         if "behavior" in batch[0]:
             # If the batch contains target behavior, add it to the inputs
             inputs["behavior"] = [d["behavior"] for d in batch]
@@ -75,6 +76,7 @@ class DecoderOnlyCollator:
             labels[torch.where(inputs["labels"] != self.tokenizer.pad_token_id)] = -100
 
         inputs["labels"] = labels
+        inputs["split"] = batch[0].get("split", "train")
         if "behavior" in batch[0]:
             # If the batch contains target behavior, add it to the inputs
             inputs["behavior"] = [d["behavior"] for d in batch]
