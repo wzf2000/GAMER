@@ -1,0 +1,20 @@
+{
+    "files.watcherExclude": {
+        "**/.git/**": true,
+        "**/.git/objects/**": true,
+        "**/.git/subtree-cache/**": true,
+        "**/node_modules/*/**": true,
+        "**/__pycache__/**": true,
+        "**/checkpoint/**": true,
+        "**/ckpt/**": true,
+        "**/data/**": true,
+        "**/logs/**": true,
+        "**/runs/**": true,
+        "**/results/**": true
+    },
+    "flake8.args": [
+        "--max-line-length=500",
+        "--ignore=F401,E203,W503,F841"
+    ],
+    "editor.wordWrap": "on"
+}

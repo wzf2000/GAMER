@@ -392,11 +392,11 @@ class TrainSMBDecoder(MultiGPUTask):
             model.model_parallel = True
 
         if backbone in ["PBATransformers_session", "PBATransformers_time"]:
-            label_names = ['input_ids', 'labels', 'behavior', 'session_ids', 'time']
+            label_names = ['input_ids', 'labels', 'behavior', 'session_ids', 'time', 'split']
         elif backbone == "Qwen3Session":
-            label_names = ['input_ids', 'labels', 'session_ids', 'extended_session_ids']
+            label_names = ['input_ids', 'labels', 'session_ids', 'extended_session_ids', 'split']
         else:
-            label_names = None
+            label_names = ['input_ids', 'labels', 'split']
         training_args = transformers.training_args.TrainingArguments(
             output_dir=output_dir,
             seed=seed,
