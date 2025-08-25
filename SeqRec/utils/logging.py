@@ -1,3 +1,4 @@
+import os
 import sys
 import logging
 import inspect
@@ -9,12 +10,22 @@ from transformers.trainer_callback import TrainerCallback, TrainerState, Trainer
 
 
 class InterceptHandler(logging.Handler):
+    def __init__(self, level: str | int = logging.NOTSET, filter_level: str = 'INFO') -> None:
+        super().__init__(level)
+        self.setLevel(logging.DEBUG)
+        self.filter_level = logger.level(filter_level).no
+
     def emit(self, record: logging.LogRecord) -> None:
         # Get corresponding Loguru level if it exists.
+        if os.environ.get("LOCAL_RANK", "0") != "0":
+            return
         try:
             level: str | int = logger.level(record.levelname).name
         except ValueError:
             level = record.levelno
+
+        if record.levelno < self.filter_level:
+            return
 
         # Find caller from where originated the logged message.
         frame, depth = inspect.currentframe(), 0
@@ -86,8 +97,15 @@ def intercept_logging():
     """
     Intercept standard logging calls and redirect them to Loguru.
     """
-    logging.getLogger("DeepSpeed").addHandler(InterceptHandler())
-    logging.basicConfig(handlers=[InterceptHandler()], level=logging.INFO, force=True)
+    def _replace_handler(sub_logger: logging.Logger, filter_level: str = 'INFO'):
+        for handler in sub_logger.handlers[:]:
+            sub_logger.removeHandler(handler)
+        sub_logger.addHandler(InterceptHandler(filter_level=filter_level))
+        sub_logger.setLevel(logging.DEBUG)
+
+    _replace_handler(logging.getLogger())
+    _replace_handler(logging.getLogger("DeepSpeed"))
+    _replace_handler(logging.getLogger("transformers"), filter_level='WARNING')
 
 
 def set_color(log: str, color: str, highlight: bool = True) -> str:
