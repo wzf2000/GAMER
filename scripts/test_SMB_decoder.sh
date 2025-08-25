@@ -15,6 +15,11 @@ export OMP_NUM_THREADS=1
 data_path=./data
 gpu_num=$(echo $gpu | awk -F, '{print NF}')
 per_device_batch_size=$(($batch_size / $gpu_num))
+backbone_arg=${backbone}
+
+if [ "${backbone}" = "Qwen3Session2" ]; then
+    backbone_arg=Qwen3Session
+fi
 
 task_dir=${tasks//,/-}
 task_dir=${dataset}/${task_dir}/${backbone}
@@ -110,7 +115,7 @@ echo "Extra flags: ${extra_flags_out}"
 if [ $gpu_num -eq 1 ]; then
     echo "Using single GPU: ${gpu}"
     python main.py test_SMB_decoder \
-        --backbone ${backbone} \
+        --backbone ${backbone_arg} \
         --ckpt_path ${ckpt_path} \
         --dataset ${dataset} \
         --data_path ${data_path} \
@@ -124,7 +129,7 @@ if [ $gpu_num -eq 1 ]; then
 else
     echo "Using multiple GPUs: ${gpu}"
     torchrun --nproc_per_node=${gpu_num} --master_port=${port} ./main.py test_SMB_decoder \
-        --backbone ${backbone} \
+        --backbone ${backbone_arg} \
         --ckpt_path ${ckpt_path} \
         --dataset ${dataset} \
         --data_path ${data_path} \

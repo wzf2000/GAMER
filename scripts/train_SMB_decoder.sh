@@ -16,6 +16,7 @@ export OMP_NUM_THREADS=1
 gpu_num=$(echo $gpu | awk -F, '{print NF}')
 per_device_batch_size=$(($batch_size / $gpu_num))
 task_dir=${tasks//,/-}
+backbone_arg=${backbone}
 
 if [ "${backbone}" = "TIGER" ]; then
     base_model=./ckpt/s2s-models/TIGER
@@ -31,6 +32,9 @@ elif [ "${backbone}" = "Qwen3Moe" ]; then
     base_model=./ckpt/s2s-models/Qwen3-Moe
 elif [ "${backbone}" = "Qwen3Session" ]; then
     base_model=./ckpt/s2s-models/Qwen3-Light
+elif [ "${backbone}" = "Qwen3Session2" ]; then
+    base_model=./ckpt/s2s-models/Qwen3-Light-2
+    backbone_arg=Qwen3Session
 else
     echo "Unsupported backbone model: ${backbone}."
     exit 1
@@ -115,7 +119,7 @@ echo "Extra arguments: ${extra_args_out}"
 if [ $gpu_num -eq 1 ]; then
     echo "Using single GPU: ${gpu}"
     python main.py train_SMB_decoder \
-        --backbone ${backbone} \
+        --backbone ${backbone_arg} \
         --base_model ${base_model} \
         --output_dir ${output_dir} \
         --wandb_run_name ${run_name} \
@@ -130,7 +134,7 @@ if [ $gpu_num -eq 1 ]; then
 else
     echo "Using multiple GPUs: ${gpu}"
     torchrun --nproc_per_node=${gpu_num} --master_port=${port} ./main.py train_SMB_decoder \
-        --backbone ${backbone} \
+        --backbone ${backbone_arg} \
         --base_model ${base_model} \
         --output_dir ${output_dir} \
         --wandb_run_name ${run_name} \
