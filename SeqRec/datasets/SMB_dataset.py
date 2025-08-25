@@ -425,7 +425,7 @@ class BaseSMBDataset(Dataset):
             filtered_data = [
                 d for d in self.inter_data if d["behavior"] == behavior
             ]
-        copied_dataset = copy.deepcopy(self)
+        copied_dataset = copy.copy(self)
         copied_dataset.inter_data = filtered_data
         copied_dataset.target_behavior = behavior
         return copied_dataset
