@@ -64,6 +64,7 @@ class TestSMBDecoder(MultiGPUTask):
             help="test metrics, separate by comma",
         )
         parser.add_argument("--test_task", type=str, default="SeqRec")
+        parser.add_argument("--behaviors", type=str, nargs="+", default=None, help="The behavior list.")
         parser.add_argument("--valid_loss", action="store_true", help="Whether to calculate valid loss instead of testing.")
 
     def check_collision_items(self) -> list[dict[str, int | float]]:
@@ -253,7 +254,7 @@ class TestSMBDecoder(MultiGPUTask):
         results = []
         merge_results = {m: 0.0 for m in self.metric_list}
         total = 0
-        for i, behavior in enumerate(self.base_dataset.behaviors):
+        for i, behavior in enumerate(self.behaviors):
             result = self.test_single_behavior(self.loaders[i], num_beams, behavior)
             result['eval_type'] = f"Behavior {behavior}"
             result['collision_info'] = self.collision_info[i]
@@ -306,6 +307,7 @@ class TestSMBDecoder(MultiGPUTask):
         num_beams: int,
         metrics: str,
         test_task: str,
+        behaviors: list[str] | None,
         valid_loss: bool,
         *args,
         **kwargs
@@ -366,7 +368,11 @@ class TestSMBDecoder(MultiGPUTask):
                 test_task,
             )
             self.datasets: list[BaseSMBDataset] = []
-            for behavior in self.base_dataset.behaviors:
+            if behaviors is None:
+                self.behaviors = self.base_dataset.behaviors
+            else:
+                self.behaviors = behaviors
+            for behavior in self.behaviors:
                 self.datasets.append(self.base_dataset.filter_by_behavior(behavior))
                 self.info(f"Loaded dataset for behavior {behavior} with {len(self.datasets[-1])} samples.")
 
