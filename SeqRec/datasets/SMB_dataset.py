@@ -684,7 +684,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
     def __init__(self, drop_ratio: float, **kwargs):
         self.drop_ratio = drop_ratio
         super().__init__(**kwargs)
-        assert 0 <= drop_ratio < 1, "drop_ratio must be in [0, 1)"
+        assert 0 <= drop_ratio <= 1, "drop_ratio must be in [0, 1]"
 
     @property
     def cached_file_name(self) -> str:
