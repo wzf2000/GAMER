@@ -1,6 +1,6 @@
 from torch.utils.data import ConcatDataset
 
-from SeqRec.datasets.SMB_dataset import SMBDataset, SMBExplicitDataset, SMBExplicitDatasetForDecoder
+from SeqRec.datasets.SMB_dataset import SMBDataset, SMBExplicitDataset, SMBExplicitDatasetForDecoder, SMBAugmentDataset, SMBAugmentEvaluationDataset
 
 
 def load_SMB_datasets(
@@ -36,7 +36,7 @@ def load_SMB_datasets(
                 mode="train",
                 behavior_first=True,  # Default behavior first for explicit token dataset
             )
-        elif task.lower().startswith("smb_explicit_decoder"):  # Default to filter target items
+        elif task.lower().startswith("smb_explicit_decoder"):
             assert mb_type is None, "Only one multi-behavior type is allowed in tasks."
             mb_type = "explicit_decoder"
             if task.lower() == "smb_explicit_decoder":
@@ -52,6 +52,19 @@ def load_SMB_datasets(
                 mode="train",
                 behavior_first=True,  # Default behavior first for explicit token dataset
                 augment=augment,  # Augment interactions for explicit token dataset
+            )
+        elif task.lower().startswith("smb_augment_"):
+            assert mb_type is None, "Only one multi-behavior type is allowed in tasks."
+            mb_type = "smb_augment"
+            augment = int(task.split("_")[2])
+            single_dataset = SMBAugmentDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                index_file=index_file,
+                mode="train",
+                behavior_first=True,  # Default behavior first for explicit token dataset
+                augment=augment,  # Augment interactions for augment dataset
             )
         elif task.lower() == "smb_explicit_back":
             assert mb_type is None, "Only one multi-behavior type is allowed in tasks."
@@ -96,6 +109,16 @@ def load_SMB_datasets(
                 mode="valid",
                 behavior_first=True,  # Default behavior first for explicit token dataset
             )
+        elif mb_type == "smb_augment":
+            valid_data = SMBAugmentEvaluationDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                index_file=index_file,
+                mode="valid",
+                behavior_first=True,  # Default behavior first for explicit token dataset
+                drop_ratio=2 / augment,
+            )
         elif mb_type == "explicit_back":
             valid_data = SMBExplicitDataset(
                 dataset=dataset,
@@ -134,6 +157,17 @@ def load_SMB_valid_dataset(
             index_file=index_file,
             mode="valid",
             behavior_first=True,  # Default behavior first for explicit token dataset
+        )
+    elif task.lower().startswith("smb_augment_"):
+        drop_ratio = float(task.split("_")[2])
+        valid_data = SMBAugmentEvaluationDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="valid",
+            behavior_first=True,  # Default behavior first for explicit token dataset
+            drop_ratio=drop_ratio,
         )
     elif task.lower() == "smb_explicit_back":
         valid_data = SMBExplicitDataset(
@@ -174,6 +208,17 @@ def load_SMB_test_dataset(
             mode="test",
             behavior_first=True,  # Default behavior first for explicit token dataset
         )
+    elif test_task.lower().startswith("smb_augment_"):
+        drop_ratio = float(test_task.split("_")[2])
+        test_data = SMBAugmentEvaluationDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="test",
+            behavior_first=True,  # Default behavior first for explicit token dataset
+            drop_ratio=drop_ratio,
+        )
     elif test_task.lower() == "smb_explicit_valid":
         test_data = SMBExplicitDataset(
             dataset=dataset,
@@ -182,6 +227,17 @@ def load_SMB_test_dataset(
             index_file=index_file,
             mode="valid_test",
             behavior_first=True,  # Default behavior first for explicit token dataset
+        )
+    elif test_task.lower().startswith("smb_valid_augment_"):
+        drop_ratio = float(test_task.split("_")[3])
+        test_data = SMBAugmentEvaluationDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="valid_test",
+            behavior_first=True,  # Default behavior first for explicit token dataset
+            drop_ratio=drop_ratio,
         )
     elif test_task.lower() == "smb_explicit_back":
         test_data = SMBExplicitDataset(
