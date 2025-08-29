@@ -26,7 +26,7 @@ task_dir=${dataset}/${task_dir}/${backbone}
 
 : ${suffix:=}
 if [ "${suffix}" != "" ]; then
-    task_dir=${task_dir}-${suffix}
+    task_dir=${task_dir}_${suffix}
 fi
 
 if [ $rq_kmeans -eq 0 ]; then
