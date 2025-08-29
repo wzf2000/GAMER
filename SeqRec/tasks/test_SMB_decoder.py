@@ -432,8 +432,7 @@ class TestSMBDecoder(MultiGPUTask):
             self.info("Complete building all behavior candidate trie for prefix allowed tokens function.")
 
             self.prefix_allowed_tokens_by_behavior: dict[str, Callable[[int, torch.Tensor], list[int]]] = {}
-            behaviors = self.datasets[0].behaviors
-            for behavior in behaviors:
+            for behavior in self.behaviors:
                 all_items = self.datasets[0].get_all_items(behavior)
                 if backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
                     candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items), add_special_tokens=False)["input_ids"]
