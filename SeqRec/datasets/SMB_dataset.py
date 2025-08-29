@@ -887,3 +887,40 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
         copied_dataset.inter_data = filtered_data
         copied_dataset.target_behavior = behavior
         return copied_dataset
+
+
+class SMBDropGTEvaluationDataset(SMBExplicitDataset):
+    def _GT_index(self, items: list[str], gt_items: list[str]) -> list[bool]:
+        gt_set = set(gt_items)
+        return [item in gt_set for item in items]
+
+    def _process_test_data(self) -> list[dict[str, str | list[str] | list[int] | torch.FloatTensor]]:
+        inter_data = []
+        for uid in get_tqdm(self.remapped_inters, desc="Processing test data"):
+            items = self.remapped_inters[uid]
+            behaviors = self.history_behaviors[uid]
+            sids = self.session[uid]
+            times = self.time[uid]
+            session_items: list[str] = []
+            session_behaviors: list[str] = []
+            for i in range(self.test_pos[uid], len(items)):
+                session_items.append(self.get_behavior_item(items[i], behaviors[i]))
+                session_behaviors.append(behaviors[i])
+            assert len(session_items) > 0, f"Session for user {uid} is empty after test position {self.test_pos[uid]}."
+            GT_index = self._GT_index(items[:self.test_pos[uid]], items[self.test_pos[uid]:])
+            items_dropped = [item for item, is_gt in zip(items[:self.test_pos[uid]], GT_index) if not is_gt]
+            behaviors_dropped = [behavior for behavior, is_gt in zip(behaviors[:self.test_pos[uid]], GT_index) if not is_gt]
+            sids_dropped = [sid for sid, is_gt in zip(sids[:self.test_pos[uid]], GT_index) if not is_gt]
+            times_dropped = [time for time, is_gt in zip(times[:self.test_pos[uid]], GT_index) if not is_gt]
+            inter_data.append({
+                "item": session_items,
+                "inters": self._get_inters(items_dropped, behaviors_dropped),
+                "inters_item_list": self._get_inters_with_only_items(items_dropped),
+                # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
+                "session_ids": self._generate_session_ids(sids_dropped),
+                "extended_session_ids": self._generate_extended_session_ids(sids_dropped),
+                "time": self._generate_times(times_dropped + [times[self.test_pos[uid]]]),
+                "behavior": session_behaviors,
+            })
+
+        return inter_data

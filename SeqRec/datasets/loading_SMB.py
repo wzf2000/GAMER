@@ -1,6 +1,6 @@
 from torch.utils.data import ConcatDataset
 
-from SeqRec.datasets.SMB_dataset import SMBDataset, SMBExplicitDataset, SMBExplicitDatasetForDecoder, SMBAugmentDataset, SMBAugmentEvaluationDataset
+from SeqRec.datasets.SMB_dataset import SMBDataset, SMBExplicitDataset, SMBExplicitDatasetForDecoder, SMBAugmentDataset, SMBAugmentEvaluationDataset, SMBDropGTEvaluationDataset
 
 
 def load_SMB_datasets(
@@ -238,6 +238,15 @@ def load_SMB_test_dataset(
             mode="valid_test",
             behavior_first=True,  # Default behavior first for explicit token dataset
             drop_ratio=drop_ratio,
+        )
+    elif test_task.lower() == "smb_drop_gt":
+        test_data = SMBDropGTEvaluationDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="test",
+            behavior_first=True,  # Default behavior first for explicit token dataset
         )
     elif test_task.lower() == "smb_explicit_back":
         test_data = SMBExplicitDataset(
