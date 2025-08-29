@@ -24,6 +24,11 @@ fi
 task_dir=${tasks//,/-}
 task_dir=${dataset}/${task_dir}/${backbone}
 
+: ${suffix:=}
+if [ "${suffix}" != "" ]; then
+    task_dir=${task_dir}-${suffix}
+fi
+
 if [ $rq_kmeans -eq 0 ]; then
     : ${cid:=0}
     if [ $cid -eq 0 ]; then
