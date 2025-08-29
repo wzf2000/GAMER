@@ -97,6 +97,7 @@ class TestSMBDecoder(MultiGPUTask):
         total = 0
         pbar = get_tqdm(desc=f"Testing ({EvaluationType.FIXED_BEHAVIOR.value} {behavior})", total=len(loader))
 
+        duplicate_ratios = []
         for batch in loader:
             batch: tuple[BatchEncoding, list[list[str]], torch.LongTensor]
             inputs = batch[0].to(self.device)
@@ -196,6 +197,26 @@ class TestSMBDecoder(MultiGPUTask):
                 output_ids = output_ids[:, -self.item_len:]
 
             output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+            if self.backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Session']:
+                output_item_ids = output_ids[:, 1:]  # Remove the behavior token
+            else:
+                output_item_ids = output_ids[:, 2:]  # Remove the decoder start token and behavior token
+            output_items = self.tokenizer.batch_decode(output_item_ids, skip_special_tokens=True)
+            # split the output items by num_beams
+            output_items = [
+                output_items[
+                    i * num_beams: (i + 1) * num_beams
+                ] for i in range(batch_size)
+            ]
+            history_items = inputs['inters_item_list']
+
+            # count how many output items are in the history items for each sample
+            duplicate_ratio = []
+            for i in range(batch_size):
+                output_item_set = set(output_items[i])
+                history_item_set = set(history_items[i])
+                intersection = output_item_set.intersection(history_item_set)
+                duplicate_ratio.append(len(intersection) / len(output_item_set) if len(output_item_set) > 0 else 0)
 
             topk_res = get_topk_results(
                 output_str,
@@ -212,6 +233,8 @@ class TestSMBDecoder(MultiGPUTask):
                 dist.all_gather_object(obj=topk_res, object_list=res_gather_list)
                 targets_gather_list = [None for _ in range(self.world_size)]
                 dist.all_gather_object(obj=targets, object_list=targets_gather_list)
+                duplicate_ratio_gather_list = [None for _ in range(self.world_size)]
+                dist.all_gather_object(obj=duplicate_ratio, object_list=duplicate_ratio_gather_list)
 
                 all_device_topk_res = []
                 for ga_res in res_gather_list:
@@ -222,6 +245,10 @@ class TestSMBDecoder(MultiGPUTask):
                 for ga_targets in targets_gather_list:
                     all_device_targets += ga_targets
                 targets = all_device_targets
+                all_device_duplicate_ratio = []
+                for ga_duplicate_ratio in duplicate_ratio_gather_list:
+                    all_device_duplicate_ratio += ga_duplicate_ratio
+                duplicate_ratio = all_device_duplicate_ratio
             else:
                 total += batch_size
 
@@ -231,12 +258,14 @@ class TestSMBDecoder(MultiGPUTask):
                     results[m] = res
                 else:
                     results[m] += res
+            duplicate_ratios.extend(duplicate_ratio)
 
             if self.local_rank == 0:
                 show_metric_keys = self.metric_list[:2]  # Show only the first two metrics
                 show_metric_dict = {
                     m: f"{results[m] / total:.4f}" for m in show_metric_keys if m in results
                 }
+                show_metric_dict["Avg. Duplicate Ratio"] = f"{np.mean(duplicate_ratios):.4f}"
                 pbar.set_postfix(show_metric_dict)
                 pbar.update(1)
             if self.ddp:
@@ -247,6 +276,7 @@ class TestSMBDecoder(MultiGPUTask):
         self.info(f"Finished testing behavior {behavior} with {total} samples.")
         for m in results:
             results[m] = results[m] / total
+        results["Avg. Duplicate Ratio"] = np.mean(duplicate_ratios)
 
         return results
 

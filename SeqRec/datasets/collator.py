@@ -133,6 +133,9 @@ class EncoderDecoderTestCollator:
             max_length = max([len(sub) for sub in time])
             time = [t + [-1] * (max_length - len(t)) for t in time]
             inputs["time"] = torch.tensor(time, dtype=torch.float32)
+        if "inters_item_list" in batch[0]:
+            # If the batch contains inters_item_list, add it to the inputs
+            inputs["inters_item_list"] = [d["inters_item_list"] for d in batch]
 
         return (inputs, targets)
 
@@ -184,5 +187,8 @@ class DecoderOnlyTestCollator(object):
             else:
                 extended_session_ids = [[0] * (max_length - len(session)) + session for session in extended_session_ids]
             inputs["extended_session_ids"] = torch.tensor(extended_session_ids, dtype=torch.long)
+        if "inters_item_list" in batch[0]:
+            # If the batch contains inters_item_list, add it to the inputs
+            inputs["inters_item_list"] = [d["inters_item_list"] for d in batch]
 
         return (inputs, targets)

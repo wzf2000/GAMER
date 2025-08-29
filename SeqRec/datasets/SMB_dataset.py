@@ -398,6 +398,7 @@ class BaseSMBDataset(Dataset):
                 filtered_data.append({
                     "item": items,
                     "inters": d["inters"],
+                    "inters_item_list": d["inters_item_list"],
                     "session_ids": d["session_ids"],
                     "extended_session_ids": d["extended_session_ids"],
                     "behavior": behaviors,
@@ -865,6 +866,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
                     filtered_data.append({
                         "item": items,
                         "inters": d["inters_dropped"],
+                        "inters_item_list": d["inters_item_list_dropped"],
                         "session_ids": d["session_ids_dropped"],
                         "extended_session_ids": d["extended_session_ids_dropped"],
                         "behavior": behaviors,
@@ -874,6 +876,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
                     filtered_data.append({
                         "item": items,
                         "inters": d["inters"],
+                        "inters_item_list": d["inters_item_list"],
                         "session_ids": d["session_ids"],
                         "extended_session_ids": d["extended_session_ids"],
                         "behavior": behaviors,
@@ -890,12 +893,13 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
 
 
 class SMBDropGTEvaluationDataset(SMBExplicitDataset):
-    def _GT_index(self, items: list[str], gt_items: list[str]) -> list[bool]:
+    def _GT_index(self, items: list[str], gt_items: list[str], behaviors: list[str]) -> list[bool]:
         gt_set = set(gt_items)
-        return [item in gt_set for item in items]
+        return [item in gt_set and behavior != self.target_behavior for item, behavior in zip(items, behaviors)]
 
     def _process_test_data(self) -> list[dict[str, str | list[str] | list[int] | torch.FloatTensor]]:
         inter_data = []
+        drop_ratios = []
         for uid in get_tqdm(self.remapped_inters, desc="Processing test data"):
             items = self.remapped_inters[uid]
             behaviors = self.history_behaviors[uid]
@@ -907,7 +911,9 @@ class SMBDropGTEvaluationDataset(SMBExplicitDataset):
                 session_items.append(self.get_behavior_item(items[i], behaviors[i]))
                 session_behaviors.append(behaviors[i])
             assert len(session_items) > 0, f"Session for user {uid} is empty after test position {self.test_pos[uid]}."
-            GT_index = self._GT_index(items[:self.test_pos[uid]], items[self.test_pos[uid]:])
+            GT_index = self._GT_index(items[:self.test_pos[uid]], items[self.test_pos[uid]:], behaviors[:self.test_pos[uid]])
+            if len(GT_index) > 0:
+                drop_ratios.append(sum(GT_index) / len(GT_index))
             items_dropped = [item for item, is_gt in zip(items[:self.test_pos[uid]], GT_index) if not is_gt]
             behaviors_dropped = [behavior for behavior, is_gt in zip(behaviors[:self.test_pos[uid]], GT_index) if not is_gt]
             sids_dropped = [sid for sid, is_gt in zip(sids[:self.test_pos[uid]], GT_index) if not is_gt]
@@ -922,5 +928,6 @@ class SMBDropGTEvaluationDataset(SMBExplicitDataset):
                 "time": self._generate_times(times_dropped + [times[self.test_pos[uid]]]),
                 "behavior": session_behaviors,
             })
+        logger.warning(f"Average drop ratio of ground-truth items: {np.mean(drop_ratios) if len(drop_ratios) > 0 else 0:.4f}")
 
         return inter_data
