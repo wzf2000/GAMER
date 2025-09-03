@@ -2,6 +2,7 @@
   "architectures": [
     "Qwen3MoeForCausalLM"
   ],
+  "mlp_type": "Qwen3",
   "Moe_behavior_only": false,
   "moe_intermediate_size": 256,
   "router_aux_loss_coef": 0.001,
