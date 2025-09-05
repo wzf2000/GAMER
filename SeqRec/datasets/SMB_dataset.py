@@ -914,6 +914,8 @@ class SMBDropGTEvaluationDataset(SMBExplicitDataset):
             GT_index = self._GT_index(items[:self.test_pos[uid]], items[self.test_pos[uid]:], behaviors[:self.test_pos[uid]])
             if len(GT_index) > 0:
                 drop_ratios.append(sum(GT_index) / len(GT_index))
+            if sum(GT_index) == len(GT_index):
+                continue
             items_dropped = [item for item, is_gt in zip(items[:self.test_pos[uid]], GT_index) if not is_gt]
             behaviors_dropped = [behavior for behavior, is_gt in zip(behaviors[:self.test_pos[uid]], GT_index) if not is_gt]
             sids_dropped = [sid for sid, is_gt in zip(sids[:self.test_pos[uid]], GT_index) if not is_gt]

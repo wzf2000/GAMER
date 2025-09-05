@@ -39,6 +39,7 @@ class TIGER(T5ForConditionalGeneration):
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
         cache_position: torch.LongTensor | None = None,
+        split: str = None,
     ) -> tuple[torch.FloatTensor] | Seq2SeqLMOutput:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):

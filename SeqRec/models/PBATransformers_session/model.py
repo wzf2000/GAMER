@@ -717,6 +717,7 @@ class PBATransformersForConditionalGenerationSession(PBATransformersPreTrainedMo
         behavior: torch.LongTensor | None = None,
         session_ids: torch.LongTensor | None = None,
         time: torch.FloatTensor | None = None,
+        split: str = None,
     ) -> tuple[torch.FloatTensor, ...] | Seq2SeqMoEOutput:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):

@@ -687,6 +687,7 @@ class PBATransformersForConditionalGeneration(PBATransformersPreTrainedModel, Ge
         output_router_logits: bool | None = True,
         return_dict: bool | None = None,
         cache_position: torch.LongTensor | None = None,
+        split: str = None,
     ) -> tuple[torch.FloatTensor, ...] | Seq2SeqMoEOutput:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):

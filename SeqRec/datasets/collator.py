@@ -172,8 +172,9 @@ class DecoderOnlyTestCollator(object):
             session_ids = [d["session_ids"] for d in batch]
             max_length = max([len(sub) for sub in session_ids])
             if self.add_behavior_token:
-                max_session_id = max([max(sub) for sub in session_ids])
-                session_ids = [[0] * (max_length - len(session)) + session + [max_session_id + 1] for session in session_ids]
+                max_session_ids = [max(sub) for sub in session_ids]
+                session_ids = [[0] * (max_length - len(session)) + session for session in session_ids]
+                session_ids = [session_id + [max_session_id + 1] for session_id, max_session_id in zip(session_ids, max_session_ids)]
             else:
                 session_ids = [[0] * (max_length - len(session)) + session for session in session_ids]
             inputs["session_ids"] = torch.tensor(session_ids, dtype=torch.long)
