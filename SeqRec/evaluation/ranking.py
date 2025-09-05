@@ -57,9 +57,10 @@ def ndcg_k(topk_results: list[list[int]], k: int, targets: list[list[str]] | Non
 
 def recall_k(topk_results: list[list[int]], k: int, targets: list[list[str]] | None = None) -> float:
     recall = 0.0
+    targets_set: list[set[str]] | None = [set(t) for t in targets] if targets is not None else None
     for i, row in enumerate(topk_results):
         res = row[:k]
-        recall += min(sum(res), len(targets[i])) / len(targets[i]) if targets is not None else sum(res)
+        recall += min(sum(res), len(targets_set[i])) / len(targets_set[i]) if targets_set is not None else sum(res)
     return recall
 
 
