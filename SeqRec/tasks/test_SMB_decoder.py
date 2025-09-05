@@ -202,6 +202,7 @@ class TestSMBDecoder(MultiGPUTask):
             else:
                 output_item_ids = output_ids[:, 2:]  # Remove the decoder start token and behavior token
             output_items = self.tokenizer.batch_decode(output_item_ids, skip_special_tokens=True)
+            output_items = [output_item.replace(' ', '') for output_item in output_items]
             # split the output items by num_beams
             output_items = [
                 output_items[
