@@ -32,7 +32,7 @@ def get_topk_results(predictions: list[str], scores: torch.Tensor, targets: list
     return results
 
 
-def ndcg_k(topk_results: list[list[int]], k: int, targets: list[list[str]] | None = None) -> float:
+def ndcg_k(topk_results: list[list[int]], k: int, targets: set[list[str]] | None = None) -> float:
     ndcg = 0.0
     for i, row in enumerate(topk_results):
         res = row[:k]
@@ -55,12 +55,11 @@ def ndcg_k(topk_results: list[list[int]], k: int, targets: list[list[str]] | Non
     return ndcg
 
 
-def recall_k(topk_results: list[list[int]], k: int, targets: list[list[str]] | None = None) -> float:
+def recall_k(topk_results: list[list[int]], k: int, targets: set[list[str]] | None = None) -> float:
     recall = 0.0
-    targets_set: list[set[str]] | None = [set(t) for t in targets] if targets is not None else None
     for i, row in enumerate(topk_results):
         res = row[:k]
-        recall += min(sum(res), len(targets_set[i])) / len(targets_set[i]) if targets_set is not None else sum(res)
+        recall += min(sum(res), len(targets[i])) / len(targets[i]) if targets is not None else sum(res)
     return recall
 
 
@@ -75,16 +74,17 @@ def hit_k(topk_results: list[list[int]], k: int) -> float:
 
 def get_metrics_results(topk_results: list[list[int]], metrics: list[str], targets: list[list[str]] | None = None) -> dict[str, float]:
     res = {}
+    targets_set: list[set[str]] | None = [set(t) for t in targets] if targets is not None else None
     for m in metrics:
         if m.lower().startswith("hit"):
             k = int(m.split("@")[1])
             res[m] = hit_k(topk_results, k)
         elif m.lower().startswith("ndcg"):
             k = int(m.split("@")[1])
-            res[m] = ndcg_k(topk_results, k, targets)
+            res[m] = ndcg_k(topk_results, k, targets_set)
         elif m.lower().startswith("recall"):
             k = int(m.split("@")[1])
-            res[m] = recall_k(topk_results, k, targets)
+            res[m] = recall_k(topk_results, k, targets_set)
         else:
             raise NotImplementedError
     return res
