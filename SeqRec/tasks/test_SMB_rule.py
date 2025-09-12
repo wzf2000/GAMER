@@ -104,9 +104,9 @@ class TestSMBRule(Task):
                     for item_rep in item_list:
                         if item_rep not in history:
                             history.append(item_rep)
-                    history = history[:20]
+                    history = history[:num_items]
                 else:
-                    history: list[str] = sample["inters_item_list"][::-1][:20]  # Get the last 20 items in reverse order
+                    history: list[str] = sample["inters_item_list"][::-1][:num_items]  # Get the last num_items items in reverse order
                 output_str = [dataset.get_behavior_item(item, behavior) for item in history]
 
                 topk_res = get_topk_results(
