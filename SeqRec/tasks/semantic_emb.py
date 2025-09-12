@@ -178,8 +178,8 @@ class SemanticEmbedding(Task):
                         input_ids=encoded_batch.input_ids,
                         attention_mask=encoded_batch.attention_mask,
                     )
-
-                masked_output: torch.Tensor = outputs.last_hidden_state * encoded_batch.attention_mask.unsqueeze(-1)
+                # 把padding mask掉
+                masked_output: torch.Tensor = outputs.last_hidden_state * encoded_batch.attention_mask.unsqueeze(-1) 
                 mean_output: torch.Tensor = masked_output.sum(dim=1) / encoded_batch.attention_mask.sum(dim=-1, keepdim=True)
                 mean_output = mean_output.detach().cpu()
                 embeddings.append(mean_output)

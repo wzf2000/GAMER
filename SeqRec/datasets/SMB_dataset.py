@@ -213,6 +213,18 @@ class BaseSMBDataset(Dataset):
             ret.extend([remapped_sid * token_count + i for i in range(token_count)])
         return ret
 
+    def _generate_actions(self, actions: list[int], max_his_len: int | None = None) -> list[int]:
+        ret = []
+        if max_his_len is None:
+            max_his_len = self.max_his_len
+        if max_his_len > 0:
+            if self.mode in ["train", "valid"]:
+                max_his_len += 1
+            actions = actions[-max_his_len:]
+        for action in actions:
+            ret.extend([self.behavior_level[action]] * self.token_count())
+        return ret
+
     def _generate_times(self, times: list[float], max_his_len: int | None = None) -> list[float]:
         ret = []
         base_time = times[-1]
@@ -250,6 +262,7 @@ class BaseSMBDataset(Dataset):
                     "inters": self._get_inters(items[:pos], behaviors[:pos]),
                     "session_ids": session_ids_map[sid],
                     "extended_session_ids": extended_session_ids_map[sid],
+                    "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
                     "time": times_map[sid],
                     "behavior": behaviors[i],
                 })
@@ -274,6 +287,7 @@ class BaseSMBDataset(Dataset):
                     "inters": self._get_inters(items[:pos], behaviors[:pos]),
                     "session_ids": session_ids,
                     "extended_session_ids": extended_session_ids,
+                    "actions": self._generate_actions(self.history_behaviors[uid][:pos] + [behaviors[i]]),
                     "time": times,
                     "behavior": behaviors[i],
                 })
@@ -299,6 +313,7 @@ class BaseSMBDataset(Dataset):
                 # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
                 "session_ids": self._generate_session_ids(self.session[uid][:self.valid_pos[uid]]),
                 "extended_session_ids": self._generate_extended_session_ids(self.session[uid][:self.valid_pos[uid]]),
+                "actions": self._generate_actions(self.history_behaviors[uid][:self.valid_pos[uid]]),
                 "time": self._generate_times(times[:self.valid_pos[uid] + 1]),
                 "behavior": session_behaviors,
             })
@@ -324,6 +339,7 @@ class BaseSMBDataset(Dataset):
                 # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
                 "session_ids": self._generate_session_ids(self.session[uid][:self.test_pos[uid]]),
                 "extended_session_ids": self._generate_extended_session_ids(self.session[uid][:self.test_pos[uid]]),
+                "actions": self._generate_actions(self.history_behaviors[uid][:self.test_pos[uid]]),
                 "time": self._generate_times(times[:self.test_pos[uid] + 1]),
                 "behavior": session_behaviors,
             })
@@ -400,6 +416,7 @@ class BaseSMBDataset(Dataset):
                     "inters": d["inters"],
                     "inters_item_list": d["inters_item_list"],
                     "session_ids": d["session_ids"],
+                    "actions": d["actions"],
                     "extended_session_ids": d["extended_session_ids"],
                     "behavior": behaviors,
                     "time": d["time"],
@@ -424,6 +441,7 @@ class BaseSMBDataset(Dataset):
             behavior=d["behavior"],
             session_ids=d["session_ids"],
             extended_session_ids=d["extended_session_ids"],
+            actions=d["actions"],
             time=d["time"],
             inters_item_list=d.get("inters_item_list", []),
             split=self.mode
@@ -576,6 +594,7 @@ class SMBExplicitDatasetForDecoder(SMBExplicitDataset):
                     "inters": self._get_inters(items[:-1], behaviors[:-1]),
                     "session_ids": self._generate_session_ids(sids),
                     "extended_session_ids": self._generate_extended_session_ids(sids),
+                    "actions": self._generate_actions(behaviors),
                     "time": self._generate_times(times),
                     "behavior": behaviors[-1],
                 })
@@ -665,6 +684,7 @@ class SMBAugmentDataset(SMBExplicitDataset):
                         continue
                     sid = self.session[uid][i]
                     pos = self.train_pos[uid][sid]
+                    # wrong, mark
                     if sid not in session_ids_map:
                         session_ids_map[sid] = self._generate_session_ids(self.session[uid][:pos + 1])
                         extended_session_ids_map[sid] = self._generate_extended_session_ids(self.session[uid][:pos + 1])
@@ -674,6 +694,7 @@ class SMBAugmentDataset(SMBExplicitDataset):
                         "inters": self._get_inters(items[:i], behaviors[:i]),
                         "session_ids": session_ids_map[sid],
                         "extended_session_ids": extended_session_ids_map[sid],
+                        "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
                         "time": times_map[sid],
                         "behavior": behaviors[i],
                     })
@@ -755,6 +776,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
                         "inters": self._get_inters(items[:pos], behaviors[:pos]),
                         "session_ids": session_ids,
                         "extended_session_ids": extended_session_ids,
+                        "actions": self._generate_actions(behaviors + [behaviors[i]]),
                         "time": times,
                         "behavior": behaviors[i],
                     })
@@ -764,6 +786,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
                         "inters": self._get_inters(items_dropped, behaviors_dropped),
                         "session_ids": session_ids_dropped,
                         "extended_session_ids": extended_session_ids_dropped,
+                        "actions": self._generate_actions(behaviors_dropped + [behaviors[i]]),
                         "time": times_dropped,
                         "behavior": behaviors[i],
                     })
@@ -797,6 +820,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
                 # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
                 "session_ids": self._generate_session_ids(self.session[uid][:self.valid_pos[uid]]),
                 "extended_session_ids": self._generate_extended_session_ids(self.session[uid][:self.valid_pos[uid]]),
+                "actions": self._generate_actions(self.history_behaviors[uid][: self.test_pos[uid]]),
                 "time": self._generate_times(times[:self.valid_pos[uid] + 1]),
                 "behavior": session_behaviors,
                 # Dropped history
@@ -805,6 +829,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
                 # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
                 "session_ids_dropped": self._generate_session_ids(sids_dropped),
                 "extended_session_ids_dropped": self._generate_extended_session_ids(sids_dropped),
+                "actions_dropped": self._generate_actions(behaviors_dropped),
                 "time_dropped": self._generate_times(times_dropped + [times[self.valid_pos[uid]]]),
             })
 
@@ -837,6 +862,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
                 # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
                 "session_ids": self._generate_session_ids(self.session[uid][:self.test_pos[uid]]),
                 "extended_session_ids": self._generate_extended_session_ids(self.session[uid][:self.test_pos[uid]]),
+                "actions": self._generate_actions(self.history_behaviors[uid][:self.test_pos[uid]]),
                 "time": self._generate_times(times[:self.test_pos[uid] + 1]),
                 # Dropped history
                 "inters_dropped": self._get_inters(items_dropped, behaviors_dropped),
@@ -844,6 +870,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
                 # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
                 "session_ids_dropped": self._generate_session_ids(sids_dropped),
                 "extended_session_ids_dropped": self._generate_extended_session_ids(sids_dropped),
+                "actions_dropped": self._generate_actions(behaviors_dropped),
                 "time_dropped": self._generate_times(times_dropped + [times[self.test_pos[uid]]]),
                 "behavior": session_behaviors,
             })
@@ -869,6 +896,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
                         "inters_item_list": d["inters_item_list_dropped"],
                         "session_ids": d["session_ids_dropped"],
                         "extended_session_ids": d["extended_session_ids_dropped"],
+                        "actions": d["actions_dropped"],
                         "behavior": behaviors,
                         "time": d["time_dropped"],
                     })
@@ -879,6 +907,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
                         "inters_item_list": d["inters_item_list"],
                         "session_ids": d["session_ids"],
                         "extended_session_ids": d["extended_session_ids"],
+                        "actions": d["actions"],
                         "behavior": behaviors,
                         "time": d["time"],
                     })
@@ -927,6 +956,7 @@ class SMBDropGTEvaluationDataset(SMBExplicitDataset):
                 # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
                 "session_ids": self._generate_session_ids(sids_dropped),
                 "extended_session_ids": self._generate_extended_session_ids(sids_dropped),
+                "actions": self._generate_actions(behaviors_dropped),
                 "time": self._generate_times(times_dropped + [times[self.test_pos[uid]]]),
                 "behavior": session_behaviors,
             })
