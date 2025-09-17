@@ -1,0 +1,13 @@
+{
+    "bos_token_id": 4,
+    "do_sample": true,
+    "eos_token_id": [
+        8,
+        4
+    ],
+    "pad_token_id": 4,
+    "temperature": 0.6,
+    "top_k": 20,
+    "top_p": 0.95,
+    "transformers_version": "4.51.0"
+}

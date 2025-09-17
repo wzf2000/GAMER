@@ -684,7 +684,7 @@ class Qwen3SessionMoeMultiModel(Qwen3ModelSessionMoeMulti):
             attention_mask=attention_mask,
             input_tensor=inputs_embeds,
             cache_position=cache_position,
-            past_key_values=self.cross_past_key_values,
+            past_key_values=past_key_values,
             session_ids=session_ids,
             actions=actions,
         )
