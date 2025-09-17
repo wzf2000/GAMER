@@ -7,7 +7,7 @@ from SeqRec.utils.logging import init_logger
 from SeqRec.tasks import task_list
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args() -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser()
 
     sub_parsers = parser.add_subparsers(
@@ -20,13 +20,11 @@ def parse_args() -> argparse.Namespace:
     for task_class in task_list.values():
         task_class.add_sub_parsers(sub_parsers)
 
-    args, unknown_args = parser.parse_known_args()
-    logger.warning(f"Unknown args: {unknown_args}")
-    return args
+    return parser.parse_known_args()
 
 
 def main():
-    args = parse_args()
+    args, unknown_args = parse_args()
     task_name: str = args.pipeline
     # remove the pipeline attribute from args
     del args.pipeline
@@ -34,6 +32,7 @@ def main():
         log_dir = os.path.join("logs", task_name)
         ensure_dir(log_dir)
         init_logger(log_dir)
+        logger.warning(f"Unknown args: {unknown_args}")
         task = task_list[task_name]()
         task.invoke(**vars(args))
     else:
