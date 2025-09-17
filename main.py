@@ -1,5 +1,6 @@
 import os
 import argparse
+from loguru import logger
 
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.logging import init_logger
@@ -19,7 +20,9 @@ def parse_args() -> argparse.Namespace:
     for task_class in task_list.values():
         task_class.add_sub_parsers(sub_parsers)
 
-    return parser.parse_args()
+    args, unknown_args = parser.parse_known_args()
+    logger.warning(f"Unknown args: {unknown_args}")
+    return args
 
 
 def main():
