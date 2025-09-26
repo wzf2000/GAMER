@@ -1,6 +1,6 @@
 from torch.utils.data import ConcatDataset
 
-from SeqRec.datasets.SSeq_dataset import SSeqDataset, SSeqDatasetForDecoder, SSeqNegSampleDataset
+from SeqRec.datasets.SSeq_dataset import SSeqDataset, SSeqDatasetForDecoder, SSeqNegSampleDataset, SSeqNegSampleEvalDataset
 
 
 def load_SSeq_datasets(
@@ -23,8 +23,26 @@ def load_SSeq_datasets(
                 mode="train",
                 diff=False,
             )
+        elif task.lower() == "sseq_sample":
+            seq_type = "sseq_sample"
+            single_dataset = SSeqDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                mode="train",
+                diff=False,
+            )
         elif task.lower() == "sseq_diff":
             seq_type = "sseq_diff"
+            single_dataset = SSeqDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                mode="train",
+                diff=True,
+            )
+        elif task.lower() == "sseq_sample_diff":
+            seq_type = "sseq_sample_diff"
             single_dataset = SSeqDataset(
                 dataset=dataset,
                 data_path=data_path,
@@ -59,8 +77,26 @@ def load_SSeq_datasets(
                 mode="train",
                 diff=False,
             )
+        elif task.lower() == "sseq_sample_neg":
+            seq_type = "sseq_sample"
+            single_dataset = SSeqNegSampleDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                mode="train",
+                diff=False,
+            )
         elif task.lower() == "sseq_diff_neg":
             seq_type = "sseq_diff"
+            single_dataset = SSeqNegSampleDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                mode="train",
+                diff=True,
+            )
+        elif task.lower() == "sseq_sample_diff_neg":
+            seq_type = "sseq_sample_diff"
             single_dataset = SSeqNegSampleDataset(
                 dataset=dataset,
                 data_path=data_path,
@@ -82,8 +118,24 @@ def load_SSeq_datasets(
                 mode="valid",
                 diff=False,
             )
+        elif seq_type == "sseq_sample":
+            valid_data = SSeqNegSampleEvalDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                mode="valid",
+                diff=False,
+            )
         elif seq_type == "sseq_diff":
             valid_data = SSeqDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                mode="valid",
+                diff=True,
+            )
+        elif seq_type == "sseq_sample_diff":
+            valid_data = SSeqNegSampleEvalDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,

@@ -27,15 +27,9 @@ class BaseSSeqDataset(Dataset):
 
         # load data
         self._load_data()
-        if not self.diff:
-            self.num_items = max(
-                item for items in self.inters.values() for item in items
-            ) + 1
-        else:
-            self.num_items = len(self.behaviors) * (max(item for items in self.inters.values() for item in items) + 1)
-            self.num = max(
-                item for items in self.inters.values() for item in items
-            ) + 1
+        self.num = max(
+            item for items in self.inters.values() for item in items
+        ) + 1
 
         # process data
         if os.path.exists(self.cached_file_name):
@@ -131,6 +125,7 @@ class BaseSSeqDataset(Dataset):
         )
         self.target_behavior = max_level_behaviors[0]
         self.behaviors = list(self.behavior_level.keys())
+        self.target_behavior_index = self.behaviors.index(self.target_behavior)
 
     def get_behavior_item(self, item: int, behavior: str) -> int:
         raise NotImplementedError(
@@ -148,6 +143,14 @@ class BaseSSeqDataset(Dataset):
             for history_item, history_behavior in zip(history_items, history_behaviors)
         ]
         return history_behavior_items
+
+    def _get_inter_behaviors(self, history_behaviors: list[str], max_his_len: int | None = None) -> list[int]:
+        if max_his_len is None:
+            max_his_len = self.max_his_len
+        if max_his_len > 0:
+            history_behaviors = history_behaviors[-max_his_len:]
+        history_behavior_ids = [self.behaviors.index(b) for b in history_behaviors]
+        return history_behavior_ids
 
     def _generate_session_ids(self, session_ids: list[int], max_his_len: int | None = None) -> list[int]:
         ret = []
@@ -206,6 +209,7 @@ class BaseSSeqDataset(Dataset):
                 inter_data.append({
                     "item": self.get_behavior_item(items[i], behaviors[i]),
                     "inters": self._get_inters(items[:pos], behaviors[:pos]),
+                    "inter_behaviors": self._get_inter_behaviors(behaviors[:pos]),
                     "session_ids": session_ids_map[sid],
                     "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
                     "time": times_map[sid],
@@ -229,6 +233,7 @@ class BaseSSeqDataset(Dataset):
             inter_data.append({
                 "item": session_items,
                 "inters": self._get_inters(items[:self.valid_pos[uid]], behaviors[:self.valid_pos[uid]]),
+                "inter_behaviors": self._get_inter_behaviors(behaviors[:self.valid_pos[uid]]),
                 # ! For validation set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
                 "session_ids": self._generate_session_ids(self.session[uid][:self.valid_pos[uid]]),
                 "actions": self._generate_actions(self.history_behaviors[uid][:self.valid_pos[uid]]),
@@ -253,6 +258,7 @@ class BaseSSeqDataset(Dataset):
             inter_data.append({
                 "item": session_items,
                 "inters": self._get_inters(items[:self.test_pos[uid]], behaviors[:self.test_pos[uid]]),
+                "inter_behaviors": self._get_inter_behaviors(behaviors[:self.test_pos[uid]]),
                 # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
                 "session_ids": self._generate_session_ids(self.session[uid][:self.test_pos[uid]]),
                 "actions": self._generate_actions(self.history_behaviors[uid][:self.test_pos[uid]]),
@@ -274,12 +280,14 @@ class BaseSSeqDataset(Dataset):
                     if sample_behavior == self.behaviors.index(behavior):
                         items.append(sample_item)
                         behaviors.append(sample_behavior)
+                items = list(set(items))
                 filtered_data.append({
                     "item": items,
                     "inters": d["inters"],
+                    "inter_behaviors": d["inter_behaviors"],
                     "session_ids": d["session_ids"],
                     "actions": d["actions"],
-                    "behavior": behaviors,
+                    "behavior": self.behaviors.index(behavior),
                     "time": d["time"],
                 })
         else:
@@ -299,6 +307,7 @@ class BaseSSeqDataset(Dataset):
         ret = dict(
             inters=d["inters"],
             seq_len=len(d["inters"]),
+            inter_behaviors=d["inter_behaviors"],
             target=d["item"],
             behavior=d["behavior"],
             session_ids=d["session_ids"],
@@ -308,6 +317,8 @@ class BaseSSeqDataset(Dataset):
         )
         if 'neg_item' in d:  # for negative sampling dataset
             ret['neg_item'] = d['neg_item']
+        if 'item_range' in d:
+            ret['item_range'] = d['item_range']
         return ret
 
 
@@ -319,6 +330,10 @@ class SSeqDataset(BaseSSeqDataset):
     def __init__(self, diff: bool = False, **kwargs):
         self.diff = diff
         super().__init__(**kwargs)
+        if not self.diff:
+            self.num_items = self.num
+        else:
+            self.num_items = len(self.behaviors) * self.num
 
     @property
     def cached_file_name(self) -> str:
@@ -333,13 +348,45 @@ class SSeqDataset(BaseSSeqDataset):
         else:
             return item + 1  # + 1 for padding index 0
 
+    def filter_by_behavior(self, behavior: str) -> "SSeqDataset":
+        if self.diff and self.mode == 'test':
+            assert isinstance(self.inter_data[0]['behavior'], list)
+            filtered_data = []
+            inter_data = get_tqdm(self.inter_data, desc=f"Filtering by behavior - {behavior}")
+            for d in inter_data:
+                if self.behaviors.index(behavior) not in d["behavior"]:
+                    continue
+                items, behaviors = [], []
+                for sample_item, sample_behavior in zip(d["item"], d["behavior"]):
+                    if sample_behavior == self.behaviors.index(behavior):
+                        items.append(sample_item)
+                        behaviors.append(sample_behavior)
+                items = list(set(items))
+                item_range = (self.behaviors.index(behavior) * self.num + 1, (self.behaviors.index(behavior) + 1) * self.num + 1)
+                filtered_data.append({
+                    "item": items,
+                    "inters": d["inters"],
+                    "inter_behaviors": d["inter_behaviors"],
+                    "session_ids": d["session_ids"],
+                    "actions": d["actions"],
+                    "behavior": self.behaviors.index(behavior),
+                    "time": d["time"],
+                    "item_range": item_range,
+                })
+            copied_dataset = copy.copy(self)
+            copied_dataset.inter_data = filtered_data
+            copied_dataset.target_behavior = behavior
+            return copied_dataset
+        else:
+            return super().filter_by_behavior(behavior)
+
 
 class SSeqNegSampleDataset(SSeqDataset):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     def _sample_negative_items(self, num_samples: int, exclude_items: set[int]) -> list[int]:
-        all_items = set(range(1, self.num_items + 1))
+        all_items = set(range(self.num))
         negative_items = list(all_items - exclude_items)
         return random.sample(negative_items, num_samples)
 
@@ -370,6 +417,7 @@ class SSeqNegSampleDataset(SSeqDataset):
                     "item": self.get_behavior_item(items[i], behaviors[i]),
                     "neg_item": self.get_behavior_item(neg_items[i], behaviors[i]),
                     "inters": self._get_inters(items[:pos], behaviors[:pos]),
+                    "inter_behaviors": self._get_inter_behaviors(behaviors[:pos]),
                     "session_ids": session_ids_map[sid],
                     "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
                     "time": times_map[sid],
@@ -395,10 +443,64 @@ class SSeqDatasetForDecoder(SSeqDataset):
             inter_data.append({
                 "item": self.get_behavior_item(items[-1], behaviors[-1]),
                 "inters": self._get_inters(items[:-1], behaviors[:-1]),
+                "inter_behaviors": self._get_inter_behaviors(behaviors[:-1]),
                 "session_ids": self._generate_session_ids(sids),
                 "actions": self._generate_actions(behaviors),
                 "time": self._generate_times(times),
                 "behavior": self.behaviors.index(behaviors[-1]),
+            })
+
+        return inter_data
+
+
+class SSeqNegSampleEvalDataset(SSeqDataset):
+    def __init__(self, num_neg: int = 1000, **kwargs):
+        self.num_neg = num_neg
+        super().__init__(**kwargs)
+
+    @property
+    def cached_file_name(self) -> str:
+        if not self.diff:
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.{self.mode}.pkl")
+        else:
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.diff.{self.mode}.pkl")
+
+    def _sample_negative_items(self, num_samples: int, exclude_items: set[int]) -> list[int]:
+        all_items = set(range(self.num))
+        negative_items = list(all_items - exclude_items)
+        return random.sample(negative_items, num_samples)
+
+    def _process_valid_data(self) -> list[dict[str, int | list[int] | list[float]]]:
+        set_seed(42)  # For reproducibility of negative sampling
+        inter_data = []
+        for uid in get_tqdm(self.inters, desc="Processing validation data for testing"):
+            items = self.inters[uid][: self.test_pos[uid]]
+            behaviors = self.history_behaviors[uid][: self.test_pos[uid]]
+            times = self.time[uid][: self.test_pos[uid]]
+            session_items: list[int] = []
+            session_behaviors: list[int] = []
+            for i in range(self.valid_pos[uid], len(items)):
+                session_items.append(self.get_behavior_item(items[i], behaviors[i]))
+                session_behaviors.append(self.behaviors.index(behaviors[i]))
+            assert len(session_items) > 0, f"Session for user {uid} is empty after valid position {self.valid_pos[uid]}."
+            negative_items = self._sample_negative_items(
+                num_samples=self.num_neg,
+                exclude_items=set(items)
+            )
+            negative_behaviors = [self.target_behavior] * self.num_neg
+            negative_behavior_items = [
+                self.get_behavior_item(neg_item, neg_behavior) for neg_item, neg_behavior in zip(negative_items, negative_behaviors)
+            ]
+            inter_data.append({
+                "item": session_items,
+                "neg_item": negative_behavior_items,
+                "inters": self._get_inters(items[:self.valid_pos[uid]], behaviors[:self.valid_pos[uid]]),
+                "inter_behaviors": self._get_inter_behaviors(behaviors[:self.valid_pos[uid]]),
+                # ! For validation set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
+                "session_ids": self._generate_session_ids(self.session[uid][:self.valid_pos[uid]]),
+                "actions": self._generate_actions(self.history_behaviors[uid][:self.valid_pos[uid]]),
+                "time": self._generate_times(times[:self.valid_pos[uid] + 1]),
+                "behavior": session_behaviors,
             })
 
         return inter_data

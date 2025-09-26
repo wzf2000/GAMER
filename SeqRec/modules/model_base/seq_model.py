@@ -55,7 +55,9 @@ class SeqModel(nn.Module):
             extended_attention_mask = torch.tril(
                 extended_attention_mask.expand((-1, -1, item_seq.size(-1), -1))
             )
-        extended_attention_mask = torch.where(extended_attention_mask, 0.0, -10000.0)
+        dtype = next(self.parameters()).dtype
+        extended_attention_mask = extended_attention_mask.to(dtype)  # fp16 compatibility
+        extended_attention_mask = (1.0 - extended_attention_mask) * torch.finfo(dtype).min
         return extended_attention_mask
 
     def calculate_loss(self, interaction: dict) -> torch.Tensor:
@@ -82,17 +84,35 @@ class SeqModel(nn.Module):
         item_seq = interaction['inputs']
         item_seq_len = interaction['seq_len']
         test_item = interaction['target']
-        seq_output = self.forward(item_seq, item_seq_len)
-        test_item_emb = self.item_embedding(test_item)
+        seq_output = self.forward(item_seq, item_seq_len)  # [B, H]
+        test_item_emb = self.item_embedding(test_item)  # [B, H]
         scores = torch.mul(seq_output, test_item_emb).sum(dim=1)  # [B]
+        return scores
+
+    def sample_sort_predict(self, interaction: dict) -> torch.Tensor:
+        item_seq = interaction['inputs']
+        item_seq_len = interaction['seq_len']
+        test_set = interaction['all_item']
+        seq_output = self.forward(item_seq, item_seq_len)  # [B, H]
+        test_items_emb: torch.Tensor = self.item_embedding(test_set)  # [B, sample_items, H]
+        scores = torch.matmul(
+            test_items_emb, seq_output[..., None]
+        )[..., 0]  # [B, sample_items]
         return scores
 
     def full_sort_predict(self, interaction: dict) -> torch.Tensor:
         item_seq = interaction['inputs']
         item_seq_len = interaction['seq_len']
-        seq_output = self.forward(item_seq, item_seq_len)
-        test_items_emb = self.item_embedding.weight
+        seq_output = self.forward(item_seq, item_seq_len)  # [B, H]
+        test_items_emb: torch.Tensor = self.item_embedding.weight  # [n_items, H]
+        if 'item_range' in interaction:
+            start, end = interaction['item_range']
+            test_items_emb = test_items_emb[start:end]  # [n_items', H]
         scores = torch.matmul(
             seq_output, test_items_emb.transpose(0, 1)
         )  # [B, n_items]
+        if 'item_range' in interaction:
+            scores_full = torch.full((item_seq.size(0), self.n_items), float('-inf'), device=item_seq.device)
+            scores_full[:, start:end] = scores
+            scores = scores_full
         return scores

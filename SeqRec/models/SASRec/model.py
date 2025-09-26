@@ -3,6 +3,7 @@ from torch import nn
 
 from SeqRec.models.SASRec.config import SASRecConfig
 from SeqRec.modules.model_base.seq_model import SeqModel
+from SeqRec.modules.layers.transformer import TransformerEncoderLayer, TransformerEncoder
 
 
 # implementation reference: https://github.com/RUCAIBox/RecBole/blob/master/recbole/model/sequential_recommender/sasrec.py
@@ -37,7 +38,7 @@ class SASRec(SeqModel):
             self.n_items + 1, self.hidden_size, padding_idx=0
         )
         self.position_embedding = nn.Embedding(self.max_seq_length, self.hidden_size)
-        encoder_layer = nn.TransformerEncoderLayer(
+        encoder_layer = TransformerEncoderLayer(
             d_model=self.hidden_size,
             nhead=self.n_heads,
             dim_feedforward=self.inner_size,
@@ -45,7 +46,7 @@ class SASRec(SeqModel):
             activation=self.hidden_act,
             layer_norm_eps=self.layer_norm_eps,
         )
-        self.trm_encoder = nn.TransformerEncoder(
+        self.trm_encoder = TransformerEncoder(
             encoder_layer=encoder_layer,
             num_layers=self.n_layers,
         )
@@ -77,10 +78,10 @@ class SASRec(SeqModel):
         input_emb = self.LayerNorm(input_emb)
         input_emb = self.dropout(input_emb)
 
-        # extended_attention_mask = self.get_attention_mask(item_seq)
+        extended_attention_mask = self.get_attention_mask(item_seq)
 
         trm_output = self.trm_encoder(
-            input_emb, item_seq != 0, is_causal=True
+            input_emb, extended_attention_mask
         )
         output = self.gather_indexes(trm_output, item_seq_len - 1)
         return output  # [B H]

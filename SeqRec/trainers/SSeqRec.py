@@ -38,7 +38,7 @@ class Trainer:
         self.output_dir = output_dir
         self.patience = patience
         self.metrics = metrics
-        self.main_metric = metrics[0]
+        self.main_metric = metrics[-1]
 
         self.optimizer = self._build_optimizer()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -86,8 +86,9 @@ class Trainer:
             self.optimizer.step()
             self.global_step += 1
             if self.logging_step > 0 and self.global_step % self.logging_step == 0:
-                # with tqdm.external_write_mode(sys.stdout, nolock=False):
-                #     logger.info(f"Epoch {epoch} - Step {self.global_step} - loss: {loss.item():.4f}")
+                if self.global_step % (self.logging_step * 50) == 0:
+                    with tqdm.external_write_mode(sys.stdout, nolock=False):
+                        logger.info(f"Epoch {epoch} - Step {self.global_step} - loss: {loss.item():.4f}")
                 wandb.log({"train/loss": loss.item(), "train/epoch": epoch}, step=self.global_step)
             train_loss_list.append(loss.detach().cpu().data.numpy())
         loss = np.mean(train_loss_list).item()
@@ -99,9 +100,16 @@ class Trainer:
         with torch.no_grad():
             for batch, targets in get_tqdm(self.eval_dataloader, desc="Evaluating"):
                 batch = {k: v.to(self.device) for k, v in batch.items()}
-                scores: torch.Tensor = self.model.full_sort_predict(batch)
-                scores = scores.cpu().numpy()
-                ranks = np.argsort(-scores, axis=1)
+                if 'all_item' in batch:  # sample evaluation
+                    scores = self.model.sample_sort_predict(batch)
+                    scores = scores.cpu().numpy()
+                    ranks = np.argsort(-scores, axis=1)
+                    item_ids: np.ndarray = batch['all_item'].cpu().numpy()
+                    ranks = item_ids[np.arange(item_ids.shape[0])[:, None], ranks]
+                else:
+                    scores = self.model.full_sort_predict(batch)
+                    scores = scores.cpu().numpy()
+                    ranks = np.argsort(-scores, axis=1)
                 for metric in self.metrics:
                     for single_ranks, single_targets in zip(ranks, targets):
                         single_targets = list(set(single_targets))
@@ -133,9 +141,12 @@ class Trainer:
         return eval_results
 
     def train(self):
-        self.best_metric = 0
         self.patience_counter = 0
         self.global_step = 0
+        # evaluate before training
+        logger.info("Evaluating before training...")
+        metrics = self.evaluate()
+        self.best_metric = metrics[self.main_metric]
         for epoch in range(self.epochs):
             start_time = time.time()
             loss = self.fit(epoch=epoch)

@@ -219,6 +219,7 @@ class TrainSSeqRec(Task):
             max_his_len=max_his_len,
             tasks=tasks,
         )
+        valid_data = valid_data.filter_by_behavior(valid_data.target_behavior)
         first_dataset: SSeqDataset = train_data.datasets[0]
         num_items = first_dataset.num_items
         self.behaviors = first_dataset.behaviors
@@ -244,7 +245,7 @@ class TrainSSeqRec(Task):
         )
 
         model_cls: type[SeqModel] = eval(backbone)
-        self.model = model_cls(config, n_items=num_items, max_his_len=max_his_len)
+        self.model = model_cls(config, n_items=num_items, max_his_len=max_his_len, target_behavior_id=first_dataset.target_behavior_index, n_behaviors=len(self.behaviors))
         logger.info(self.model)
 
         self.device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
