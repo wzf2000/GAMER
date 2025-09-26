@@ -6,6 +6,7 @@ from SeqRec.models.GRU4Rec.config import GRU4RecConfig
 from SeqRec.modules.model_base.seq_model import SeqModel
 
 
+# implementation reference: https://github.com/RUCAIBox/RecBole/blob/master/recbole/model/sequential_recommender/gru4rec.py
 class GRU4Rec(SeqModel):
     r"""GRU4Rec is a model that incorporate RNN for recommendation.
 
@@ -16,7 +17,7 @@ class GRU4Rec(SeqModel):
         in order that the generation method we used is common to other sequential models.
     """
 
-    def __init__(self, config: GRU4RecConfig, n_items: int):
+    def __init__(self, config: GRU4RecConfig, n_items: int, **kwargs):
         super(GRU4Rec, self).__init__(config, n_items)
 
         # load parameters info

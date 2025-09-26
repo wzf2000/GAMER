@@ -10,8 +10,11 @@ from SeqRec.tasks.base import Task
 from SeqRec.datasets.SSeq_dataset import SSeqDataset
 from SeqRec.datasets.loading_SSeq import load_SSeq_datasets, load_SSeq_test_dataset
 from SeqRec.datasets.collator_traditional import TraditionalCollator, TraditionalTestCollator
-from SeqRec.models.GRU4Rec.model import GRU4Rec, GRU4RecConfig
+from SeqRec.modules.model_base.seq_model import SeqModel
+from SeqRec.models.GRU4Rec import GRU4Rec, GRU4RecConfig
+from SeqRec.models.SASRec import SASRec, SASRecConfig
 from SeqRec.trainers.SSeqRec import Trainer
+from SeqRec.utils.config import Config
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 from SeqRec.utils.pipe import set_seed
@@ -207,10 +210,8 @@ class TrainSSeqRec(Task):
         if len(args) > 0 or len(kwargs) > 0:
             logger.warning("Unused parameters:", args, kwargs)
         # backbone used for SSeq recommendation model name
-        if backbone == 'GRU4Rec':
-            config = GRU4RecConfig.from_pretrained(base_model)
-        else:
-            raise ValueError(f"Unsupported SSeq model: {backbone}")
+        config_cls: type[Config] = eval(f"{backbone}Config")
+        config = config_cls.from_pretrained(base_model)
 
         train_data, valid_data = load_SSeq_datasets(
             dataset=dataset,
@@ -242,10 +243,8 @@ class TrainSSeqRec(Task):
             num_workers=4,
         )
 
-        if backbone == "GRU4Rec":
-            self.model = GRU4Rec(config, num_items)
-        else:
-            raise ValueError(f"Unsupported backbone model: {backbone}")
+        model_cls: type[SeqModel] = eval(backbone)
+        self.model = model_cls(config, n_items=num_items, max_his_len=max_his_len)
         logger.info(self.model)
 
         self.device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'

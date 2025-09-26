@@ -30,12 +30,16 @@ def main():
     task_name: str = args.pipeline
     # remove the pipeline attribute from args
     del args.pipeline
+    logger.success(f"Parsed arguments for {task_name}: {vars(args)}")
     if task_name in task_list:
         log_dir = os.path.join("logs", task_name)
         ensure_dir(log_dir)
         init_logger(log_dir)
+        logger.success("Initialized logger!")
         if len(unknown_args) > 0:
             logger.warning(f"Unknown args: {unknown_args}")
+        else:
+            logger.success("No unknown args found.")
         task = task_list[task_name]()
         task.invoke(**vars(args))
     else:

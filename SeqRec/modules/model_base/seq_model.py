@@ -12,10 +12,11 @@ class SeqModel(nn.Module):
         All the sequential recommendation models should inherit this class.
     """
 
-    def __init__(self, config: Config, n_items: int):
+    def __init__(self, config: Config, n_items: int, **kwargs):
         super(SeqModel, self).__init__()
         self.n_items = n_items
         self.config = config
+        self.item_embedding: torch.nn.Embedding
 
     def _init(self, loss_type: str):
         # define layers and loss
@@ -45,6 +46,17 @@ class SeqModel(nn.Module):
         gather_index = gather_index.view(-1, 1, 1).expand(-1, -1, output.shape[-1])
         output_tensor = output.gather(dim=1, index=gather_index)
         return output_tensor.squeeze(1)
+
+    def get_attention_mask(self, item_seq: torch.Tensor, bidirectional: bool = False):
+        """Generate left-to-right uni-directional or bidirectional attention mask for multi-head attention."""
+        attention_mask = item_seq != 0
+        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)  # torch.bool
+        if not bidirectional:
+            extended_attention_mask = torch.tril(
+                extended_attention_mask.expand((-1, -1, item_seq.size(-1), -1))
+            )
+        extended_attention_mask = torch.where(extended_attention_mask, 0.0, -10000.0)
+        return extended_attention_mask
 
     def calculate_loss(self, interaction: dict) -> torch.Tensor:
         item_seq = interaction['inputs']
