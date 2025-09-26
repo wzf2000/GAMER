@@ -24,7 +24,6 @@ def collate_with_padding(batch: list[dict], padding_side: str = 'right') -> dict
 class TraditionalCollator:
     def __call__(self, batch: list[dict]) -> dict[str, torch.Tensor]:
         return collate_with_padding(batch, padding_side='right')
-            
 
 
 class TraditionalTestCollator:

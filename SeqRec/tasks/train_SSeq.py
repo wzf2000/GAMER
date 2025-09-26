@@ -18,7 +18,6 @@ from SeqRec.utils.pipe import get_tqdm
 import os
 
 
-
 class TrainSSeqRec(Task):
     """
     Train a SSeq recommender for the SeqRec model.
@@ -137,7 +136,7 @@ class TrainSSeqRec(Task):
         eval_msg = " - ".join([f"{metric}: {value:.4f}" for metric, value in eval_results.items()])
         logger.info(f"{behavior} test results - {eval_msg}")
         return eval_results
-    
+
     def test(self) -> list[dict[str, float]]:
         results = []
         merge_results = {m: 0.0 for m in self.metric_list}

@@ -27,7 +27,7 @@ class BaseSSeqDataset(Dataset):
 
         # load data
         self._load_data()
-        if not self.diff:        
+        if not self.diff:
             self.num_items = max(
                 item for items in self.inters.values() for item in items
             ) + 1
