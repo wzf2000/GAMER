@@ -1,4 +1,8 @@
+import os
+import json
 import wandb
+import torch
+import numpy as np
 from loguru import logger
 from torch.utils.data import DataLoader
 
@@ -11,11 +15,7 @@ from SeqRec.trainers.SSeqRec import Trainer
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 from SeqRec.utils.pipe import set_seed
-import numpy as np
-import torch
-import json
 from SeqRec.utils.pipe import get_tqdm
-import os
 
 
 class TrainSSeqRec(Task):
