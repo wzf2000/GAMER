@@ -1,4 +1,5 @@
 import os
+import sys
 import argparse
 from loguru import logger
 
@@ -23,6 +24,7 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
     return parser.parse_known_args()
 
 
+@logger.catch(onerror=lambda _: sys.exit(1))
 def main():
     args, unknown_args = parse_args()
     task_name: str = args.pipeline
@@ -32,7 +34,8 @@ def main():
         log_dir = os.path.join("logs", task_name)
         ensure_dir(log_dir)
         init_logger(log_dir)
-        logger.warning(f"Unknown args: {unknown_args}")
+        if len(unknown_args) > 0:
+            logger.warning(f"Unknown args: {unknown_args}")
         task = task_list[task_name]()
         task.invoke(**vars(args))
     else:

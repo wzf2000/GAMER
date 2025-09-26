@@ -5,6 +5,7 @@ from SeqRec.tasks.tokenize import Tokenize
 from SeqRec.tasks.train_decoder import TrainDecoder
 from SeqRec.tasks.train_MB_decoder import TrainMBDecoder
 from SeqRec.tasks.train_SMB_decoder import TrainSMBDecoder
+from SeqRec.tasks.train_SSeq import TrainSSeqRec
 from SeqRec.tasks.test_decoder import TestDecoder
 from SeqRec.tasks.test_MB_decoder import TestMBDecoder
 from SeqRec.tasks.test_SMB_decoder import TestSMBDecoder

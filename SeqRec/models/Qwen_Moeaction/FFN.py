@@ -39,7 +39,7 @@ class MyQwen3SparseMLP(nn.Module):
         self.is_sparse = is_sparse
         if self.is_sparse:
             self.experts = nn.ModuleDict()
-            for idx in range(config.num_behavior + 1):
+            for idx in range((config.num_experts - 1) * config.num_behavior + 1):
                 self.experts[f"expert_{idx}"] = expert_class(config, behavior_injection)
         else:
             self.mlp: nn.Module = expert_class(config, behavior_injection)
@@ -62,8 +62,10 @@ class MyQwen3SparseMLP(nn.Module):
             behavior_embedding = self.behavior_embedding(behavior_index)
             hidden_states = torch.cat((hidden_states, behavior_embedding), dim=-1)
         if self.is_sparse:
+            index = (self.num_experts - 1) * (action_index - 1) + position_index
+            index[index < 0] = 0
             for idx, expert in enumerate(self.experts.values()):
-                token_indices = action_index == idx
+                token_indices = index == idx
                 next_states[token_indices] = expert(hidden_states[token_indices]).to(
                     next_states.dtype
                 )

@@ -139,7 +139,26 @@ class TestSMBDecoder(MultiGPUTask):
                     return_dict_in_generate=True,
                     early_stopping=True,
                 )
-            elif self.backbone in ['Qwen3Session', 'Qwen3SessionMoe', 'Qwen3Multi', "Qwen3MultiWosession"]:
+            elif self.backbone in ['Qwen3Session', 'Qwen3SessionMoe']:
+                output: GenerateBeamOutput = (
+                    self.model
+                    if isinstance(self.model, GenerationMixin)
+                    else
+                    self.model.module
+                ).generate(
+                    input_ids=inputs.input_ids,
+                    attention_mask=inputs.attention_mask,
+                    session_ids=inputs.session_ids,
+                    extended_session_ids=inputs.extended_session_ids,
+                    max_new_tokens=self.sole_item_len,
+                    prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                    num_beams=num_beams,
+                    num_return_sequences=num_beams,
+                    output_scores=True,
+                    return_dict_in_generate=True,
+                    early_stopping=True,
+                )
+            elif self.backbone in ['Qwen3Multi', "Qwen3MultiWosession"]:
                 output: GenerateBeamOutput = (
                     self.model
                     if isinstance(self.model, GenerationMixin)
@@ -411,6 +430,10 @@ class TestSMBDecoder(MultiGPUTask):
         else:
             raise ValueError(f"Unsupported backbone: {backbone}")
         assert isinstance(self.model, GenerationMixin), "Model must be a generation model."
+        # output the parameters of the model
+        total_params = sum(p.numel() for p in self.model.parameters())
+        trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        logger.success(f"Model {backbone} has {total_params} parameters, {trainable_params} of them are trainable.")
 
         if valid_loss:
             self.valid_dataset = load_SMB_valid_dataset(

@@ -239,7 +239,7 @@ class BaseSMBDataset(Dataset):
             ret.extend([time] * self.token_count())
         return ret
 
-    def _process_train_data(self) -> list[dict[str, str | list[int] | torch.FloatTensor]]:
+    def _process_train_data(self) -> list[dict[str, str | list[int] | list[float]]]:
         inter_data = []
         for uid in get_tqdm(self.remapped_inters, desc="Processing training data"):
             if self.valid_pos[uid] <= 0:
@@ -269,7 +269,7 @@ class BaseSMBDataset(Dataset):
 
         return inter_data
 
-    def _process_valid_data(self) -> list[dict[str, str | list[int] | torch.FloatTensor]]:
+    def _process_valid_data(self) -> list[dict[str, str | list[int] | list[float]]]:
         inter_data = []
         for uid in get_tqdm(self.remapped_inters, desc="Processing validation data"):
             if self.valid_pos[uid] < 0:
@@ -294,7 +294,7 @@ class BaseSMBDataset(Dataset):
 
         return inter_data
 
-    def _process_valid_test_data(self) -> list[dict[str, str | list[str] | list[int] | torch.FloatTensor]]:
+    def _process_valid_test_data(self) -> list[dict[str, str | list[str] | list[int] | list[float]]]:
         inter_data = []
         for uid in get_tqdm(self.remapped_inters, desc="Processing validation data for testing"):
             items = self.remapped_inters[uid][: self.test_pos[uid]]
@@ -320,7 +320,7 @@ class BaseSMBDataset(Dataset):
 
         return inter_data
 
-    def _process_test_data(self) -> list[dict[str, str | list[str] | list[int] | torch.FloatTensor]]:
+    def _process_test_data(self) -> list[dict[str, str | list[str] | list[int] | list[float]]]:
         inter_data = []
         for uid in get_tqdm(self.remapped_inters, desc="Processing test data"):
             items = self.remapped_inters[uid]
@@ -433,7 +433,7 @@ class BaseSMBDataset(Dataset):
     def __len__(self) -> int:
         return len(self.inter_data)
 
-    def __getitem__(self, index: int) -> dict[str, str | list[str] | list[int] | torch.FloatTensor]:
+    def __getitem__(self, index: int) -> dict[str, str | list[str] | list[int]]:
         d = self.inter_data[index]
         return dict(
             input_ids=d["inters"],
@@ -575,7 +575,7 @@ class SMBExplicitDatasetForDecoder(SMBExplicitDataset):
             times_list.append(times_copy)
         return items_list, behaviors_list, sids_list, times_list
 
-    def _process_train_data(self) -> list[dict[str, str]]:
+    def _process_train_data(self) -> list[dict[str, str | list[int] | list[float]]]:
         set_seed(42)  # For reproducibility
         inter_data = []
         if self.augment:
@@ -662,7 +662,7 @@ class SMBAugmentDataset(SMBExplicitDataset):
             times_list.append(times_copy)
         return items_list, behaviors_list, sids_list, times_list
 
-    def _process_train_data(self) -> list[dict[str, str]]:
+    def _process_train_data(self) -> list[dict[str, str | list[int] | list[float]]]:
         set_seed(42)  # For reproducibility
         inter_data = super()._process_train_data()
         if self.augment:
@@ -747,7 +747,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
             return items, behaviors, sids, times
         return items_copy, behaviors_copy, sids_copy, times_copy
 
-    def _process_valid_data(self) -> list[dict[str, str | list[int] | torch.FloatTensor]]:
+    def _process_valid_data(self) -> list[dict[str, str | list[int] | list[float]]]:
         inter_data = []
         for uid in get_tqdm(self.remapped_inters, desc="Processing validation data"):
             if self.valid_pos[uid] < 0:
@@ -793,7 +793,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
 
         return inter_data
 
-    def _process_valid_test_data(self) -> list[dict[str, str | list[str] | list[int] | torch.FloatTensor]]:
+    def _process_valid_test_data(self) -> list[dict[str, str | list[str] | list[int] | list[float]]]:
         inter_data = []
         for uid in get_tqdm(self.remapped_inters, desc="Processing validation data for testing"):
             items = self.remapped_inters[uid][: self.test_pos[uid]]
@@ -835,7 +835,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
 
         return inter_data
 
-    def _process_test_data(self) -> list[dict[str, str | list[str] | list[int] | torch.FloatTensor]]:
+    def _process_test_data(self) -> list[dict[str, str | list[str] | list[int] | list[float]]]:
         inter_data = []
         for uid in get_tqdm(self.remapped_inters, desc="Processing test data"):
             items = self.remapped_inters[uid]
@@ -926,7 +926,7 @@ class SMBDropGTEvaluationDataset(SMBExplicitDataset):
         gt_set = set(gt_items)
         return [item in gt_set and behavior != self.target_behavior for item, behavior in zip(items, behaviors)]
 
-    def _process_test_data(self) -> list[dict[str, str | list[str] | list[int] | torch.FloatTensor]]:
+    def _process_test_data(self) -> list[dict[str, str | list[str] | list[int] | list[float]]]:
         inter_data = []
         drop_ratios = []
         for uid in get_tqdm(self.remapped_inters, desc="Processing test data"):

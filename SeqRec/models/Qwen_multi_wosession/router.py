@@ -150,4 +150,51 @@ class Qwen3MoeMultiDecoderRouter(nn.Module):
                 batch_size, seq_length, dtype=torch.long, device=input_id_sequence.device
             )
 
-        return position_index, behavior_indices
+        if seq_length == 1 and cache_position is None:
+            action_indices = torch.zeros(
+                batch_size, 1, dtype=torch.long, device=input_id_sequence.device
+            )
+        elif self.use_behavior_token:
+            if cache_position is not None:
+                n_items = (torch.max(cache_position) + self.num_positions - 1) // self.num_positions
+            else:
+                n_items = (
+                    (seq_length + self.num_positions - 2) // self.num_positions
+                )
+            action_indices = self.behavior_token_indices.to(input_id_sequence.device)[:n_items]
+            if cache_position is not None:
+                behavior_tokens = self.cached_input_id_sequence[:, action_indices]
+            else:
+                behavior_tokens = input_id_sequence[:, action_indices]
+            for behavior_token, behavior_emb_id in self.behavior_maps.items():
+                behavior_tokens[behavior_tokens == behavior_token] = behavior_emb_id + 1
+            repeat_behavior_tokens = torch.repeat_interleave(
+                behavior_tokens, self.num_positions, dim=1
+            )
+            repeat_behavior_tokens = torch.cat(
+                (
+                    repeat_behavior_tokens,  # item semantic tokens
+                    torch.zeros(
+                        batch_size,
+                        1,
+                        dtype=torch.long,
+                        device=input_id_sequence.device,
+                    ),  # EOS token
+                ),
+                dim=1,
+            )
+            if cache_position is not None:
+                repeat_behavior_tokens = repeat_behavior_tokens[:, cache_position]
+            else:
+                repeat_behavior_tokens = repeat_behavior_tokens[:, :seq_length]
+            repeat_behavior_tokens[
+                (input_id_sequence == self.pad)
+                | (input_id_sequence == self.eos)
+            ] = 0
+            action_indices = repeat_behavior_tokens
+        else:
+            action_indices = torch.zeros(
+                batch_size, seq_length, dtype=torch.long, device=input_id_sequence.device
+            )
+
+        return position_index, behavior_indices, action_indices

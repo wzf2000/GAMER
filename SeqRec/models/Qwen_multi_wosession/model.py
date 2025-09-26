@@ -18,6 +18,7 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from SeqRec.models.Qwen_multi_wosession.router import Qwen3MoeMultiDecoderRouter
 from SeqRec.models.Qwen_multi_wosession.FFN import MyQwen3MoeMultiSparseMLP, PBATransformersSparseMLP
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
+from transformers.activations import ACT2FN
 
 
 class Qwen3MoeAttention(nn.Module):
@@ -29,7 +30,7 @@ class Qwen3MoeAttention(nn.Module):
         self.layer_idx = layer_idx
         self.head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
         self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
-        self.scaling = (config.behavior_embedding_dim + self.head_dim)**-0.5
+        self.scaling = (self.head_dim)**-0.5
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
 
@@ -60,8 +61,15 @@ class Qwen3MoeAttention(nn.Module):
             self.behavior_embedding_dim = config.behavior_embedding_dim
             self.q_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_attention_heads * config.behavior_embedding_dim)
             self.k_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
-            self.q_behavior_norm = Qwen3MoeRMSNorm(config.behavior_embedding_dim, eps=config.rms_norm_eps)
-            self.k_behavior_norm = Qwen3MoeRMSNorm(config.behavior_embedding_dim, eps=config.rms_norm_eps)
+            self.v_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
+            self.gating = nn.Linear(config.hidden_size, config.hidden_size, bias=config.attention_bias)
+            self.act_fn = ACT2FN[config.hidden_act]
+        # if self.is_cross:
+        #     self.behavior_embedding_dim = config.behavior_embedding_dim
+        #     self.q_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_attention_heads * config.behavior_embedding_dim)
+        #     self.k_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
+        #     self.q_behavior_norm = Qwen3MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
+        #     self.k_behavior_norm = Qwen3MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # thus post q_norm does not need reshape
 
     def forward(
         self,
@@ -70,26 +78,41 @@ class Qwen3MoeAttention(nn.Module):
         attention_mask: Optional[torch.Tensor],
         past_key_value: Optional[Cache] = None,
         cache_position: Optional[torch.LongTensor] = None,
-        behavior_index: torch.Tensor = None,
+        action_index: torch.Tensor = None,
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
 
-        query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-        key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-        value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-
-        if not self.is_cross:
-            cos, sin = position_embeddings
-            query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-        else:
-            cos, sin = None, None
+        if self.is_cross:
             behavior_embedding_shape = (*input_shape, -1, self.behavior_embedding_dim)
-            q_behavior_embedding = self.q_behavior_norm(self.q_behavior_embedding(behavior_index).view(behavior_embedding_shape)).transpose(1, 2)
-            k_behavior_embedding = self.k_behavior_norm(self.k_behavior_embedding(behavior_index).view(behavior_embedding_shape)).transpose(1, 2)
-            query_states = torch.cat((query_states, q_behavior_embedding), dim=-1)
-            key_states = torch.cat((key_states, k_behavior_embedding), dim=-1)
+            q_behavior_embedding = self.q_behavior_embedding(action_index).view(behavior_embedding_shape)
+            k_behavior_embedding = self.k_behavior_embedding(action_index).view(behavior_embedding_shape)
+            v_behavior_embedding = self.v_behavior_embedding(action_index).view(behavior_embedding_shape)
+            query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape) + q_behavior_embedding).transpose(1, 2)
+            key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape) + k_behavior_embedding).transpose(1, 2)
+            value_states = (self.v_proj(hidden_states).view(hidden_shape) + v_behavior_embedding).transpose(1, 2)
+        else:
+            query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+            key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+            value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+        cos, sin = position_embeddings
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        
+        # query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+        # key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+        # value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+
+        # if self.is_cross:
+        #     behavior_embedding_shape = (*input_shape, -1, self.behavior_embedding_dim)
+        #     q_behavior_embedding = self.q_behavior_norm(self.q_behavior_embedding(action_index).view(behavior_embedding_shape)).transpose(1, 2)
+        #     k_behavior_embedding = self.k_behavior_norm(self.k_behavior_embedding(action_index).view(behavior_embedding_shape)).transpose(1, 2)
+        #     query_states = torch.cat((query_states, q_behavior_embedding), dim=-1)
+        #     key_states = torch.cat((key_states, k_behavior_embedding), dim=-1)
+        #     cos, sin = None, None
+        # else:
+        #     cos, sin = position_embeddings
+        #     query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         if past_key_value is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
@@ -119,7 +142,10 @@ class Qwen3MoeAttention(nn.Module):
         )
 
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
-        attn_output = self.o_proj(attn_output)
+        if self.is_cross:
+            attn_output = self.o_proj(attn_output) * self.act_fn(self.gating(hidden_states))
+        else:
+            attn_output = self.o_proj(attn_output)
         return attn_output, attn_weights
 
 
@@ -161,6 +187,7 @@ class Qwen3DecoderLayerMoeMulti(nn.Module):
         hidden_states: torch.Tensor,
         position_indices: torch.Tensor,
         behavior_indices: torch.Tensor = None,
+        action_indices: torch.Tensor = None,
         multi_self_mask: Optional[torch.Tensor] = None,
         multi_cross_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
@@ -200,8 +227,8 @@ class Qwen3DecoderLayerMoeMulti(nn.Module):
                 output_attentions=output_attentions,
                 use_cache=use_cache,
                 cache_position=cache_position,
-                position_embeddings=None,
-                behavior_index=behavior_indices,
+                position_embeddings=position_embeddings,
+                action_index=action_indices,
                 **kwargs,
             )
             hidden_states = residual + self.dropout(hidden_states)
@@ -765,7 +792,7 @@ class Qwen3MoeMultiModel(Qwen3ModelMoeMulti):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        position_indices, behavior_indices = self.router(input_ids, cache_position=cache_position)
+        position_indices, behavior_indices, action_indices = self.router(input_ids, cache_position=cache_position)
 
         multi_self_mask = self._update_session_wise_causal_mask(
             attention_mask=attention_mask,
@@ -804,6 +831,7 @@ class Qwen3MoeMultiModel(Qwen3ModelMoeMulti):
                     hidden_states,
                     position_indices,
                     behavior_indices,
+                    action_indices,
                     multi_self_mask,
                     multi_cross_mask,
                     position_ids,
@@ -819,6 +847,7 @@ class Qwen3MoeMultiModel(Qwen3ModelMoeMulti):
                     hidden_states,
                     position_indices,
                     behavior_indices,
+                    action_indices,
                     multi_self_mask=multi_self_mask,
                     multi_cross_mask=multi_cross_mask,
                     position_ids=position_ids,
