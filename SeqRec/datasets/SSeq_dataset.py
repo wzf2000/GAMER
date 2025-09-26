@@ -281,15 +281,13 @@ class BaseSSeqDataset(Dataset):
                         items.append(sample_item)
                         behaviors.append(sample_behavior)
                 items = list(set(items))
-                filtered_data.append({
+                inter = {
                     "item": items,
-                    "inters": d["inters"],
-                    "inter_behaviors": d["inter_behaviors"],
-                    "session_ids": d["session_ids"],
-                    "actions": d["actions"],
                     "behavior": self.behaviors.index(behavior),
-                    "time": d["time"],
-                })
+                }
+                keys = set(d.keys()) - set(inter.keys())
+                inter.update({k: d[k] for k in keys})
+                filtered_data.append(inter)
         else:
             filtered_data = [
                 d for d in self.inter_data if d["behavior"] == behavior
@@ -351,32 +349,11 @@ class SSeqDataset(BaseSSeqDataset):
     def filter_by_behavior(self, behavior: str) -> "SSeqDataset":
         if self.diff and self.mode == 'test':
             assert isinstance(self.inter_data[0]['behavior'], list)
-            filtered_data = []
-            inter_data = get_tqdm(self.inter_data, desc=f"Filtering by behavior - {behavior}")
-            for d in inter_data:
-                if self.behaviors.index(behavior) not in d["behavior"]:
-                    continue
-                items, behaviors = [], []
-                for sample_item, sample_behavior in zip(d["item"], d["behavior"]):
-                    if sample_behavior == self.behaviors.index(behavior):
-                        items.append(sample_item)
-                        behaviors.append(sample_behavior)
-                items = list(set(items))
-                item_range = (self.behaviors.index(behavior) * self.num + 1, (self.behaviors.index(behavior) + 1) * self.num + 1)
-                filtered_data.append({
-                    "item": items,
-                    "inters": d["inters"],
-                    "inter_behaviors": d["inter_behaviors"],
-                    "session_ids": d["session_ids"],
-                    "actions": d["actions"],
-                    "behavior": self.behaviors.index(behavior),
-                    "time": d["time"],
-                    "item_range": item_range,
-                })
-            copied_dataset = copy.copy(self)
-            copied_dataset.inter_data = filtered_data
-            copied_dataset.target_behavior = behavior
-            return copied_dataset
+            ret_dataset = super().filter_by_behavior(behavior)
+            item_range = (self.behaviors.index(behavior) * self.num + 1, (self.behaviors.index(behavior) + 1) * self.num + 1)
+            for i in range(len(ret_dataset.inter_data)):
+                ret_dataset.inter_data[i]['item_range'] = item_range
+            return ret_dataset
         else:
             return super().filter_by_behavior(behavior)
 
