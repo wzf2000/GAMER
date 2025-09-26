@@ -4,7 +4,6 @@ from torch.nn.init import xavier_uniform_, xavier_normal_
 
 from SeqRec.models.GRU4Rec.config import GRU4RecConfig
 from SeqRec.modules.model_base.seq_model import SeqModel
-from SeqRec.modules.loss import BPRLoss
 
 
 class GRU4Rec(SeqModel):
@@ -18,7 +17,7 @@ class GRU4Rec(SeqModel):
     """
 
     def __init__(self, config: GRU4RecConfig, n_items: int):
-        super(GRU4Rec, self).__init__()
+        super(GRU4Rec, self).__init__(config, n_items)
 
         # load parameters info
         self.embedding_size = config.embedding_size
