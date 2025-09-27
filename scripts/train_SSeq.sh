@@ -6,7 +6,6 @@
 : ${test_task:=sseq}
 : ${gpu:=0}
 : ${epochs:=200}
-: ${port:=2314}
 : ${backbone:=GRU4Rec}
 
 export CUDA_VISIBLE_DEVICES=$gpu

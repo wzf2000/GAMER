@@ -1,0 +1,15 @@
+{
+    "n_layers": 2,
+    "n_heads": 2,
+    "hidden_size": 64,
+    "inner_size": 256,
+    "dropout_prob": 0.5,
+    "hidden_act": "gelu",
+    "layer_norm_eps": 1e-12,
+    "initializer_range": 0.02,
+    "loss_type": "CE",
+    "enable_hg": true,
+    "enable_ms": true,
+    "hyper_len": 6,
+    "scales": [5, 4, 20]
+}

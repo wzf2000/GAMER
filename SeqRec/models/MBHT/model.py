@@ -38,7 +38,7 @@ class MBHT(SeqModel):
         self.n_behaviors = n_behaviors
 
         # load dataset info
-        self.mask_token = self.n_items
+        self.mask_token = self.n_items + 1  # add mask token
         self.mask_item_length = int(self.mask_ratio * self.max_seq_length)
 
         assert config.loss_type == 'CE'
@@ -49,7 +49,7 @@ class MBHT(SeqModel):
             self.n_behaviors, self.hidden_size, padding_idx=0
         )
         self.item_embedding = nn.Embedding(
-            self.n_items + 1, self.hidden_size, padding_idx=0
+            self.n_items + 2, self.hidden_size, padding_idx=0
         )  # mask token add 1
         self.position_embedding = nn.Embedding(
             self.max_seq_length + 1, self.hidden_size
@@ -62,9 +62,9 @@ class MBHT(SeqModel):
                 dropout=self.dropout_prob,
                 activation=self.hidden_act,
                 layer_norm_eps=self.layer_norm_eps,
-                batch_first=True,
                 multiscale=True,
                 scales=self.scales,
+                max_len=self.max_seq_length + 1,
             )
             self.trm_encoder = TransformerEncoder(
                 encoder_layer=encoder_layer, num_layers=self.n_layers
@@ -77,7 +77,6 @@ class MBHT(SeqModel):
                 dropout=self.dropout_prob,
                 activation=self.hidden_act,
                 layer_norm_eps=self.layer_norm_eps,
-                batch_first=True,
                 multiscale=False,
             )
             self.trm_encoder = TransformerEncoder(
@@ -147,10 +146,19 @@ class MBHT(SeqModel):
         sequence = sequence[-max_length:]  # truncate according to the max_length
         return sequence
 
+    def _right_padding(self, seq: torch.Tensor, max_length: int) -> torch.Tensor:
+        assert seq.size(1) <= max_length
+        pad_len = max_length - seq.size(1)
+        padding = torch.zeros(seq.size(0), pad_len, dtype=torch.long, device=seq.device)
+        seq = torch.cat((seq, padding), dim=1)
+        return seq
+
     def reconstruct_train_data(self, item_seq: torch.Tensor, type_seq: torch.Tensor, last_target: torch.Tensor, last_type: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Mask item sequence for training.
         """
+        item_seq = self._right_padding(item_seq, self.max_seq_length)
+        type_seq = self._right_padding(type_seq, self.max_seq_length)
         last_target = last_target.tolist()
         last_type = last_type.tolist()
         device = item_seq.device
@@ -225,6 +233,8 @@ class MBHT(SeqModel):
         """
         Add mask token at the last position according to the lengths of item_seq
         """
+        item_seq = self._right_padding(item_seq, self.max_seq_length)
+        item_type = self._right_padding(item_type, self.max_seq_length)
         padding = torch.zeros(
             item_seq.size(0), dtype=torch.long, device=item_seq.device
         )  # [B]
@@ -400,18 +410,17 @@ class MBHT(SeqModel):
     def sample_sort_predict(self, interaction: dict) -> torch.Tensor:
         item_seq = interaction["inputs"]
         type_seq = interaction["behaviors"]
+        test_set = interaction['all_item']
         item_seq_len = torch.count_nonzero(item_seq, 1)
         item_seq, type_seq = self.reconstruct_test_data(
             item_seq, item_seq_len, type_seq
         )
         seq_output = self.forward(item_seq, type_seq)
         seq_output = self.gather_indexes(seq_output, item_seq_len)  # [B, H]
-        test_items_emb = self.item_embedding.weight[
-            : self.n_items
-        ]  # delete masked token
+        test_items_emb = self.item_embedding(test_set)  # [B, sample_items, H]
         scores = torch.matmul(
-            seq_output, test_items_emb.transpose(0, 1)
-        )  # [B, item_num]
+            test_items_emb, seq_output[..., None]
+        )[..., 0]  # [B, sample_items]
         return scores
 
     def full_sort_predict(self, interaction: dict) -> torch.Tensor:
@@ -424,7 +433,7 @@ class MBHT(SeqModel):
         seq_output = self.forward(item_seq, type_seq)
         seq_output = self.gather_indexes(seq_output, item_seq_len)  # [B, H]
         test_items_emb = self.item_embedding.weight[
-            : self.n_items
+            : self.n_items + 1
         ]  # delete masked token
         scores = torch.matmul(
             seq_output, test_items_emb.transpose(0, 1)
@@ -460,6 +469,7 @@ class MBHT(SeqModel):
             else:
                 metrics, sim_items = torch.topk(seq_item_sim, group_len, sorted=False)
             # map indices to item tokens
+            seq = seq.to(sim_items.device)
             sim_items = seq[sim_items]
             row_idx, masked_pos = torch.nonzero(
                 sim_items == self.mask_token, as_tuple=True

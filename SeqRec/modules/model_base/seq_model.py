@@ -112,7 +112,7 @@ class SeqModel(nn.Module):
             seq_output, test_items_emb.transpose(0, 1)
         )  # [B, n_items]
         if 'item_range' in interaction:
-            scores_full = torch.full((item_seq.size(0), self.n_items), float('-inf'), device=item_seq.device)
+            scores_full = torch.full((item_seq.size(0), self.n_items + 1), float('-inf'), device=item_seq.device)
             scores_full[:, start:end] = scores
             scores = scores_full
         return scores

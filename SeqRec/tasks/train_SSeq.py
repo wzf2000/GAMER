@@ -4,7 +4,7 @@ import wandb
 import torch
 import numpy as np
 from loguru import logger
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, ConcatDataset
 
 from SeqRec.tasks.base import Task
 from SeqRec.datasets.SSeq_dataset import SSeqDataset
@@ -13,6 +13,7 @@ from SeqRec.datasets.collator_traditional import TraditionalCollator, Traditiona
 from SeqRec.modules.model_base.seq_model import SeqModel
 from SeqRec.models.GRU4Rec import GRU4Rec, GRU4RecConfig
 from SeqRec.models.SASRec import SASRec, SASRecConfig
+from SeqRec.models.MBHT import MBHT, MBHTConfig
 from SeqRec.trainers.SSeqRec import Trainer
 from SeqRec.utils.config import Config
 from SeqRec.utils.futils import ensure_dir
@@ -107,7 +108,7 @@ class TrainSSeqRec(Task):
         eval_results = {metric: [] for metric in self.metric_list}
         with torch.no_grad():
             for batch, targets in get_tqdm(data_loader, desc=f"{behavior} testing"):
-                batch = {k: v.to(self.device) for k, v in batch.items()}
+                batch = {k: (v.to(self.device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
                 scores: torch.Tensor = self.model.full_sort_predict(batch)
                 scores = scores.cpu().numpy()
                 ranks = np.argsort(-scores, axis=1)
@@ -145,6 +146,8 @@ class TrainSSeqRec(Task):
         merge_results = {m: 0.0 for m in self.metric_list}
         total = 0
         for i, behavior in enumerate(self.behaviors):
+            if isinstance(self.model, MBHT) and behavior != self.target_behavior:
+                continue
             result = self.test_single_behavior(self.loaders[i], behavior)
             result['eval_type'] = f"Behavior {behavior}"
             results.append(result)
@@ -219,10 +222,13 @@ class TrainSSeqRec(Task):
             max_his_len=max_his_len,
             tasks=tasks,
         )
-        valid_data = valid_data.filter_by_behavior(valid_data.target_behavior)
+        self.target_behavior = valid_data.target_behavior
+        valid_data = valid_data.filter_by_behavior(self.target_behavior)
         first_dataset: SSeqDataset = train_data.datasets[0]
         num_items = first_dataset.num_items
         self.behaviors = first_dataset.behaviors
+        if backbone == 'MBHT':
+            train_data = ConcatDataset([d.filter_by_behavior(self.target_behavior) for d in train_data.datasets])
         logger.info(f"Number of items: {num_items}")
         logger.info(f"Training data size: {len(train_data)}")
 

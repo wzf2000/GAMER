@@ -290,7 +290,7 @@ class BaseSSeqDataset(Dataset):
                 filtered_data.append(inter)
         else:
             filtered_data = [
-                d for d in self.inter_data if d["behavior"] == behavior
+                d for d in self.inter_data if d["behavior"] == self.behaviors.index(behavior)
             ]
         copied_dataset = copy.copy(self)
         copied_dataset.inter_data = filtered_data

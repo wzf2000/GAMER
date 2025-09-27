@@ -19,10 +19,11 @@ class LinearAttention(nn.Module):
         dropout: float,
         layer_norm_eps: float,
         linear_size: int,
+        max_len: int,
     ):
         super(LinearAttention, self).__init__()
-        self.E = nn.Linear(200, linear_size)
-        self.F = nn.Linear(200, linear_size)
+        self.E = nn.Linear(max_len, linear_size)
+        self.F = nn.Linear(max_len, linear_size)
         self.W_V = nn.Linear(embed_dim, embed_dim)
         self.W_K = nn.Linear(embed_dim, embed_dim)
         self.W_Q = nn.Linear(embed_dim, embed_dim)
@@ -83,6 +84,7 @@ class MultiScaleAttention(nn.Module):
         dropout: float,
         layer_norm_eps: float,
         scales: list[int],
+        max_len: int,
     ):
         super().__init__()
         assert embed_dim % num_heads == 0
@@ -90,9 +92,10 @@ class MultiScaleAttention(nn.Module):
         self.num_heads = num_heads
         self.scale_1 = scales[1]
         self.scale_2 = scales[2]
-        self.out_fc = nn.Linear(200 + 200 // self.scale_1 + 200 // self.scale_2, 200)
+        self.max_len = max_len
+        self.out_fc = nn.Linear(self.max_len + self.max_len // self.scale_1 + self.max_len // self.scale_2, self.max_len)
 
-        self.attention1 = LinearAttention(embed_dim, num_heads, dropout, layer_norm_eps, scales[0])
+        self.attention1 = LinearAttention(embed_dim, num_heads, dropout, layer_norm_eps, scales[0], self.max_len)
         self.attention2 = MultiHeadAttention(embed_dim, num_heads, dropout, layer_norm_eps)
 
     def forward(self, input_tensor: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
@@ -104,7 +107,6 @@ class MultiScaleAttention(nn.Module):
         # linear attention over whole sequence
         # b, num_heads, seq_length, dim//num_heads
         x, linear_attn_weight = self.attention1(input_tensor, attention_mask)
-        # x, _ = self.attention1(query, key, value, key_padding_mask=mask.squeeze())
         scale_outputs = []
         scale_outputs.append(torch.reshape(x, [batch_size, seq_length, self.num_heads * self.d_k]))
         next_input = torch.mean(
@@ -153,11 +155,13 @@ class MultiScaleTransformerEncoderLayer(nn.Module):
         layer_norm_eps: float = 1e-5,
         multiscale: bool = False,
         scales: list[int] = [],
+        max_len: int = -1,
     ) -> None:
         super().__init__()
         if multiscale:
+            assert max_len > 0, "max_len must be provided when using multiscale attention"
             self.multi_head_attention = MultiScaleAttention(
-                d_model, nhead, dropout, layer_norm_eps, scales
+                d_model, nhead, dropout, layer_norm_eps, scales, max_len
             )
         else:
             self.multi_head_attention = MultiHeadAttention(
