@@ -110,14 +110,13 @@ def load_SMB_datasets(
                 behavior_first=True,  # Default behavior first for explicit token dataset
             )
         elif mb_type == "smb_augment":
-            valid_data = SMBAugmentEvaluationDataset(
+            valid_data = SMBExplicitDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
                 index_file=index_file,
                 mode="valid",
                 behavior_first=True,  # Default behavior first for explicit token dataset
-                drop_ratio=2 / augment,
             )
         elif mb_type == "explicit_back":
             valid_data = SMBExplicitDataset(

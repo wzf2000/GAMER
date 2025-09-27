@@ -617,15 +617,15 @@ class SMBAugmentDataset(SMBExplicitDataset):
 
     def _augment_interactions(self, items: list[str], behaviors: list[str], sids: list[int], times: list[float]) -> tuple[list[list[str]], list[list[str]], list[list[int]], list[list[float]]]:
         if not self.augment:
-            return [], [], [], []
-        downsample_ratios = np.arange(1, self.augment + 1) / self.augment
+            return [items], [behaviors], [sids], [times]
+        downsample_ratios = np.arange(1, self.augment + 1) / (self.augment + 1)
         behavior_indices = {}
         for behavior in self.behavior_level:
             behavior_indices[behavior] = [i for i, b in enumerate(behaviors) if b == behavior]
-        items_list = []
-        behaviors_list = []
-        sids_list = []
-        times_list = []
+        items_list = [items]
+        behaviors_list = [behaviors]
+        sids_list = [sids]
+        times_list = [times]
         for ratio in downsample_ratios:
             if ratio == 0:
                 continue
@@ -663,7 +663,7 @@ class SMBAugmentDataset(SMBExplicitDataset):
 
     def _process_train_data(self) -> list[dict[str, str | list[int] | list[float]]]:
         set_seed(42)  # For reproducibility
-        inter_data = super()._process_train_data()
+        inter_data = []
         if self.augment:
             logger.info(f"Augmenting interactions {self.augment} times for each user.")
         for uid in get_tqdm(self.remapped_inters, desc="Augmenting training data"):
@@ -678,19 +678,23 @@ class SMBAugmentDataset(SMBExplicitDataset):
                 session_ids_map = {}
                 extended_session_ids_map = {}
                 times_map = {}
+                poss = [0]
                 for i in range(1, len(items)):
-                    if behaviors[i] != self.target_behavior:
-                        continue
-                    sid = self.session[uid][i]
-                    pos = self.train_pos[uid][sid]
+                    if sids[i] > sids[i - 1]:
+                        poss.append(i)
+                    else:
+                        poss.append(poss[-1])
+                for i in range(1, len(items)):
+                    sid = sids[i]
+                    pos = poss[i]
                     # wrong, mark
                     if sid not in session_ids_map:
-                        session_ids_map[sid] = self._generate_session_ids(self.session[uid][:pos + 1])
-                        extended_session_ids_map[sid] = self._generate_extended_session_ids(self.session[uid][:pos + 1])
+                        session_ids_map[sid] = self._generate_session_ids(sids[:pos + 1])
+                        extended_session_ids_map[sid] = self._generate_extended_session_ids(sids[:pos + 1])
                         times_map[sid] = self._generate_times(times[:pos + 1])
                     inter_data.append({
                         "item": self.get_behavior_item(items[i], behaviors[i]),
-                        "inters": self._get_inters(items[:i], behaviors[:i]),
+                        "inters": self._get_inters(items[:pos], behaviors[:pos]),
                         "session_ids": session_ids_map[sid],
                         "extended_session_ids": extended_session_ids_map[sid],
                         "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
