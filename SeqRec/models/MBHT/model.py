@@ -262,13 +262,12 @@ class MBHT(SeqModel):
         output = trm_output
 
         if self.enable_hg:
-            x_raw = item_emb
+            x_raw = item_emb  # [B, l, H]
             x_raw = x_raw * torch.sigmoid(
                 x_raw.matmul(self.gating_weight) + self.gating_bias
-            )
-            # b, l, l
-            x_m = torch.stack((self.metric_w1 * x_raw, self.metric_w2 * x_raw)).mean(0)
-            item_sim = sim(x_m, x_m)
+            )  # [B, l, H]
+            x_m = torch.stack((self.metric_w1 * x_raw, self.metric_w2 * x_raw)).mean(0)  # [B, l, H]
+            item_sim = sim(x_m, x_m)  # [B, l, l]
             item_sim[item_sim < 0] = 0.01
 
             Gs = self.build_Gs_unique(item_seq, item_sim, self.hglen)
@@ -441,77 +440,66 @@ class MBHT(SeqModel):
         return scores
 
     def build_Gs_unique(self, seqs: torch.Tensor, item_sim: torch.Tensor, group_len: int) -> torch.Tensor:
+        # seqs: [B, l]
+        # item_sim: [B, l, l]
         Gs = []
-        n_objs = torch.count_nonzero(seqs, dim=1).tolist()
+        n_objs = torch.count_nonzero(seqs, dim=1)  # [B]
         for batch_idx in range(seqs.shape[0]):
-            seq = seqs[batch_idx]
-            n_obj = n_objs[batch_idx]
-            seq = seq[:n_obj].cpu()
-            seq_list = seq.tolist()
-            unique = torch.unique(seq)
-            unique = unique.tolist()
+            seq = seqs[batch_idx]  # [l]
+            n_obj = n_objs[batch_idx].item()
+            seq = seq[:n_obj]  # [l']
+            unique, counts = torch.unique(seq, return_counts=True)
+            unique: torch.Tensor
             n_unique = len(unique)
 
-            multibeh_group = seq.tolist()
-            for x in unique:
-                multibeh_group.remove(x)
-            multibeh_group = list(set(multibeh_group))
-            try:
-                multibeh_group.remove(self.mask_token)
-            except Exception:
-                pass
-
-            # l', l'
-            seq_item_sim = item_sim[batch_idx][:n_obj, :][:, :n_obj]
-            # l', group_len
-            if group_len > n_obj:
-                metrics, sim_items = torch.topk(seq_item_sim, n_obj, sorted=False)
-            else:
-                metrics, sim_items = torch.topk(seq_item_sim, group_len, sorted=False)
+            seq_item_sim = item_sim[batch_idx, :n_obj, :n_obj]  # [l', l']
+            metrics, sim_items = torch.topk(seq_item_sim, min(group_len, n_obj), sorted=False)  # [l', group_len], [l', group_len]
             # map indices to item tokens
-            seq = seq.to(sim_items.device)
-            sim_items = seq[sim_items]
+            sim_items = seq[sim_items]  # [l', group_len]
             row_idx, masked_pos = torch.nonzero(
                 sim_items == self.mask_token, as_tuple=True
-            )
-            sim_items[row_idx, masked_pos] = seq[row_idx]
-            metrics[row_idx, masked_pos] = 1.0
-            multibeh_group = seq.tolist()
-            for x in unique:
-                multibeh_group.remove(x)
-            multibeh_group = list(set(multibeh_group))
-            try:
-                multibeh_group.remove(self.mask_token)
-            except Exception:
-                pass
-            n_edge = n_unique + len(multibeh_group)
+            )  # find the masked position
+            sim_items[row_idx, masked_pos] = seq[row_idx]  # replace with itself
+            metrics[row_idx, masked_pos] = 1.0  # self-similarity is 1.0
+
+            multibeh_group = unique[(counts > 1) & (unique != self.mask_token)]
+            n_multibeh = len(multibeh_group)
+
+            n_edge = n_unique + n_multibeh
             # hyper graph: n_obj, n_edge
-            H = torch.zeros((n_obj, n_edge), device=metrics.device)
+            H = torch.zeros((n_obj, n_edge), device=metrics.device)  # [l', n_unique + n_multibeh]
+
+            # Item-wise Semantic Dependency Hypergraph
             normal_item_indexes = torch.nonzero(
                 (seq != self.mask_token), as_tuple=True
-            )[0]
-            for idx in normal_item_indexes:
-                sim_items_i = sim_items[idx].tolist()
+            )[0]  # [l'']
+            normal_mask = (seq != self.mask_token)  # [l']
+            # [l', group_len, 1] == [1, 1, n_unique] -> [l', group_len, n_unique] argmax(dim=-1) -> [l', group_len]
+            unique_idx_map = (sim_items[:, :, None] == unique[None, None, :]).long().argmax(dim=-1)  # [l', group_len]
+            row_indices = normal_item_indexes.repeat_interleave(metrics.size(1))  # [l * group_len]
+            col_indices = unique_idx_map[normal_mask].flatten()  # [l * group_len]
+            H[row_indices, col_indices] = metrics[normal_mask].flatten()
 
-                def map_f(x):
-                    return unique.index(x)
+            # Self-loop
+            ego_mask = (seq[:, None] == unique[None, :])  # [l', n_unique]
+            ego_idxs = torch.nonzero(ego_mask, as_tuple=True)
+            H[ego_idxs] = 1.0  # self-loop
 
-                unique_idx = list(map(map_f, sim_items_i))
-                H[idx, unique_idx] = metrics[idx]
+            if n_multibeh > 0:
+                # Item-wise Multi-Behavior Dependency Hypergraph
+                seq_multibeh_mask = (seq[:, None] == multibeh_group[None, :]).long()  # [l', n_multibeh]
+                seq_multibeh_idx = seq_multibeh_mask.argmax(dim=1)  # [l']
+                valid_mask = seq_multibeh_mask.any(dim=1)  # [l']
+                H[valid_mask, n_unique + seq_multibeh_idx[valid_mask]] = 1.0
 
-            for i, item in enumerate(seq_list):
-                ego_idx = unique.index(item)
-                H[i, ego_idx] = 1.0
-                # multi-behavior hyperedge
-                if item in multibeh_group:
-                    H[i, n_unique + multibeh_group.index(item)] = 1.0
-            DV = torch.sum(H, dim=1)
-            DE = torch.sum(H, dim=0)
-            invDE = torch.diag(torch.pow(DE, -1))
-            invDV = torch.diag(torch.pow(DV, -1))
-            HT = H.t()
-            G = invDV.mm(H).mm(invDE).mm(HT)
+            DV = torch.sum(H, dim=1)  # [n_obj]
+            DE = torch.sum(H, dim=0)  # [n_edge]
+            invDE = torch.diag(torch.pow(DE, -1))  # [n_edge, n_edge]
+            invDV = torch.diag(torch.pow(DV, -1))  # [n_obj, n_obj]
+            HT = H.t()  # [n_edge, n_obj]
+            G = invDV @ H @ invDE @ HT  # [n_obj, n_obj]
             assert not torch.isnan(G).any()
-            Gs.append(G.to(seqs.device))
-        Gs_block_diag = torch.block_diag(*Gs)
+            Gs.append(G)
+
+        Gs_block_diag = torch.block_diag(*Gs)  # [sum(n_obj), sum(n_obj)]
         return Gs_block_diag

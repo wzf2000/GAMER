@@ -93,6 +93,7 @@ class MultiScaleAttention(nn.Module):
         self.scale_1 = scales[1]
         self.scale_2 = scales[2]
         self.max_len = max_len
+        assert self.max_len % self.scale_1 == 0 and self.max_len % self.scale_2 == 0, "max_len must be divisible by scale_1 and scale_2"
         self.out_fc = nn.Linear(self.max_len + self.max_len // self.scale_1 + self.max_len // self.scale_2, self.max_len)
 
         self.attention1 = LinearAttention(embed_dim, num_heads, dropout, layer_norm_eps, scales[0], self.max_len)
