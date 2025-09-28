@@ -1,6 +1,6 @@
 from torch.utils.data import ConcatDataset
 
-from SeqRec.datasets.SSeq_dataset import SSeqDataset, SSeqDatasetForDecoder, SSeqNegSampleDataset, SSeqNegSampleEvalDataset
+from SeqRec.datasets.SSeq_dataset import SSeqDataset, SSeqUserLevelDataset, SSeqNegSampleDataset, SSeqNegSampleEvalDataset
 
 
 def load_SSeq_datasets(
@@ -52,7 +52,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_decoder":
             seq_type = "sseq"
-            single_dataset = SSeqDatasetForDecoder(
+            single_dataset = SSeqUserLevelDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -61,7 +61,25 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_diff_decoder":
             seq_type = "sseq_diff"
-            single_dataset = SSeqDatasetForDecoder(
+            single_dataset = SSeqUserLevelDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                mode="train",
+                diff=True,
+            )
+        elif task.lower() == "sseq_sample_decoder":
+            seq_type = "sseq_sample"
+            single_dataset = SSeqUserLevelDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                mode="train",
+                diff=False,
+            )
+        elif task.lower() == "sseq_sample_diff_decoder":
+            seq_type = "sseq_sample_diff"
+            single_dataset = SSeqUserLevelDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,

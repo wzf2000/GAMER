@@ -7,13 +7,14 @@ from loguru import logger
 from torch.utils.data import DataLoader, ConcatDataset
 
 from SeqRec.tasks.base import Task
-from SeqRec.datasets.SSeq_dataset import SSeqDataset
+from SeqRec.datasets.SSeq_dataset import SSeqDataset, SSeqUserLevelDataset
 from SeqRec.datasets.loading_SSeq import load_SSeq_datasets, load_SSeq_test_dataset
-from SeqRec.datasets.collator_traditional import TraditionalCollator, TraditionalTestCollator
+from SeqRec.datasets.collator_traditional import TraditionalCollator, TraditionalTestCollator, TraditionalUserLevelCollator
 from SeqRec.modules.model_base.seq_model import SeqModel
 from SeqRec.models.GRU4Rec import GRU4Rec, GRU4RecConfig
 from SeqRec.models.SASRec import SASRec, SASRecConfig
 from SeqRec.models.MBHT import MBHT, MBHTConfig
+from SeqRec.models.MBSTR import MBSTR, MBSTRConfig
 from SeqRec.trainers.SSeqRec import Trainer
 from SeqRec.utils.config import Config
 from SeqRec.utils.futils import ensure_dir
@@ -232,7 +233,11 @@ class TrainSSeqRec(Task):
         logger.info(f"Number of items: {num_items}")
         logger.info(f"Training data size: {len(train_data)}")
 
-        train_collator = TraditionalCollator()
+        if isinstance(first_dataset, SSeqUserLevelDataset):
+            logger.info("Using user-level collator for training.")
+            train_collator = TraditionalUserLevelCollator()
+        else:
+            train_collator = TraditionalCollator()
         eval_collator = TraditionalTestCollator()
         train_loader = DataLoader(
             train_data,
@@ -251,7 +256,7 @@ class TrainSSeqRec(Task):
         )
 
         model_cls: type[SeqModel] = eval(backbone)
-        self.model = model_cls(config, n_items=num_items, max_his_len=max_his_len, target_behavior_id=first_dataset.target_behavior_index, n_behaviors=len(self.behaviors))
+        self.model = model_cls(config, n_items=num_items, max_his_len=max_his_len, target_behavior_id=first_dataset.target_behavior_index + 1, n_behaviors=len(self.behaviors))
         logger.info(self.model)
 
         self.device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'

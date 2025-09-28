@@ -46,7 +46,7 @@ class MBHT(SeqModel):
 
     def _define_parameters(self):
         self.type_embedding = nn.Embedding(
-            self.n_behaviors, self.hidden_size, padding_idx=0
+            self.n_behaviors + 1, self.hidden_size, padding_idx=0
         )
         self.item_embedding = nn.Embedding(
             self.n_items + 2, self.hidden_size, padding_idx=0
@@ -97,11 +97,6 @@ class MBHT(SeqModel):
             torch.Tensor(self.hidden_size, self.hidden_size)
         )
         self.attn = nn.Parameter(torch.Tensor(1, self.hidden_size))
-        nn.init.normal_(self.attn, std=0.02)
-        nn.init.normal_(self.attn_weights, std=0.02)
-        nn.init.normal_(self.gating_weight, std=0.02)
-        nn.init.normal_(self.metric_w1, std=0.02)
-        nn.init.normal_(self.metric_w2, std=0.02)
 
         self.sw_before = 10
         self.sw_follow = 6
@@ -110,6 +105,12 @@ class MBHT(SeqModel):
 
     def _init_weights(self, module: nn.Module):
         """Initialize the weights"""
+        if isinstance(module, MBHT):
+            nn.init.normal_(module.attn, std=self.initializer_range)
+            nn.init.normal_(module.attn_weights, std=self.initializer_range)
+            nn.init.normal_(module.gating_weight, std=self.initializer_range)
+            nn.init.normal_(module.metric_w1, std=self.initializer_range)
+            nn.init.normal_(module.metric_w2, std=self.initializer_range)
         if isinstance(module, (nn.Linear, nn.Embedding)):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617

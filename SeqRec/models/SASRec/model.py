@@ -84,4 +84,4 @@ class SASRec(SeqModel):
             input_emb, extended_attention_mask
         )
         output = self.gather_indexes(trm_output, item_seq_len - 1)
-        return output  # [B H]
+        return output  # [B, H]

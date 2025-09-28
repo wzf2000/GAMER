@@ -49,11 +49,12 @@ class SeqModel(nn.Module):
 
     def get_attention_mask(self, item_seq: torch.Tensor, bidirectional: bool = False):
         """Generate left-to-right uni-directional or bidirectional attention mask for multi-head attention."""
-        attention_mask = item_seq != 0
-        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)  # torch.bool
+        attention_mask = item_seq != 0  # [B, L]
+        extended_attention_mask = attention_mask[:, None, None, :]  # torch.bool, [B, 1, 1, L]
+        extended_attention_mask = extended_attention_mask.expand(-1, -1, item_seq.size(1), -1)  # [B, 1, L, L]
         if not bidirectional:
             extended_attention_mask = torch.tril(
-                extended_attention_mask.expand((-1, -1, item_seq.size(-1), -1))
+                extended_attention_mask
             )
         dtype = next(self.parameters()).dtype
         extended_attention_mask = extended_attention_mask.to(dtype)  # fp16 compatibility

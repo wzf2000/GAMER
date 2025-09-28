@@ -404,11 +404,12 @@ class SSeqNegSampleDataset(SSeqDataset):
         return inter_data
 
 
-class SSeqDatasetForDecoder(SSeqDataset):
+class SSeqUserLevelDataset(SSeqDataset):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     def _process_train_data(self) -> list[dict[str, int | list[int] | list[float]]]:
+        set_seed(42)  # For reproducibility of negative sampling
         inter_data = []
         for uid in get_tqdm(self.inters, desc="Processing training data"):
             if self.valid_pos[uid] <= 0:
@@ -417,10 +418,16 @@ class SSeqDatasetForDecoder(SSeqDataset):
             behaviors = self.history_behaviors[uid][:self.valid_pos[uid]]
             sids = self.session[uid][:self.valid_pos[uid]]
             times = self.time[uid][:self.valid_pos[uid]]
+            if len(items) > self.max_his_len and random.random() < 0.8:
+                begin_idx = random.randint(0, len(items) - self.max_his_len - 1)
+                items = items[begin_idx: begin_idx + self.max_his_len]
+                behaviors = behaviors[begin_idx: begin_idx + self.max_his_len]
+                sids = sids[begin_idx: begin_idx + self.max_his_len]
+                times = times[begin_idx: begin_idx + self.max_his_len]
             inter_data.append({
                 "item": self.get_behavior_item(items[-1], behaviors[-1]),
-                "inters": self._get_inters(items[:-1], behaviors[:-1]),
-                "inter_behaviors": self._get_inter_behaviors(behaviors[:-1]),
+                "inters": self._get_inters(items, behaviors),  # use all history interactions
+                "inter_behaviors": self._get_inter_behaviors(behaviors),  # use all history interactions
                 "session_ids": self._generate_session_ids(sids),
                 "actions": self._generate_actions(behaviors),
                 "time": self._generate_times(times),

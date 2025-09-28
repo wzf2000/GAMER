@@ -1,0 +1,20 @@
+{
+    "n_layers": 2,
+    "n_heads": 2,
+    "hidden_size": 64,
+    "inner_size": 256,
+    "dropout_prob": 0.2,
+    "hidden_act": "relu",
+    "layer_norm_eps": 1e-12,
+    "initializer_range": 0.02,
+    "mask_ratio": 0.2,
+    "loss_type": "CE",
+    "num_buckets": 32,
+    "max_distance": 40,
+    "behavior_head": true,
+    "behavior_attention": true,
+    "behavior_moe": true,
+    "behavior_position_bias": true,
+    "n_shared_experts": 3,
+    "n_specific_experts": 1
+}

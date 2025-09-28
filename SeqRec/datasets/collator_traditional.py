@@ -6,6 +6,7 @@ def collate_with_padding(batch: list[dict], padding_side: str = 'right', targets
     ret: dict[str, torch.Tensor] = {}
     inputs = [d["inters"] for d in batch]
     behaviors = [d["inter_behaviors"] for d in batch]
+    behaviors = [[b + 1 for b in sub] for sub in behaviors]  # behaviors add 1 for padding idx
     seq_len = [d["seq_len"] for d in batch]
     max_len = max(seq_len)
     if padding_side == 'left':
@@ -34,7 +35,7 @@ def collate_with_padding(batch: list[dict], padding_side: str = 'right', targets
             neg_item = torch.tensor(neg_item, dtype=torch.long)
             ret["neg_item"] = neg_item
     if "behavior" in batch[0]:
-        behavior = [d["behavior"] for d in batch]
+        behavior = [d["behavior"] + 1 for d in batch]  # add 1 for padding idx
         behavior = torch.tensor(behavior, dtype=torch.long)
         ret["behavior"] = behavior
     if "item_range" in batch[0]:
@@ -57,10 +58,3 @@ class TraditionalTestCollator:
 class TraditionalUserLevelCollator:
     def __call__(self, batch: list[dict]) -> dict[str, torch.Tensor]:
         return collate_with_padding(batch, padding_side='right')
-
-
-class TraditionalUserLevelTestCollator:
-    def __call__(self, batch: list[dict]) -> tuple[dict[str, torch.Tensor], list[list[int]]]:
-        _ = [b.pop('behavior') for b in batch]
-        targets = [b.pop('target') for b in batch]
-        return collate_with_padding(batch, padding_side='left', targets=targets), targets

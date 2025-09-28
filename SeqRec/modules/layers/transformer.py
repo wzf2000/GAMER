@@ -86,14 +86,17 @@ class FeedForward(nn.Module):
         dropout: float,
         activation: str | Callable[[torch.Tensor], torch.Tensor],
         layer_norm_eps: float,
+        residual: bool = True,
     ):
         super(FeedForward, self).__init__()
         self.dense_1 = nn.Linear(d_model, dim_feedforward)
         self.intermediate_act_fn = self.get_hidden_act(activation) if isinstance(activation, str) else activation
 
         self.dense_2 = nn.Linear(dim_feedforward, d_model)
-        self.LayerNorm = nn.LayerNorm(d_model, eps=layer_norm_eps)
-        self.dropout = nn.Dropout(dropout)
+        self.residual = residual
+        if self.residual:
+            self.LayerNorm = nn.LayerNorm(d_model, eps=layer_norm_eps)
+            self.dropout = nn.Dropout(dropout)
 
     def get_hidden_act(self, act: str) -> Callable[[torch.Tensor], torch.Tensor]:
         ACT2FN = {
@@ -110,8 +113,9 @@ class FeedForward(nn.Module):
         hidden_states = self.intermediate_act_fn(hidden_states)
 
         hidden_states = self.dense_2(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+        if not self.residual:
+            hidden_states = self.dropout(hidden_states)
+            hidden_states = self.LayerNorm(hidden_states + input_tensor)
 
         return hidden_states
 
@@ -159,7 +163,7 @@ class TransformerEncoder(nn.Module):
             [copy.deepcopy(encoder_layer) for _ in range(num_layers)]
         )
 
-    def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
+    def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor, **kwargs):
         """
         Args:
             hidden_states (torch.Tensor): the input of the TransformerEncoder
@@ -171,5 +175,5 @@ class TransformerEncoder(nn.Module):
 
         """
         for layer_module in self.layer:
-            hidden_states = layer_module(hidden_states, attention_mask)
+            hidden_states = layer_module(hidden_states, attention_mask, **kwargs)
         return hidden_states
