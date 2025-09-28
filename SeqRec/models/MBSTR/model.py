@@ -97,7 +97,7 @@ class MBSTR(SeqModel):
         """
         mask = torch.rand_like(item_seq, dtype=torch.float) < self.mask_ratio
         mask &= item_seq != 0  # do not mask padding items
-        labels = item_seq * (~mask)  # [B, L], 0 is for non-masked positions
+        labels = item_seq * mask  # [B, L], 0 is for non-masked positions
         masked_item_seq = item_seq * (~mask) + self.mask_token * mask
         return masked_item_seq, labels
 
