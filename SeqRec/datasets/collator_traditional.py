@@ -50,7 +50,6 @@ class TraditionalCollator:
 
 class TraditionalTestCollator:
     def __call__(self, batch: list[dict]) -> tuple[dict[str, torch.Tensor], list[list[int]]]:
-        _ = [b.pop('behavior') for b in batch]
         targets = [b.pop('target') for b in batch]
         return collate_with_padding(batch, padding_side='right', targets=targets), targets
 

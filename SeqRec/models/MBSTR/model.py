@@ -134,7 +134,7 @@ class MBSTR(SeqModel):
             return logits
 
     def calculate_loss(self, interaction: dict) -> torch.Tensor:
-        item_seq = interaction['inputs']
+        item_seq = interaction["inputs"]
         item_type = interaction["behaviors"]
         masked_item_seq, labels = self.reconstruct_train_data(item_seq)
         logits, labels = self.forward(masked_item_seq, item_type, candidates=None, labels=labels)
@@ -143,14 +143,26 @@ class MBSTR(SeqModel):
 
     def sample_sort_predict(self, interaction: dict) -> torch.Tensor:
         item_seq = interaction["inputs"]
+        last_mask = torch.ones(item_seq.size(0), 1, dtype=item_seq.dtype, device=item_seq.device) * self.mask_token
+        item_seq = torch.cat([item_seq, last_mask], dim=1)
+        item_seq = item_seq[:, -self.max_seq_length:]  # ensure the length
         type_seq = interaction["behaviors"]
-        test_set = interaction['all_item']
+        last_type = interaction["behavior"]
+        type_seq = torch.cat([type_seq, last_type[:, None]], dim=1)
+        type_seq = type_seq[:, -self.max_seq_length:]  # ensure the length
+        test_set = interaction["all_item"]
         logits = self.forward(item_seq, type_seq, candidates=test_set, labels=None)
         return logits
 
     def full_sort_predict(self, interaction: dict) -> torch.Tensor:
         item_seq = interaction["inputs"]
+        last_mask = torch.ones(item_seq.size(0), 1, dtype=item_seq.dtype, device=item_seq.device) * self.mask_token
+        item_seq = torch.cat([item_seq, last_mask], dim=1)
+        item_seq = item_seq[:, -self.max_seq_length:]  # ensure the length
         type_seq = interaction["behaviors"]
-        test_set = torch.arange(1, self.n_items + 1, device=item_seq.device)[None].expand(item_seq.size(0), -1)  # [B, n_items]
+        last_type = interaction["behavior"]
+        type_seq = torch.cat([type_seq, last_type[:, None]], dim=1)
+        type_seq = type_seq[:, -self.max_seq_length:]  # ensure the length
+        test_set = torch.arange(self.n_items + 1, device=item_seq.device)[None].expand(item_seq.size(0), -1)  # [B, n_items]
         logits = self.forward(item_seq, type_seq, candidates=test_set, labels=None)
         return logits
