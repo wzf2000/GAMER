@@ -418,7 +418,7 @@ class SSeqUserLevelDataset(SSeqDataset):
             behaviors = self.history_behaviors[uid][:self.valid_pos[uid]]
             sids = self.session[uid][:self.valid_pos[uid]]
             times = self.time[uid][:self.valid_pos[uid]]
-            if len(items) > self.max_his_len and random.random() < 0.8:
+            if len(items) > self.max_his_len and random.random() > 0.8:
                 begin_idx = random.randint(0, len(items) - self.max_his_len - 1)
                 items = items[begin_idx: begin_idx + self.max_his_len]
                 behaviors = behaviors[begin_idx: begin_idx + self.max_his_len]
