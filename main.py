@@ -30,7 +30,6 @@ def main():
     task_name: str = args.pipeline
     # remove the pipeline attribute from args
     del args.pipeline
-    logger.success(f"Parsed arguments for {task_name}: {vars(args)}")
     if task_name in task_list:
         log_dir = os.path.join("logs", task_name)
         ensure_dir(log_dir)
