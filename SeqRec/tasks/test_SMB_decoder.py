@@ -104,6 +104,10 @@ class TestSMBDecoder(MultiGPUTask):
             dataset: BaseSMBDataset = loader.dataset
             behavior_tokens = [''.join(dataset.get_behavior_tokens(b)) for b in behaviors]
             behavior_tokens = self.tokenizer.batch_encode_plus(behavior_tokens, add_special_tokens=False)
+            behavior_token_num = [len(tokens) for tokens in behavior_tokens["input_ids"]]
+            # Check if all the behavior tokens are of the same length
+            assert len(set(behavior_token_num)) == 1, "All behavior tokens should be of the same length."
+            behavior_token_num = behavior_token_num[0]
             bahavior_attention_mask = behavior_tokens["attention_mask"]
             behavior_tokens = behavior_tokens["input_ids"]
             if self.backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Moeaction', 'Qwen3Session', 'Qwen3SessionMoe', 'Qwen3Multi', "Qwen3MultiWosession"]:
@@ -217,9 +221,9 @@ class TestSMBDecoder(MultiGPUTask):
 
             output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
             if self.backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Moeaction', 'Qwen3Session', 'Qwen3SessionMoe', 'Qwen3Multi', 'Qwen3MultiWosession']:
-                output_item_ids = output_ids[:, 1:]  # Remove the behavior token
+                output_item_ids = output_ids[:, behavior_token_num:]  # Remove the behavior token if has
             else:
-                output_item_ids = output_ids[:, 2:]  # Remove the decoder start token and behavior token
+                output_item_ids = output_ids[:, behavior_token_num + 1:]  # Remove the decoder start token and behavior token if has
             output_items = self.tokenizer.batch_decode(output_item_ids, skip_special_tokens=True)
             output_items = [output_item.replace(' ', '') for output_item in output_items]
             # split the output items by num_beams
