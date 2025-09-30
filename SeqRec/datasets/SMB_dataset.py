@@ -58,8 +58,17 @@ class BaseSMBDataset(Dataset):
         logger.info(f"Loaded {len(self.inter_data)} interactions for {self.mode} set.")
 
     @property
+    def index_suffix(self) -> str:
+        if self.index_file == '.index.json':
+            return ''
+        else:
+            # looks like .index.XXX.json
+            # we should get XXX
+            return '.' + self.index_file[len('.index.'): -len('.json')]
+
+    @property
     def cached_file_name(self) -> str:
-        return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}.pkl")
+        return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}{self.index_suffix}.pkl")
 
     def _load_data(self):
         with open(os.path.join(self.data_path, self.dataset + ".SMB.inter.json"), "r") as f:
@@ -490,9 +499,9 @@ class SMBExplicitDataset(BaseSMBDataset):
     @property
     def cached_file_name(self) -> str:
         if self.behavior_first:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}.pkl")
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}{self.index_suffix}.pkl")
         else:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.{self.mode}.pkl")
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.{self.mode}{self.index_suffix}.pkl")
 
     def _update_behavior_tokens(self):
         for behavior in self.behaviors:
@@ -524,9 +533,9 @@ class SMBExplicitDatasetForDecoder(SMBExplicitDataset):
     @property
     def cached_file_name(self) -> str:
         if self.behavior_first:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.aug{self.augment if self.augment else ''}.{self.mode}.pkl")
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.aug{self.augment if self.augment else ''}.{self.mode}{self.index_suffix}.pkl")
         else:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.aug{self.augment if self.augment else ''}.{self.mode}.pkl")
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.aug{self.augment if self.augment else ''}.{self.mode}{self.index_suffix}.pkl")
 
     def _augment_interactions(self, items: list[str], behaviors: list[str], sids: list[int], times: list[float]) -> tuple[list[list[str]], list[list[str]], list[list[int]], list[list[float]]]:
         if not self.augment:
@@ -611,9 +620,9 @@ class SMBAugmentDataset(SMBExplicitDataset):
     @property
     def cached_file_name(self) -> str:
         if self.behavior_first:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.aug{self.augment}.{self.mode}.pkl")
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.aug{self.augment}.{self.mode}{self.index_suffix}.pkl")
         else:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.aug{self.augment}.{self.mode}.pkl")
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.aug{self.augment}.{self.mode}{self.index_suffix}.pkl")
 
     def _augment_interactions(self, items: list[str], behaviors: list[str], sids: list[int], times: list[float]) -> tuple[list[list[str]], list[list[str]], list[list[int]], list[list[float]]]:
         if not self.augment:
@@ -714,9 +723,9 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
     @property
     def cached_file_name(self) -> str:
         if self.behavior_first:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.drop{self.drop_ratio}.{self.mode}.pkl")
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.drop{self.drop_ratio}.{self.mode}{self.index_suffix}.pkl")
         else:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.drop{self.drop_ratio}.{self.mode}.pkl")
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.drop{self.drop_ratio}.{self.mode}{self.index_suffix}.pkl")
 
     def _drop_interactions(self, items: list[str], behaviors: list[str], sids: list[int], times: list[float]) -> tuple[list[str], list[str], list[int], list[float]]:
         behavior_indices = {}
