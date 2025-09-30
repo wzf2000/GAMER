@@ -13,6 +13,7 @@ from SeqRec.datasets.collator_traditional import TraditionalCollator, Traditiona
 from SeqRec.modules.model_base.seq_model import SeqModel
 from SeqRec.models.GRU4Rec import GRU4Rec, GRU4RecConfig
 from SeqRec.models.SASRec import SASRec, SASRecConfig
+from SeqRec.models.BERT4Rec import BERT4Rec, BERT4RecConfig
 from SeqRec.models.MBHT import MBHT, MBHTConfig
 from SeqRec.models.MBSTR import MBSTR, MBSTRConfig
 from SeqRec.trainers.SSeqRec import Trainer
@@ -301,7 +302,7 @@ class TrainSSeqRec(Task):
                 shuffle=False,
                 collate_fn=eval_collator,
                 drop_last=False,
-                num_workers=4
+                num_workers=0
             ) for dataset in self.datasets
         ]
         state_dict = torch.load(output_dir + '/best_model.pth', map_location='cpu')

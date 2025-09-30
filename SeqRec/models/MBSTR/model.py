@@ -4,8 +4,8 @@ from typing import overload
 
 from SeqRec.models.MBSTR.config import MBSTRConfig
 from SeqRec.modules.model_base.seq_model import SeqModel
-from SeqRec.modules.layers.transformer import TransformerEncoder
-from SeqRec.modules.layers.mbs_transformer import MBSTransformerEncoderLayer, DotProductPredictionHead, CGCDotProductPredictionHead, MBSMultiHeadAttention
+from SeqRec.modules.layers.transformer import TransformerEncoder, DotProductPredictionHead
+from SeqRec.modules.layers.mbs_transformer import MBSTransformerEncoderLayer, CGCDotProductPredictionHead, MBSMultiHeadAttention
 
 
 class MBSTR(SeqModel):
@@ -102,67 +102,58 @@ class MBSTR(SeqModel):
         return masked_item_seq, labels
 
     @overload
-    def forward(self, item_seq: torch.Tensor, type_seq: torch.Tensor, candidates: None = None, labels: torch.Tensor = None) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, item_seq: torch.Tensor, type_seq: torch.Tensor, labels: torch.Tensor, candidates: None = None) -> tuple[torch.Tensor, torch.Tensor]:
         ...
 
     @overload
-    def forward(self, item_seq: torch.Tensor, type_seq: torch.Tensor, candidates: torch.Tensor, labels: None = None) -> torch.Tensor:
+    def forward(self, item_seq: torch.Tensor, type_seq: torch.Tensor, labels: torch.Tensor, candidates: torch.Tensor) -> torch.Tensor:
         ...
 
-    def forward(self, item_seq: torch.Tensor, type_seq: torch.Tensor, candidates: torch.Tensor | None = None, labels: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
+    def forward(self, item_seq: torch.Tensor, type_seq: torch.Tensor, labels: torch.Tensor, candidates: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor] | torch.Tensor:
         item_emb = self.dropout(self.item_embedding(item_seq))
         extended_attention_mask = self.get_attention_mask(item_seq, bidirectional=True)
         output: torch.Tensor = self.trm_encoder(
             item_emb, extended_attention_mask, type_seq=type_seq
         )  # [B, L, H]
+        labels = labels.flatten()  # [B * L]
+        valid = labels != 0
+        valid_index = valid.nonzero()[:, 0]  # [M]
+        output = output.view(-1, output.size(-1))  # [B * L, H]
+        valid_output = output[valid_index]  # [M, H]
+        valid_type_seq = type_seq.flatten()[valid_index]  # [M]
+        valid_labels = labels[valid_index]  # [M]
+        valid_logits = self.head(valid_output, type_seq=valid_type_seq, candidates=candidates)  # [M, n_items + 1]
         if candidates is None:
-            assert labels is not None
-            labels = labels.flatten()  # [B * L]
-            valid = labels != 0
-            valid_index = valid.nonzero()[:, 0]  # [M]
-            output = output.view(-1, output.size(-1))  # [B * L, H]
-            valid_output = output[valid_index]  # [M, H]
-            valid_type_seq = type_seq.flatten()[valid_index]  # [M]
-            valid_labels = labels[valid_index]  # [M]
-            valid_logits = self.head(valid_output, valid_type_seq)  # [M, n_items + 1]
             return valid_logits, valid_labels
         else:
-            assert labels is None
-            last_output = output[:, -1, :]  # [B, H]
-            last_type = type_seq[:, -1]  # [B]
-            logits = self.head(last_output, last_type, candidates=candidates)  # [B, n_candidates]
-            return logits
+            return valid_logits
 
     def calculate_loss(self, interaction: dict) -> torch.Tensor:
         item_seq = interaction["inputs"]
         item_type = interaction["behaviors"]
         masked_item_seq, labels = self.reconstruct_train_data(item_seq)
-        logits, labels = self.forward(masked_item_seq, item_type, candidates=None, labels=labels)
+        logits, labels = self.forward(masked_item_seq, item_type, labels=labels, candidates=None)
         loss = self.loss_fct(logits, labels)
         return loss
 
     def sample_sort_predict(self, interaction: dict) -> torch.Tensor:
         item_seq = interaction["inputs"]
-        last_mask = torch.ones(item_seq.size(0), 1, dtype=item_seq.dtype, device=item_seq.device) * self.mask_token
-        item_seq = torch.cat([item_seq, last_mask], dim=1)
-        item_seq = item_seq[:, -self.max_seq_length:]  # ensure the length
         type_seq = interaction["behaviors"]
-        last_type = interaction["behavior"]
-        type_seq = torch.cat([type_seq, last_type[:, None]], dim=1)
-        type_seq = type_seq[:, -self.max_seq_length:]  # ensure the length
+        seq_len = interaction["seq_len"]
+        labels = torch.zeros_like(item_seq)
+        labels[torch.arange(item_seq.size(0)), seq_len - 1] = 1
+        labels *= item_seq
         test_set = interaction["all_item"]
-        logits = self.forward(item_seq, type_seq, candidates=test_set, labels=None)
+        logits = self.forward(item_seq, type_seq, labels=labels, candidates=test_set)
         return logits
 
     def full_sort_predict(self, interaction: dict) -> torch.Tensor:
         item_seq = interaction["inputs"]
-        last_mask = torch.ones(item_seq.size(0), 1, dtype=item_seq.dtype, device=item_seq.device) * self.mask_token
-        item_seq = torch.cat([item_seq, last_mask], dim=1)
-        item_seq = item_seq[:, -self.max_seq_length:]  # ensure the length
         type_seq = interaction["behaviors"]
-        last_type = interaction["behavior"]
-        type_seq = torch.cat([type_seq, last_type[:, None]], dim=1)
-        type_seq = type_seq[:, -self.max_seq_length:]  # ensure the length
+        seq_len = interaction["seq_len"]
+        labels = torch.zeros_like(item_seq)
+        labels[torch.arange(item_seq.size(0)), seq_len - 1] = 1
+        labels *= item_seq
         test_set = torch.arange(self.n_items + 1, device=item_seq.device)[None].expand(item_seq.size(0), -1)  # [B, n_items]
-        logits = self.forward(item_seq, type_seq, candidates=test_set, labels=None)
+        logits = self.forward(item_seq, type_seq, labels=labels, candidates=test_set)
         return logits

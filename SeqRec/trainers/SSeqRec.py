@@ -98,7 +98,7 @@ class Trainer:
         self.model.eval()
         eval_results = {metric: [] for metric in self.metrics}
         with torch.no_grad():
-            for batch, targets in get_tqdm(self.eval_dataloader, desc="Evaluating"):
+            for batch, targets in (pbar := get_tqdm(self.eval_dataloader, desc="Evaluating")):
                 batch = {k: v.to(self.device) for k, v in batch.items()}
                 if 'all_item' in batch:  # sample evaluation
                     scores = self.model.sample_sort_predict(batch)
@@ -134,6 +134,9 @@ class Trainer:
                             eval_results[metric].append(ndcg)
                         else:
                             raise ValueError(f"Unsupported metric: {metric}")
+                if pbar is not None:
+                    main_result = np.mean(eval_results[self.main_metric])
+                    pbar.set_postfix({self.main_metric: f"{main_result:.4f}"})
         eval_results = {metric: np.mean(values) for metric, values in eval_results.items()}
         eval_msg = " - ".join([f"{metric}: {value:.4f}" for metric, value in eval_results.items()])
         wandb.log({f"eval/{metric}": value for metric, value in eval_results.items()}, step=self.global_step)

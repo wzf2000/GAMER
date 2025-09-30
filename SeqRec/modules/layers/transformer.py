@@ -177,3 +177,35 @@ class TransformerEncoder(nn.Module):
         for layer_module in self.layer:
             hidden_states = layer_module(hidden_states, attention_mask, **kwargs)
         return hidden_states
+
+
+class DotProductPredictionHead(nn.Module):
+    """share embedding parameters"""
+
+    def __init__(
+        self,
+        d_model: int,
+        n_items: int,
+        token_embeddings: nn.Embedding,
+    ):
+        super().__init__()
+        self.token_embeddings = token_embeddings
+        self.vocab_size = n_items + 1
+        self.out = nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.ReLU(),
+        )
+        self.bias = nn.Parameter(torch.zeros(1, self.vocab_size))
+
+    def forward(self, hidden_states: torch.Tensor, candidates: torch.Tensor | None = None, **kwargs) -> torch.Tensor:
+        hidden_states = self.out(hidden_states)  # [B, H] or [M, H]
+        if candidates is not None:  # [B, H]
+            emb: torch.Tensor = self.token_embeddings(candidates)  # [B, C, H]
+            logits = (hidden_states.unsqueeze(1) * emb).sum(-1)  # [B, C]
+            bias = self.bias.expand(logits.size(0), -1).gather(1, candidates)  # [B, C]
+            logits += bias  # [B, C]
+        else:  # [M, H]
+            emb = self.token_embeddings.weight[:self.vocab_size]  # [n_items + 1, H]
+            logits = torch.matmul(hidden_states, emb.transpose(0, 1))  # [M, n_items + 1]
+            logits += self.bias  # [M, n_items + 1]
+        return logits

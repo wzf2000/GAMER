@@ -328,10 +328,13 @@ class SSeqDataset(BaseSSeqDataset):
     def __init__(self, diff: bool = False, **kwargs):
         self.diff = diff
         super().__init__(**kwargs)
+
+    @property
+    def num_items(self) -> int:
         if not self.diff:
-            self.num_items = self.num
+            return self.num
         else:
-            self.num_items = len(self.behaviors) * self.num
+            return len(self.behaviors) * self.num
 
     @property
     def cached_file_name(self) -> str:
@@ -356,6 +359,99 @@ class SSeqDataset(BaseSSeqDataset):
             return ret_dataset
         else:
             return super().filter_by_behavior(behavior)
+
+
+class SSeqTargetDataset(SSeqDataset):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def _process_train_data(self) -> list[dict[str, int | list[int] | list[float]]]:
+        inter_data = []
+        for uid in get_tqdm(self.inters, desc="Processing training data"):
+            if self.valid_pos[uid] <= 0:
+                continue
+            items = self.inters[uid][: self.valid_pos[uid]]
+            behaviors = self.history_behaviors[uid][: self.valid_pos[uid]]
+            times = self.time[uid][: self.valid_pos[uid]]
+            session_ids_map = {}
+            times_map = {}
+            for i in range(1, len(items)):
+                sid = self.session[uid][i]
+                pos = self.train_pos[uid][sid]
+                if len(self._get_inters(items[:pos], behaviors[:pos])) == 0:
+                    continue
+                if sid not in session_ids_map:
+                    session_ids_map[sid] = self._generate_session_ids(self.session[uid][:pos + 1])
+                    times_map[sid] = self._generate_times(times[:pos + 1])
+                inter_data.append({
+                    "item": self.get_behavior_item(items[i], behaviors[i]),
+                    "inters": self._get_inters(items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
+                    "inter_behaviors": self._get_inter_behaviors(behaviors[:pos] + [behaviors[i]]),
+                    "session_ids": session_ids_map[sid],
+                    "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
+                    "time": times_map[sid],
+                    "behavior": self.behaviors.index(behaviors[i]),
+                })
+
+        return inter_data
+
+    def _process_valid_data(self) -> list[dict[str, int | list[int] | list[float]]]:
+        inter_data = []
+        for uid in get_tqdm(self.inters, desc="Processing validation data for testing"):
+            items = self.inters[uid][: self.test_pos[uid]]
+            behaviors = self.history_behaviors[uid][: self.test_pos[uid]]
+            times = self.time[uid][: self.test_pos[uid]]
+            session_items: list[int] = []
+            session_behaviors: list[int] = []
+            for i in range(self.valid_pos[uid], len(items)):
+                session_items.append(self.get_behavior_item(items[i], behaviors[i]))
+                session_behaviors.append(self.behaviors.index(behaviors[i]))
+            assert len(session_items) > 0, f"Session for user {uid} is empty after valid position {self.valid_pos[uid]}."
+            inter_data.append({
+                "item": session_items,
+                "inters": self._get_inters(items[:self.valid_pos[uid]], behaviors[:self.valid_pos[uid]], max_his_len=self.max_his_len - 1) + [self.num_items + 1],  # add mask token
+                "inter_behaviors": self._get_inter_behaviors(behaviors[:self.valid_pos[uid]], max_his_len=self.max_his_len - 1) + [-1],  # decided in filter_by_behavior
+                # ! For validation set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
+                "session_ids": self._generate_session_ids(self.session[uid][:self.valid_pos[uid]]),
+                "actions": self._generate_actions(self.history_behaviors[uid][:self.valid_pos[uid]]),
+                "time": self._generate_times(times[:self.valid_pos[uid] + 1]),
+                "behavior": session_behaviors,
+            })
+
+        return inter_data
+
+    def _process_test_data(self) -> list[dict[str, int | list[int] | list[float]]]:
+        inter_data = []
+        for uid in get_tqdm(self.inters, desc="Processing test data"):
+            items = self.inters[uid]
+            behaviors = self.history_behaviors[uid]
+            times = self.time[uid]
+            session_items: list[int] = []
+            session_behaviors: list[int] = []
+            for i in range(self.test_pos[uid], len(items)):
+                session_items.append(self.get_behavior_item(items[i], behaviors[i]))
+                session_behaviors.append(self.behaviors.index(behaviors[i]))
+            assert len(session_items) > 0, f"Session for user {uid} is empty after test position {self.test_pos[uid]}."
+            inter_data.append({
+                "item": session_items,
+                "inters": self._get_inters(items[:self.test_pos[uid]], behaviors[:self.test_pos[uid]], max_his_len=self.max_his_len - 1) + [self.num_items + 1],  # add mask token
+                "inter_behaviors": self._get_inter_behaviors(behaviors[:self.test_pos[uid]], max_his_len=self.max_his_len - 1) + [-1],  # decided in filter_by_behavior
+                # ! For test set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
+                "session_ids": self._generate_session_ids(self.session[uid][:self.test_pos[uid]]),
+                "actions": self._generate_actions(self.history_behaviors[uid][:self.test_pos[uid]]),
+                "time": self._generate_times(times[:self.test_pos[uid] + 1]),
+                "behavior": session_behaviors,
+            })
+
+        return inter_data
+
+    def filter_by_behavior(self, behavior: str) -> "SSeqTargetDataset":
+        ret_dataset = super().filter_by_behavior(behavior)
+        for i in range(len(ret_dataset.inter_data)):
+            # copy the inter_behaviors to avoid modifying the original data
+            ret_dataset.inter_data[i]['inter_behaviors'] = ret_dataset.inter_data[i]['inter_behaviors'].copy()
+            ret_dataset.inter_data[i]['inter_behaviors'][-1] = self.behaviors.index(behavior)  # set the behavior of the target item
+        return ret_dataset
 
 
 class SSeqNegSampleDataset(SSeqDataset):
@@ -488,3 +584,63 @@ class SSeqNegSampleEvalDataset(SSeqDataset):
             })
 
         return inter_data
+
+
+class SSeqTargetNegSampleEvalDataset(SSeqDataset):
+    def __init__(self, num_neg: int = 1000, **kwargs):
+        self.num_neg = num_neg
+        super().__init__(**kwargs)
+
+    @property
+    def cached_file_name(self) -> str:
+        if not self.diff:
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.{self.mode}.pkl")
+        else:
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.diff.{self.mode}.pkl")
+
+    def _sample_negative_items(self, num_samples: int, exclude_items: set[int]) -> list[int]:
+        all_items = set(range(self.num))
+        negative_items = list(all_items - exclude_items)
+        return random.sample(negative_items, num_samples)
+
+    def _process_valid_data(self) -> list[dict[str, int | list[int] | list[float]]]:
+        set_seed(42)  # For reproducibility of negative sampling
+        inter_data = []
+        for uid in get_tqdm(self.inters, desc="Processing validation data for testing"):
+            items = self.inters[uid][: self.test_pos[uid]]
+            behaviors = self.history_behaviors[uid][: self.test_pos[uid]]
+            times = self.time[uid][: self.test_pos[uid]]
+            session_items: list[int] = []
+            session_behaviors: list[int] = []
+            for i in range(self.valid_pos[uid], len(items)):
+                session_items.append(self.get_behavior_item(items[i], behaviors[i]))
+                session_behaviors.append(self.behaviors.index(behaviors[i]))
+            assert len(session_items) > 0, f"Session for user {uid} is empty after valid position {self.valid_pos[uid]}."
+            negative_items = self._sample_negative_items(
+                num_samples=self.num_neg,
+                exclude_items=set(items)
+            )
+            negative_behaviors = [self.target_behavior] * self.num_neg
+            negative_behavior_items = [
+                self.get_behavior_item(neg_item, neg_behavior) for neg_item, neg_behavior in zip(negative_items, negative_behaviors)
+            ]
+            inter_data.append({
+                "item": session_items,
+                "neg_item": negative_behavior_items,
+                "inters": self._get_inters(items[:self.valid_pos[uid]], behaviors[:self.valid_pos[uid]], max_his_len=self.max_his_len - 1) + [self.num_items + 1],  # add mask token
+                "inter_behaviors": self._get_inter_behaviors(behaviors[:self.valid_pos[uid]], max_his_len=self.max_his_len - 1) + [-1],  # decided in filter_by_behavior
+                # ! For validation set, we donot add session IDs for the item to be predicted, and the session IDs should be add by the inference code.
+                "session_ids": self._generate_session_ids(self.session[uid][:self.valid_pos[uid]]),
+                "actions": self._generate_actions(self.history_behaviors[uid][:self.valid_pos[uid]]),
+                "time": self._generate_times(times[:self.valid_pos[uid] + 1]),
+                "behavior": session_behaviors,
+            })
+
+        return inter_data
+
+    def filter_by_behavior(self, behavior: str) -> "SSeqTargetNegSampleEvalDataset":
+        ret_dataset = super().filter_by_behavior(behavior)
+        for i in range(len(ret_dataset.inter_data)):
+            ret_dataset.inter_data[i]['inter_behaviors'] = ret_dataset.inter_data[i]['inter_behaviors'].copy()
+            ret_dataset.inter_data[i]['inter_behaviors'][-1] = self.behaviors.index(behavior)  # set the behavior of the target item
+        return ret_dataset
