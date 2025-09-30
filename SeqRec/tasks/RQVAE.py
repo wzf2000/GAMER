@@ -8,8 +8,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.emb_dataset import EmbDataset
-from SeqRec.models.tokenizer import RQVAE
-from SeqRec.trainers.RQVAE import Trainer
 from SeqRec.utils.parse import SubParsersAction
 
 
@@ -166,6 +164,7 @@ class TrainRQVAE(MultiGPUTask):
         else:
             cf_emb = np.zeros((len(self.dataset), e_dim), dtype=np.float32)
 
+        from SeqRec.models.tokenizer import RQVAE
         self.model = RQVAE(
             in_dim=self.dataset.dim,
             num_emb_list=num_emb_list,
@@ -203,6 +202,7 @@ class TrainRQVAE(MultiGPUTask):
             pin_memory=True,
         )
 
+        from SeqRec.trainers.RQVAE import Trainer
         self.trainer = Trainer(
             model=self.model,
             lr=lr,

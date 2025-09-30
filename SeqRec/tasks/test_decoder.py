@@ -3,24 +3,24 @@ import json
 import torch
 import torch.distributed as dist
 from loguru import logger
+from typing import TYPE_CHECKING
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from transformers import BatchEncoding, T5Config, T5Tokenizer, Qwen3Config, Qwen2Tokenizer
-from transformers.generation import GenerationMixin
-from transformers.generation.utils import GenerateBeamOutput
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.loading import load_test_dataset
 from SeqRec.datasets.collator import EncoderDecoderTestCollator, DecoderOnlyTestCollator
-from SeqRec.models.TIGER import TIGER
-from SeqRec.models.PBATransformers import PBATransformerConfig, PBATransformersForConditionalGeneration
-from SeqRec.models.Qwen import Qwen3WithTemperature
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.generation.trie import Trie, prefix_allowed_tokens_fn, prefix_allowed_tokens_fn_by_last_token
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 from SeqRec.utils.pipe import get_tqdm
+
+
+if TYPE_CHECKING:
+    from transformers import BatchEncoding
+    from transformers.generation.utils import GenerateBeamOutput
 
 
 class TestDecoder(MultiGPUTask):
@@ -90,12 +90,13 @@ class TestDecoder(MultiGPUTask):
         return ret
 
     def test_single_type(self, loader: DataLoader, num_beams: int) -> dict[str, float]:
+        from transformers.generation import GenerationMixin
         results: dict[str, float] = {}
         total = 0
         pbar = get_tqdm(desc="Testing", total=len(loader))
 
         for batch in loader:
-            batch: tuple[BatchEncoding, list[str], torch.LongTensor]
+            batch: tuple["BatchEncoding", list[str], torch.LongTensor]
             inputs = batch[0].to(self.device)
             targets = batch[1]
             if self.backbone == 'Qwen3':
@@ -107,7 +108,7 @@ class TestDecoder(MultiGPUTask):
             batch_size = len(targets)
 
             if self.backbone == 'Qwen3':
-                output: GenerateBeamOutput = (
+                output: "GenerateBeamOutput" = (
                     self.model
                     if isinstance(self.model, GenerationMixin)
                     else
@@ -124,7 +125,7 @@ class TestDecoder(MultiGPUTask):
                     early_stopping=True,
                 )
             else:
-                output: GenerateBeamOutput = (
+                output: "GenerateBeamOutput" = (
                     self.model
                     if isinstance(self.model, GenerationMixin)
                     else
@@ -228,14 +229,20 @@ class TestDecoder(MultiGPUTask):
         """
         self.init(seed, False)
         if backbone == 'TIGER':
+            from transformers import T5Config, T5Tokenizer
+            from SeqRec.models.TIGER import TIGER
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
             self.model = TIGER.from_pretrained(ckpt_path).to(self.device)
             self.config: T5Config = self.model.config
         elif backbone == 'PBATransformers':
+            from transformers import T5Tokenizer
+            from SeqRec.models.PBATransformers import PBATransformerConfig, PBATransformersForConditionalGeneration
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
             self.model = PBATransformersForConditionalGeneration.from_pretrained(ckpt_path).to(self.device)
             self.config: PBATransformerConfig = self.model.config
         elif backbone == 'Qwen3':
+            from transformers import Qwen3Config, Qwen2Tokenizer
+            from SeqRec.models.Qwen import Qwen3WithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3WithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
@@ -243,6 +250,8 @@ class TestDecoder(MultiGPUTask):
             self.config: Qwen3Config = self.model.config
         else:
             raise ValueError(f"Unsupported backbone: {backbone}")
+
+        from transformers.generation import GenerationMixin
         assert isinstance(self.model, GenerationMixin), "Model must be a generation model."
         self.dataset = load_test_dataset(
             dataset,

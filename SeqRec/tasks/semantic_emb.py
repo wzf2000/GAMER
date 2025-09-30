@@ -4,22 +4,24 @@ import torch
 import string
 import numpy as np
 from tqdm import tqdm
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from loguru import logger
 from zhon.hanzi import punctuation
 from torch.utils.data import DataLoader
-from transformers import AutoModel, AutoTokenizer
-from transformers.utils import ModelOutput
-from transformers.modeling_utils import PreTrainedModel
-from transformers.tokenization_utils import PreTrainedTokenizer
-from transformers.tokenization_utils_base import BatchEncoding
-from sentence_transformers import SentenceTransformer
 
 from SeqRec.tasks.base import Task
 from SeqRec.utils.futils import load_json
 from SeqRec.utils.parse import SubParsersAction
 from SeqRec.utils.pipe import set_device
 from SeqRec.utils.text import clean_text
+
+
+if TYPE_CHECKING:
+    from transformers.modeling_utils import PreTrainedModel
+    from transformers.tokenization_utils import PreTrainedTokenizer
+    from transformers.utils import ModelOutput
+    from transformers.tokenization_utils_base import BatchEncoding
+
 
 punctuation_en = string.punctuation
 
@@ -142,15 +144,17 @@ class SemanticEmbedding(Task):
 
         if 't5' in self.plm_name.lower() or 'embedding' in self.plm_name.lower():  # T5 or embedding models
             # Use SentenceTransformer for sentence embeddings
+            from sentence_transformers import SentenceTransformer
             self.model = SentenceTransformer(self.plm_checkpoint, device=self.device)
             embeddings = self.model.encode(flattened_texts, show_progress_bar=True, convert_to_tensor=True)
             embeddings = embeddings.reshape(n_item, n_text, -1).cpu()
         else:
-            self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(
+            from transformers import AutoModel, AutoTokenizer
+            self.tokenizer: "PreTrainedTokenizer" = AutoTokenizer.from_pretrained(
                 self.plm_checkpoint,
                 use_fast=True,
             )
-            self.model: PreTrainedModel = AutoModel.from_pretrained(
+            self.model: "PreTrainedModel" = AutoModel.from_pretrained(
                 self.plm_checkpoint,
                 low_cpu_mem_usage=True,
             )
@@ -165,7 +169,7 @@ class SemanticEmbedding(Task):
             )
             embeddings = []
             for batch in tqdm(data_loader):
-                encoded_batch: BatchEncoding = self.tokenizer(
+                encoded_batch: "BatchEncoding" = self.tokenizer(
                     batch,
                     max_length=self.max_sent_len,
                     truncation=True,
@@ -174,12 +178,12 @@ class SemanticEmbedding(Task):
                 ).to(self.device)
 
                 with torch.no_grad():
-                    outputs: ModelOutput = self.model(
+                    outputs: "ModelOutput" = self.model(
                         input_ids=encoded_batch.input_ids,
                         attention_mask=encoded_batch.attention_mask,
                     )
                 # 把padding mask掉
-                masked_output: torch.Tensor = outputs.last_hidden_state * encoded_batch.attention_mask.unsqueeze(-1) 
+                masked_output: torch.Tensor = outputs.last_hidden_state * encoded_batch.attention_mask.unsqueeze(-1)
                 mean_output: torch.Tensor = masked_output.sum(dim=1) / encoded_batch.attention_mask.sum(dim=-1, keepdim=True)
                 mean_output = mean_output.detach().cpu()
                 embeddings.append(mean_output)

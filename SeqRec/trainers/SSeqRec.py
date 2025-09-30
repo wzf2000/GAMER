@@ -5,7 +5,6 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from loguru import logger
-from torch import nn
 from torch.utils.data import DataLoader
 
 from SeqRec.modules.model_base.seq_model import SeqModel

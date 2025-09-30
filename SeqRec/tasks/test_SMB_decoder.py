@@ -4,35 +4,27 @@ import torch
 import numpy as np
 import torch.distributed as dist
 from loguru import logger
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from transformers import BatchEncoding, T5Config, T5Tokenizer, Qwen3Config, Qwen2Tokenizer
-from transformers.generation import GenerationMixin
-from transformers.generation.utils import GenerateBeamOutput
-from transformers.utils import ModelOutput
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.loading_SMB import load_SMB_test_dataset, load_SMB_valid_dataset
 from SeqRec.datasets.MB_dataset import EvaluationType
 from SeqRec.datasets.SMB_dataset import BaseSMBDataset
 from SeqRec.datasets.collator import EncoderDecoderTestCollator, DecoderOnlyTestCollator, EncoderDecoderCollator, DecoderOnlyCollator
-from SeqRec.models.TIGER import TIGER
-from SeqRec.models.PBATransformers import PBATransformerConfig, PBATransformersForConditionalGeneration
-from SeqRec.models.PBATransformers_session import PBATransformerConfigSession, PBATransformersForConditionalGenerationSession
-from SeqRec.models.Qwen import Qwen3WithTemperature
-from SeqRec.models.Qwen_Moe import Qwen3WithTemperatureMoe
-from SeqRec.models.Qwen_Moeaction import Qwen3WithTemperatureMoeaction
-from SeqRec.models.Qwen_session import Qwen3SessionWithTemperature
-from SeqRec.models.Qwen_session_Moe import Qwen3SessionWithTemperatureMoe
-from SeqRec.models.Qwen_multi import Qwen3SessionWithTemperatureMoeMulti
-from SeqRec.models.Qwen_multi_wosession import Qwen3WithTemperatureMoeMulti
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.generation.trie import Trie, prefix_allowed_tokens_fn, prefix_allowed_tokens_fn_by_last_token
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 from SeqRec.utils.pipe import get_tqdm
+
+
+if TYPE_CHECKING:
+    from transformers import BatchEncoding
+    from transformers.generation.utils import GenerateBeamOutput
+    from transformers.utils import ModelOutput
 
 
 class TestSMBDecoder(MultiGPUTask):
@@ -96,6 +88,7 @@ class TestSMBDecoder(MultiGPUTask):
         return ret_list
 
     def test_single_behavior(self, loader: DataLoader, num_beams: int, behavior: str) -> dict[str, float]:
+        from transformers.generation import GenerationMixin
         self.info(f"Start testing behavior {behavior} with {len(loader.dataset)} samples.")
         results: dict[str, float] = {}
         total = 0
@@ -103,7 +96,7 @@ class TestSMBDecoder(MultiGPUTask):
 
         duplicate_ratios = []
         for batch in loader:
-            batch: tuple[BatchEncoding, list[list[str]], torch.LongTensor]
+            batch: tuple["BatchEncoding", list[list[str]], torch.LongTensor]
             inputs = batch[0].to(self.device)
             targets = batch[1]
             batch_size = len(targets)
@@ -123,7 +116,7 @@ class TestSMBDecoder(MultiGPUTask):
             prefix_allowed_tokens_fn = self.prefix_allowed_tokens_by_behavior[behavior]
 
             if self.backbone in ['Qwen3', 'Qwen3Moe', 'Qwen3Moeaction']:
-                output: GenerateBeamOutput = (
+                output: "GenerateBeamOutput" = (
                     self.model
                     if isinstance(self.model, GenerationMixin)
                     else
@@ -140,7 +133,7 @@ class TestSMBDecoder(MultiGPUTask):
                     early_stopping=True,
                 )
             elif self.backbone in ['Qwen3Session', 'Qwen3SessionMoe']:
-                output: GenerateBeamOutput = (
+                output: "GenerateBeamOutput" = (
                     self.model
                     if isinstance(self.model, GenerationMixin)
                     else
@@ -159,7 +152,7 @@ class TestSMBDecoder(MultiGPUTask):
                     early_stopping=True,
                 )
             elif self.backbone in ['Qwen3Multi', "Qwen3MultiWosession"]:
-                output: GenerateBeamOutput = (
+                output: "GenerateBeamOutput" = (
                     self.model
                     if isinstance(self.model, GenerationMixin)
                     else
@@ -179,7 +172,7 @@ class TestSMBDecoder(MultiGPUTask):
                     early_stopping=True,
                 )
             elif self.backbone in ["PBATransformers_session", "PBATransformers_time"]:
-                output: GenerateBeamOutput = (
+                output: "GenerateBeamOutput" = (
                     self.model
                     if isinstance(self.model, GenerationMixin)
                     else
@@ -199,7 +192,7 @@ class TestSMBDecoder(MultiGPUTask):
                     time=inputs.time,
                 )
             else:
-                output: GenerateBeamOutput = (
+                output: "GenerateBeamOutput" = (
                     self.model
                     if isinstance(self.model, GenerationMixin)
                     else
@@ -331,9 +324,9 @@ class TestSMBDecoder(MultiGPUTask):
             pbar = get_tqdm(desc=f"Validating {i}", total=len(loader))
             losses = []
             for batch in loader:
-                batch: BatchEncoding
+                batch: "BatchEncoding"
                 batch = batch.to(self.device)
-                output: ModelOutput = self.model(**batch)
+                output: "ModelOutput" = self.model(**batch)
                 assert "loss" in output, "Model output must contain 'loss' for validation."
                 loss = output["loss"].item()
                 losses.append(loss)
@@ -374,54 +367,74 @@ class TestSMBDecoder(MultiGPUTask):
         """
         self.init(seed, False)
         if backbone == 'TIGER':
+            from transformers import T5Config, T5Tokenizer
+            from SeqRec.models.TIGER import TIGER
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
             self.model = TIGER.from_pretrained(ckpt_path).to(self.device)
             self.config: T5Config = self.model.config
         elif backbone == 'PBATransformers':
+            from transformers import T5Tokenizer
+            from SeqRec.models.PBATransformers import PBATransformerConfig, PBATransformersForConditionalGeneration
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
             self.model = PBATransformersForConditionalGeneration.from_pretrained(ckpt_path).to(self.device)
             self.config: PBATransformerConfig = self.model.config
         elif backbone in ['PBATransformers_session', 'PBATransformers_time']:
+            from transformers import T5Tokenizer
+            from SeqRec.models.PBATransformers_session import PBATransformerConfigSession, PBATransformersForConditionalGenerationSession
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
             self.model = PBATransformersForConditionalGenerationSession.from_pretrained(ckpt_path).to(self.device)
             self.config: PBATransformerConfigSession = self.model.config
         elif backbone == 'Qwen3':
+            from transformers import Qwen3Config, Qwen2Tokenizer
+            from SeqRec.models.Qwen import Qwen3WithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3WithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3Config = self.model.config
         elif backbone == 'Qwen3Moe':
+            from transformers import Qwen3Config, Qwen2Tokenizer
+            from SeqRec.models.Qwen_Moe import Qwen3WithTemperatureMoe
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3WithTemperatureMoe.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3Config = self.model.config
         elif backbone == 'Qwen3Moeaction':
+            from transformers import Qwen3Config, Qwen2Tokenizer
+            from SeqRec.models.Qwen_Moeaction import Qwen3WithTemperatureMoeaction
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3WithTemperatureMoeaction.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3Config = self.model.config
         elif backbone == 'Qwen3Session':
+            from transformers import Qwen3Config, Qwen2Tokenizer
+            from SeqRec.models.Qwen_session import Qwen3SessionWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3SessionWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3Config = self.model.config
         elif backbone == "Qwen3SessionMoe":
+            from transformers import Qwen3Config, Qwen2Tokenizer
+            from SeqRec.models.Qwen_session_Moe import Qwen3SessionWithTemperatureMoe
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3SessionWithTemperatureMoe.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3Config = self.model.config
         elif backbone == "Qwen3Multi":
+            from transformers import Qwen3Config, Qwen2Tokenizer
+            from SeqRec.models.Qwen_multi import Qwen3SessionWithTemperatureMoeMulti
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3SessionWithTemperatureMoeMulti.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3Config = self.model.config
         elif backbone == "Qwen3MultiWosession":
+            from transformers import Qwen3Config, Qwen2Tokenizer
+            from SeqRec.models.Qwen_multi_wosession import Qwen3WithTemperatureMoeMulti
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3WithTemperatureMoeMulti.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
@@ -429,6 +442,8 @@ class TestSMBDecoder(MultiGPUTask):
             self.config: Qwen3Config = self.model.config
         else:
             raise ValueError(f"Unsupported backbone: {backbone}")
+
+        from transformers.generation import GenerationMixin
         assert isinstance(self.model, GenerationMixin), "Model must be a generation model."
         # output the parameters of the model
         total_params = sum(p.numel() for p in self.model.parameters())

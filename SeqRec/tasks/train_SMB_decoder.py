@@ -1,28 +1,10 @@
 import torch
-import transformers
 from loguru import logger
-from transformers import EarlyStoppingCallback, T5Config, T5Tokenizer, Qwen3Config, Qwen2Tokenizer
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.SMB_dataset import BaseSMBDataset, SMBExplicitDatasetForDecoder
 from SeqRec.datasets.loading_SMB import load_SMB_datasets
 from SeqRec.datasets.collator import EncoderDecoderCollator, DecoderOnlyCollator
-from SeqRec.models.TIGER import TIGER
-from SeqRec.models.PBATransformers import (
-    PBATransformerConfig,
-    PBATransformersForConditionalGeneration,
-)
-from SeqRec.models.PBATransformers_session import (
-    PBATransformerConfigSession,
-    PBATransformersForConditionalGenerationSession,
-)
-from SeqRec.models.Qwen import Qwen3WithTemperature
-from SeqRec.models.Qwen_Moe import Qwen3WithTemperatureMoe
-from SeqRec.models.Qwen_session import Qwen3SessionWithTemperature
-from SeqRec.models.Qwen_session_Moe import Qwen3SessionWithTemperatureMoe
-from SeqRec.models.Qwen_multi import Qwen3SessionWithTemperatureMoeMulti
-from SeqRec.models.Qwen_multi_wosession import Qwen3WithTemperatureMoeMulti
-from SeqRec.models.Qwen_Moeaction import Qwen3WithTemperatureMoeaction
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 from SeqRec.utils.logging import replace_progress_callback
@@ -210,6 +192,7 @@ class TrainSMBDecoder(MultiGPUTask):
         if len(args) > 0 or len(kwargs) > 0:
             logger.warning("Unused parameters:", args, kwargs)
         if backbone == "TIGER":
+            from transformers import T5Config, T5Tokenizer
             config: T5Config = T5Config.from_pretrained(base_model)
             tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
                 base_model,
@@ -220,6 +203,8 @@ class TrainSMBDecoder(MultiGPUTask):
                 tokenizer, T5Tokenizer
             ), "Expected T5Tokenizer for TIGER backbone"
         elif backbone == "PBATransformers":
+            from transformers import T5Tokenizer
+            from SeqRec.models.PBATransformers import PBATransformerConfig
             config: PBATransformerConfig = PBATransformerConfig.from_pretrained(
                 base_model
             )
@@ -232,6 +217,8 @@ class TrainSMBDecoder(MultiGPUTask):
                 tokenizer, T5Tokenizer
             ), "Expected T5Tokenizer for PBATransformers backbone"
         elif backbone == "PBATransformers_session" or backbone == "PBATransformers_time":
+            from transformers import T5Tokenizer
+            from SeqRec.models.PBATransformers_session import PBATransformerConfigSession
             config: PBATransformerConfig = PBATransformerConfigSession.from_pretrained(
                 base_model
             )
@@ -244,6 +231,7 @@ class TrainSMBDecoder(MultiGPUTask):
                 tokenizer, T5Tokenizer
             ), "Expected T5Tokenizer for PBATransformers backbone"
         elif backbone in ["Qwen3", "Qwen3Moe", "Qwen3Moeaction", "Qwen3Session", "Qwen3SessionMoe", "Qwen3Multi", "Qwen3MultiWosession"]:
+            from transformers import Qwen3Config, Qwen2Tokenizer
             config: Qwen3Config = Qwen3Config.from_pretrained(base_model)
             tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(
                 base_model,
@@ -289,6 +277,7 @@ class TrainSMBDecoder(MultiGPUTask):
             collator = EncoderDecoderCollator(tokenizer)
 
         if backbone == "TIGER":
+            from SeqRec.models.TIGER import TIGER
             model = TIGER(config)
             model.set_hyper(temperature)
         elif backbone in ["PBATransformers", "PBATransformers_session", "PBATransformers_time"]:
@@ -327,11 +316,14 @@ class TrainSMBDecoder(MultiGPUTask):
             config.use_user_token = False
             self.info(f"PBATransformers Model Config: {config}")
             if backbone == "PBATransformers":
+                from SeqRec.models.PBATransformers import PBATransformersForConditionalGeneration
                 model = PBATransformersForConditionalGeneration(config)
             else:
+                from SeqRec.models.PBATransformers_session import PBATransformersForConditionalGenerationSession
                 model = PBATransformersForConditionalGenerationSession(config)
             model.set_hyper(temperature)
         elif backbone == "Qwen3":
+            from SeqRec.models.Qwen import Qwen3WithTemperature
             model = Qwen3WithTemperature(config)
             model.set_hyper(temperature)
         elif backbone in ["Qwen3Moe", "Qwen3Moeaction", "Qwen3SessionMoe", "Qwen3Multi", "Qwen3MultiWosession"]:
@@ -376,17 +368,23 @@ class TrainSMBDecoder(MultiGPUTask):
                 config.model_max_length = model_max_length
             self.info(f"Model Config: {config}")
             if backbone == "Qwen3Moe":
+                from SeqRec.models.Qwen_Moe import Qwen3WithTemperatureMoe
                 model = Qwen3WithTemperatureMoe(config)
             elif backbone == "Qwen3Moeaction":
+                from SeqRec.models.Qwen_Moeaction import Qwen3WithTemperatureMoeaction
                 model = Qwen3WithTemperatureMoeaction(config)
             elif backbone == "Qwen3SessionMoe":
+                from SeqRec.models.Qwen_session_Moe import Qwen3SessionWithTemperatureMoe
                 model = Qwen3SessionWithTemperatureMoe(config)
             elif backbone == "Qwen3MultiWosession":
+                from SeqRec.models.Qwen_multi_wosession import Qwen3WithTemperatureMoeMulti
                 model = Qwen3WithTemperatureMoeMulti(config)
             else:
+                from SeqRec.models.Qwen_multi import Qwen3SessionWithTemperatureMoeMulti
                 model = Qwen3SessionWithTemperatureMoeMulti(config)
             model.set_hyper(temperature)
         elif backbone == "Qwen3Session":
+            from SeqRec.models.Qwen_session import Qwen3SessionWithTemperature
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
             single_item = first_dataset.get_behavior_item(
@@ -412,7 +410,9 @@ class TrainSMBDecoder(MultiGPUTask):
             label_names = ['input_ids', 'labels', 'session_ids', 'extended_session_ids', 'split', 'actions']
         else:
             label_names = ['input_ids', 'labels', 'split']
-        training_args = transformers.training_args.TrainingArguments(
+
+        from transformers.training_args import TrainingArguments
+        training_args = TrainingArguments(
             output_dir=output_dir,
             seed=seed,
             per_device_train_batch_size=per_device_batch_size,
@@ -445,7 +445,10 @@ class TrainSMBDecoder(MultiGPUTask):
             ),
             label_names=label_names,
         )
-        trainer = transformers.trainer.Trainer(
+
+        from transformers import EarlyStoppingCallback
+        from transformers.trainer import Trainer
+        trainer = Trainer(
             model=model,
             train_dataset=train_data,
             eval_dataset=valid_data,

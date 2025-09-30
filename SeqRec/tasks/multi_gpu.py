@@ -1,8 +1,6 @@
 import os
-import wandb
 import torch
 from typing import Any
-from loguru import logger
 import torch.distributed as dist
 
 from SeqRec.tasks.base import Task
@@ -54,6 +52,7 @@ class MultiGPUTask(Task):
             torch.cuda.set_device(self.local_rank)
             dist.init_process_group(backend="nccl", init_method="env://", rank=self.local_rank, world_size=self.world_size, device_id=torch.device(self.device))
         if self.local_rank == 0 and wandb_init:
+            import wandb
             wandb.init(
                 project=self.parser_name(),
                 config=args,
@@ -68,4 +67,5 @@ class MultiGPUTask(Task):
         if self.ddp:
             dist.destroy_process_group()
         if self.local_rank == 0 and wandb_finish:
+            import wandb
             wandb.finish()

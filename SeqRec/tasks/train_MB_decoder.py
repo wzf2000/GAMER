@@ -1,19 +1,10 @@
 import torch
-import transformers
 from loguru import logger
-from transformers import EarlyStoppingCallback, T5Config, T5Tokenizer, Qwen3Config, Qwen2Tokenizer
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.MB_dataset import BaseMBDataset, MBExplicitDatasetForDecoder
 from SeqRec.datasets.loading_MB import load_MB_datasets
 from SeqRec.datasets.collator import EncoderDecoderCollator, DecoderOnlyCollator
-from SeqRec.models.TIGER import TIGER
-from SeqRec.models.PBATransformers import (
-    PBATransformerConfig,
-    PBATransformersForConditionalGeneration,
-)
-from SeqRec.models.Qwen import Qwen3WithTemperature
-from SeqRec.models.Qwen_Moe import Qwen3WithTemperatureMoe
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 
@@ -200,6 +191,7 @@ class TrainMBDecoder(MultiGPUTask):
         if len(args) > 0 or len(kwargs) > 0:
             logger.warning("Unused parameters:", args, kwargs)
         if backbone == "TIGER":
+            from transformers import T5Config, T5Tokenizer
             config: T5Config = T5Config.from_pretrained(base_model)
             tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
                 base_model,
@@ -210,6 +202,8 @@ class TrainMBDecoder(MultiGPUTask):
                 tokenizer, T5Tokenizer
             ), "Expected T5Tokenizer for TIGER backbone"
         elif backbone == "PBATransformers":
+            from transformers import T5Tokenizer
+            from SeqRec.models.PBATransformers import PBATransformerConfig
             config: PBATransformerConfig = PBATransformerConfig.from_pretrained(
                 base_model
             )
@@ -222,6 +216,7 @@ class TrainMBDecoder(MultiGPUTask):
                 tokenizer, T5Tokenizer
             ), "Expected T5Tokenizer for PBATransformers backbone"
         elif backbone == "Qwen3" or backbone == "Qwen3Moe":
+            from transformers import Qwen3Config, Qwen2Tokenizer
             config: Qwen3Config = Qwen3Config.from_pretrained(base_model)
             tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(
                 base_model,
@@ -258,9 +253,11 @@ class TrainMBDecoder(MultiGPUTask):
             collator = EncoderDecoderCollator(tokenizer)
 
         if backbone == "TIGER":
+            from SeqRec.models.TIGER import TIGER
             model = TIGER(config)
             model.set_hyper(temperature)
         elif backbone == "PBATransformers":
+            from SeqRec.models.PBATransformers import PBATransformersForConditionalGeneration
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
             single_item = first_dataset.get_behavior_item(
@@ -304,9 +301,11 @@ class TrainMBDecoder(MultiGPUTask):
             self.info(f"PBATransformers Model Config: {config}")
             model = PBATransformersForConditionalGeneration(config)
         elif backbone == "Qwen3":
+            from SeqRec.models.Qwen import Qwen3WithTemperature
             model = Qwen3WithTemperature(config)
             model.set_hyper(temperature)
         elif backbone == "Qwen3Moe":
+            from SeqRec.models.Qwen_Moe import Qwen3WithTemperatureMoe
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
             if isinstance(first_dataset, BaseMBDataset):
@@ -363,7 +362,8 @@ class TrainMBDecoder(MultiGPUTask):
             model.is_parallelizable = True
             model.model_parallel = True
 
-        training_args = transformers.training_args.TrainingArguments(
+        from transformers.training_args import TrainingArguments
+        training_args = TrainingArguments(
             output_dir=output_dir,
             seed=seed,
             per_device_train_batch_size=per_device_batch_size,
@@ -395,7 +395,10 @@ class TrainMBDecoder(MultiGPUTask):
                 else output_dir.split("checkpoint/MB-decoder/")[-1]
             ),
         )
-        trainer = transformers.trainer.Trainer(
+
+        from transformers import EarlyStoppingCallback
+        from transformers.trainer import Trainer
+        trainer = Trainer(
             model=model,
             train_dataset=train_data,
             eval_dataset=valid_data,

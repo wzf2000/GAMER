@@ -1,6 +1,5 @@
 import os
 import json
-import wandb
 import torch
 import numpy as np
 from loguru import logger
@@ -17,7 +16,6 @@ from SeqRec.models.BERT4Rec import BERT4Rec, BERT4RecConfig
 from SeqRec.models.MBHT import MBHT, MBHTConfig
 from SeqRec.models.MBSTR import MBSTR, MBSTRConfig
 from SeqRec.models.PBAT import PBAT, PBATConfig
-from SeqRec.trainers.SSeqRec import Trainer
 from SeqRec.utils.config import Config
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
@@ -205,6 +203,7 @@ class TrainSSeqRec(Task):
         # Implementation of the training logic goes here.
         set_seed(seed)
         if not only_test:
+            import wandb
             wandb.init(
                 project=self.parser_name(),
                 config=self.param_dict,
@@ -272,6 +271,7 @@ class TrainSSeqRec(Task):
         self.device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
 
         if not only_test:
+            from SeqRec.trainers.SSeqRec import Trainer
             trainer = Trainer(
                 model=self.model,
                 train_dataloader=train_loader,

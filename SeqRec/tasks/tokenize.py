@@ -7,8 +7,6 @@ from tqdm import tqdm
 from loguru import logger
 from collections import OrderedDict
 from torch.utils.data import DataLoader
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
 
 from SeqRec.tasks.base import SubParsersAction, Task
 from SeqRec.datasets.emb_dataset import EmbDataset
@@ -16,8 +14,6 @@ from SeqRec.utils.futils import load_json
 from SeqRec.utils.indice import check_collision, get_collision_item, get_indices_count
 from SeqRec.utils.kmeans import constrained_km, center_distance_for_constraint
 from SeqRec.utils.pipe import set_seed
-from SeqRec.models.tokenizer import RQVAE
-from SeqRec.models.tokenizer.layers import sinkhorn_algorithm
 
 
 class Tokenize(Task):
@@ -109,6 +105,7 @@ class Tokenize(Task):
         all_indices_str: np.ndarray,
         labels: dict[str, list[int]] | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
+        from SeqRec.models.tokenizer.layers import sinkhorn_algorithm
         tt = 0
         # There are often duplicate items in the dataset, and we no longer differentiate them
         while True:
@@ -159,6 +156,8 @@ class Tokenize(Task):
         cf_emb: str | None = None,
         reduce: bool = False,
     ):
+        from sklearn.cluster import KMeans
+        from sklearn.decomposition import PCA
         if cf_emb is not None:
             cf_emb_tensor: torch.Tensor = torch.load(cf_emb, weights_only=True)
             cf_emb = cf_emb_tensor.squeeze().detach().numpy()
@@ -215,6 +214,7 @@ class Tokenize(Task):
         epoch: int,
         checkpoint: str,
     ):
+        from SeqRec.models.tokenizer import RQVAE
         ckpt_path = os.path.join(root_path, self.dataset, f'alpha{alpha}-beta{beta}', checkpoint)
         self.output_file = os.path.join(
             self.output_dir,
