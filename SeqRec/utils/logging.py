@@ -5,9 +5,14 @@ import logging
 import inspect
 from tqdm import tqdm
 from loguru import logger
-from transformers.trainer import Trainer
-from transformers.training_args import TrainingArguments
-from transformers.trainer_callback import TrainerCallback, TrainerState, TrainerControl, ProgressCallback
+from typing import TYPE_CHECKING
+from transformers.trainer_callback import TrainerCallback, ProgressCallback
+
+
+if TYPE_CHECKING:
+    from transformers.trainer import Trainer
+    from transformers.training_args import TrainingArguments
+    from transformers.trainer_callback import TrainerState, TrainerControl
 
 
 class InterceptHandler(logging.Handler):
@@ -45,7 +50,7 @@ class LoguruCallback(TrainerCallback):
     A custom callback for Hugging Face Trainer to log training progress using Loguru.
     """
 
-    def on_log(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, logs: dict | None = None, **kwargs):
+    def on_log(self, args: 'TrainingArguments', state: 'TrainerState', control: 'TrainerControl', logs: dict | None = None, **kwargs):
         if state.is_world_process_zero and logs is not None:
             # make a shallow copy of logs so we can mutate the fields copied
             # but avoid doing any value pickling.
@@ -66,7 +71,7 @@ class LoguruCallback(TrainerCallback):
 
 
 class ProgressCallbackWithLoguru(ProgressCallback):
-    def on_log(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, logs: dict | None = None, **kwargs):
+    def on_log(self, args: 'TrainingArguments', state: 'TrainerState', control: 'TrainerControl', logs: dict | None = None, **kwargs):
         if state.is_world_process_zero and logs is not None and self.training_bar is not None:
             # make a shallow copy of logs so we can mutate the fields copied
             # but avoid doing any value pickling.
@@ -87,7 +92,7 @@ class ProgressCallbackWithLoguru(ProgressCallback):
                 logger.info(shallow_logs)
 
 
-def replace_progress_callback(trainer: Trainer):
+def replace_progress_callback(trainer: 'Trainer'):
     trainer.remove_callback(ProgressCallback)
     trainer.add_callback(ProgressCallbackWithLoguru())
 
