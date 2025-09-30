@@ -2,8 +2,11 @@ import copy
 import math
 import torch
 from torch import nn
-from typing import Callable
+from typing import Callable, TypeVar
 from torch.nn import functional as F
+
+
+T = TypeVar('T')
 
 
 class MultiHeadAttention(nn.Module):
@@ -105,6 +108,7 @@ class FeedForward(nn.Module):
             "swish": F.silu,
             "tanh": F.tanh,
             "sigmoid": F.sigmoid,
+            "elu": F.elu,
         }
         return ACT2FN[act]
 
@@ -163,10 +167,10 @@ class TransformerEncoder(nn.Module):
             [copy.deepcopy(encoder_layer) for _ in range(num_layers)]
         )
 
-    def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor, **kwargs):
+    def forward(self, hidden_states: T, attention_mask: torch.Tensor, **kwargs) -> T:
         """
         Args:
-            hidden_states (torch.Tensor): the input of the TransformerEncoder
+            hidden_states: the input of the TransformerEncoder
             attention_mask (torch.Tensor): the attention mask for the input hidden_states
 
         Returns:

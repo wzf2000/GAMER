@@ -8,6 +8,7 @@ def load_SSeq_datasets(
     data_path: str,
     max_his_len: int,
     tasks: str,
+    add_uid: bool = False,
 ) -> tuple[ConcatDataset, SSeqDataset]:
     tasks: list[str] = tasks.split(",")
     seq_type = None
@@ -22,6 +23,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=False,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_sample":
             seq_type = "sseq_sample"
@@ -31,6 +33,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=False,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_diff":
             seq_type = "sseq_diff"
@@ -40,6 +43,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=True,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_sample_diff":
             seq_type = "sseq_sample_diff"
@@ -49,6 +53,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=True,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_target":
             seq_type = "sseq_target"
@@ -58,6 +63,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=False,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_target_diff":
             seq_type = "sseq_target_diff"
@@ -67,6 +73,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=True,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_decoder":
             seq_type = "sseq_target"
@@ -76,6 +83,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=False,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_diff_decoder":
             seq_type = "sseq_target_diff"
@@ -85,6 +93,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=True,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_sample_target":
             seq_type = "sseq_sample_target"
@@ -94,6 +103,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=False,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_sample_target_diff":
             seq_type = "sseq_sample_target_diff"
@@ -103,6 +113,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=True,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_sample_decoder":
             seq_type = "sseq_sample_target"
@@ -112,6 +123,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=False,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_sample_diff_decoder":
             seq_type = "sseq_sample_target_diff"
@@ -121,6 +133,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=True,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_neg":
             seq_type = "sseq"
@@ -130,6 +143,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=False,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_sample_neg":
             seq_type = "sseq_sample"
@@ -139,6 +153,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=False,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_diff_neg":
             seq_type = "sseq_diff"
@@ -148,6 +163,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=True,
+                add_uid=add_uid,
             )
         elif task.lower() == "sseq_sample_diff_neg":
             seq_type = "sseq_sample_diff"
@@ -157,6 +173,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="train",
                 diff=True,
+                add_uid=add_uid,
             )
         else:
             raise NotImplementedError
@@ -171,6 +188,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="valid",
                 diff=False,
+                add_uid=add_uid,
             )
         elif seq_type == "sseq_sample":
             valid_data = SSeqNegSampleEvalDataset(
@@ -179,6 +197,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="valid",
                 diff=False,
+                add_uid=add_uid,
             )
         elif seq_type == "sseq_diff":
             valid_data = SSeqDataset(
@@ -187,6 +206,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="valid",
                 diff=True,
+                add_uid=add_uid,
             )
         elif seq_type == "sseq_sample_diff":
             valid_data = SSeqNegSampleEvalDataset(
@@ -195,6 +215,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="valid",
                 diff=True,
+                add_uid=add_uid,
             )
         elif seq_type == "sseq_target":
             valid_data = SSeqTargetDataset(
@@ -203,6 +224,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="valid",
                 diff=False,
+                add_uid=add_uid,
             )
         elif seq_type == "sseq_target_diff":
             valid_data = SSeqTargetDataset(
@@ -211,6 +233,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="valid",
                 diff=True,
+                add_uid=add_uid,
             )
         elif seq_type == "sseq_sample_target":
             valid_data = SSeqTargetNegSampleEvalDataset(
@@ -219,6 +242,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="valid",
                 diff=False,
+                add_uid=add_uid,
             )
         elif seq_type == "sseq_sample_target_diff":
             valid_data = SSeqTargetNegSampleEvalDataset(
@@ -227,6 +251,7 @@ def load_SSeq_datasets(
                 max_his_len=max_his_len,
                 mode="valid",
                 diff=True,
+                add_uid=add_uid,
             )
     else:
         raise NotImplementedError("No multi-behavior type specified for validation dataset.")
@@ -239,6 +264,7 @@ def load_SSeq_test_dataset(
     data_path: str,
     max_his_len: int,
     test_task: str,
+    add_uid: bool = False,
 ) -> SSeqDataset:
     if test_task.lower() == "sseq":
         test_data = SSeqDataset(
@@ -247,6 +273,7 @@ def load_SSeq_test_dataset(
             max_his_len=max_his_len,
             mode="test",
             diff=False,
+            add_uid=add_uid,
         )
     elif test_task.lower() == "sseq_diff":
         test_data = SSeqDataset(
@@ -255,6 +282,7 @@ def load_SSeq_test_dataset(
             max_his_len=max_his_len,
             mode="test",
             diff=True,
+            add_uid=add_uid,
         )
     elif test_task.lower() == "sseq_target":
         test_data = SSeqTargetDataset(
@@ -263,6 +291,7 @@ def load_SSeq_test_dataset(
             max_his_len=max_his_len,
             mode="test",
             diff=False,
+            add_uid=add_uid,
         )
     elif test_task.lower() == "sseq_target_diff":
         test_data = SSeqTargetDataset(
@@ -271,6 +300,7 @@ def load_SSeq_test_dataset(
             max_his_len=max_his_len,
             mode="test",
             diff=True,
+            add_uid=add_uid,
         )
     else:
         raise NotImplementedError

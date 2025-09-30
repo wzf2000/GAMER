@@ -16,6 +16,7 @@ from SeqRec.models.SASRec import SASRec, SASRecConfig
 from SeqRec.models.BERT4Rec import BERT4Rec, BERT4RecConfig
 from SeqRec.models.MBHT import MBHT, MBHTConfig
 from SeqRec.models.MBSTR import MBSTR, MBSTRConfig
+from SeqRec.models.PBAT import PBAT, PBATConfig
 from SeqRec.trainers.SSeqRec import Trainer
 from SeqRec.utils.config import Config
 from SeqRec.utils.futils import ensure_dir
@@ -43,6 +44,11 @@ class TrainSSeqRec(Task):
         )
         parser = parse_global_args(parser)
         parser = parse_dataset_args(parser)
+        parser.add_argument(
+            "--add_uid",
+            action="store_true",
+            help="Whether to add user id in the dataset.",
+        )
         parser.add_argument(
             "--optim", type=str, default="adamw", help="The name of the optimizer"
         )
@@ -178,6 +184,7 @@ class TrainSSeqRec(Task):
         dataset: str,
         index_file: str,
         max_his_len: int,
+        add_uid: bool,
         # training arguments
         optim: str,
         epochs: int,
@@ -223,11 +230,13 @@ class TrainSSeqRec(Task):
             data_path=data_path,
             max_his_len=max_his_len,
             tasks=tasks,
+            add_uid=add_uid,
         )
         self.target_behavior = valid_data.target_behavior
         valid_data = valid_data.filter_by_behavior(self.target_behavior)
         first_dataset: SSeqDataset = train_data.datasets[0]
         num_items = first_dataset.num_items
+        num_users = first_dataset.num_users
         self.behaviors = first_dataset.behaviors
         if backbone == 'MBHT':
             train_data = ConcatDataset([d.filter_by_behavior(self.target_behavior) for d in train_data.datasets])
@@ -257,7 +266,7 @@ class TrainSSeqRec(Task):
         )
 
         model_cls: type[SeqModel] = eval(backbone)
-        self.model = model_cls(config, n_items=num_items, max_his_len=max_his_len, target_behavior_id=first_dataset.target_behavior_index + 1, n_behaviors=len(self.behaviors))
+        self.model = model_cls(config, n_items=num_items, n_users=num_users, max_his_len=max_his_len, target_behavior_id=first_dataset.target_behavior_index + 1, n_behaviors=len(self.behaviors))
         logger.info(self.model)
 
         self.device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
@@ -290,6 +299,7 @@ class TrainSSeqRec(Task):
             data_path=data_path,
             max_his_len=max_his_len,
             test_task=test_task,
+            add_uid=add_uid,
         )
         self.datasets: list[SSeqDataset] = []
         for behavior in self.behaviors:

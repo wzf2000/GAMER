@@ -16,7 +16,7 @@ class BaseSSeqDataset(Dataset):
     Base class for session-wise multi-behavior sequential recommendation datasets.
     """
 
-    def __init__(self, dataset: str, data_path: str, max_his_len: int, mode: str):
+    def __init__(self, dataset: str, data_path: str, max_his_len: int, mode: str, add_uid: bool = False, **kwargs):
         super().__init__()
 
         self.dataset: str = dataset
@@ -24,6 +24,8 @@ class BaseSSeqDataset(Dataset):
 
         self.max_his_len: int = max_his_len
         self.mode = mode
+        self.add_uid = add_uid
+        logger.info(f"Initializing {self.__class__.__name__} for {self.mode} set of {self.dataset} dataset with max_his_len={self.max_his_len}, add_uid={self.add_uid}")
 
         # load data
         self._load_data()
@@ -54,11 +56,15 @@ class BaseSSeqDataset(Dataset):
 
     @property
     def cached_file_name(self) -> str:
-        return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}.pkl")
+        if not self.add_uid:
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}.pkl")
+        else:
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.adduid.{self.mode}.pkl")
 
     def _load_data(self):
         with open(os.path.join(self.data_path, self.dataset + ".SMB.inter.json"), "r") as f:
             self.inters: dict[str, list[int]] = json.load(f)
+        self.num_users = max(int(uid) for uid in self.inters.keys()) + 1
         with open(os.path.join(self.data_path, self.dataset + ".SMB.behavior.json"), "r") as f:
             self.history_behaviors: dict[str, list[str]] = json.load(f)
 
@@ -206,7 +212,7 @@ class BaseSSeqDataset(Dataset):
                 if sid not in session_ids_map:
                     session_ids_map[sid] = self._generate_session_ids(self.session[uid][:pos + 1])
                     times_map[sid] = self._generate_times(times[:pos + 1])
-                inter_data.append({
+                sample = {
                     "item": self.get_behavior_item(items[i], behaviors[i]),
                     "inters": self._get_inters(items[:pos], behaviors[:pos]),
                     "inter_behaviors": self._get_inter_behaviors(behaviors[:pos]),
@@ -214,7 +220,10 @@ class BaseSSeqDataset(Dataset):
                     "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
                     "time": times_map[sid],
                     "behavior": self.behaviors.index(behaviors[i]),
-                })
+                }
+                if self.add_uid:
+                    sample['uid'] = int(uid) + 1
+                inter_data.append(sample)
 
         return inter_data
 
@@ -230,7 +239,7 @@ class BaseSSeqDataset(Dataset):
                 session_items.append(self.get_behavior_item(items[i], behaviors[i]))
                 session_behaviors.append(self.behaviors.index(behaviors[i]))
             assert len(session_items) > 0, f"Session for user {uid} is empty after valid position {self.valid_pos[uid]}."
-            inter_data.append({
+            sample = {
                 "item": session_items,
                 "inters": self._get_inters(items[:self.valid_pos[uid]], behaviors[:self.valid_pos[uid]]),
                 "inter_behaviors": self._get_inter_behaviors(behaviors[:self.valid_pos[uid]]),
@@ -239,7 +248,10 @@ class BaseSSeqDataset(Dataset):
                 "actions": self._generate_actions(self.history_behaviors[uid][:self.valid_pos[uid]]),
                 "time": self._generate_times(times[:self.valid_pos[uid] + 1]),
                 "behavior": session_behaviors,
-            })
+            }
+            if self.add_uid:
+                sample['uid'] = int(uid) + 1
+            inter_data.append(sample)
 
         return inter_data
 
@@ -255,7 +267,7 @@ class BaseSSeqDataset(Dataset):
                 session_items.append(self.get_behavior_item(items[i], behaviors[i]))
                 session_behaviors.append(self.behaviors.index(behaviors[i]))
             assert len(session_items) > 0, f"Session for user {uid} is empty after test position {self.test_pos[uid]}."
-            inter_data.append({
+            sample = {
                 "item": session_items,
                 "inters": self._get_inters(items[:self.test_pos[uid]], behaviors[:self.test_pos[uid]]),
                 "inter_behaviors": self._get_inter_behaviors(behaviors[:self.test_pos[uid]]),
@@ -264,7 +276,10 @@ class BaseSSeqDataset(Dataset):
                 "actions": self._generate_actions(self.history_behaviors[uid][:self.test_pos[uid]]),
                 "time": self._generate_times(times[:self.test_pos[uid] + 1]),
                 "behavior": session_behaviors,
-            })
+            }
+            if self.add_uid:
+                sample['uid'] = int(uid) + 1
+            inter_data.append(sample)
 
         return inter_data
 
@@ -317,6 +332,8 @@ class BaseSSeqDataset(Dataset):
             ret['neg_item'] = d['neg_item']
         if 'item_range' in d:
             ret['item_range'] = d['item_range']
+        if 'uid' in d:
+            ret['uid'] = d['uid']
         return ret
 
 
@@ -338,10 +355,16 @@ class SSeqDataset(BaseSSeqDataset):
 
     @property
     def cached_file_name(self) -> str:
-        if not self.diff:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}.pkl")
+        if not self.add_uid:
+            if not self.diff:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}.pkl")
+            else:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.diff.{self.mode}.pkl")
         else:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.diff.{self.mode}.pkl")
+            if not self.diff:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.adduid.{self.mode}.pkl")
+            else:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.diff.adduid.{self.mode}.pkl")
 
     def get_behavior_item(self, item: int, behavior: str) -> int:
         if self.diff:
@@ -383,7 +406,7 @@ class SSeqTargetDataset(SSeqDataset):
                 if sid not in session_ids_map:
                     session_ids_map[sid] = self._generate_session_ids(self.session[uid][:pos + 1])
                     times_map[sid] = self._generate_times(times[:pos + 1])
-                inter_data.append({
+                sample = {
                     "item": self.get_behavior_item(items[i], behaviors[i]),
                     "inters": self._get_inters(items[:pos] + [items[i]], behaviors[:pos] + [behaviors[i]]),
                     "inter_behaviors": self._get_inter_behaviors(behaviors[:pos] + [behaviors[i]]),
@@ -391,7 +414,10 @@ class SSeqTargetDataset(SSeqDataset):
                     "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
                     "time": times_map[sid],
                     "behavior": self.behaviors.index(behaviors[i]),
-                })
+                }
+                if self.add_uid:
+                    sample['uid'] = int(uid) + 1
+                inter_data.append(sample)
 
         return inter_data
 
@@ -407,7 +433,7 @@ class SSeqTargetDataset(SSeqDataset):
                 session_items.append(self.get_behavior_item(items[i], behaviors[i]))
                 session_behaviors.append(self.behaviors.index(behaviors[i]))
             assert len(session_items) > 0, f"Session for user {uid} is empty after valid position {self.valid_pos[uid]}."
-            inter_data.append({
+            sample = {
                 "item": session_items,
                 "inters": self._get_inters(items[:self.valid_pos[uid]], behaviors[:self.valid_pos[uid]], max_his_len=self.max_his_len - 1) + [self.num_items + 1],  # add mask token
                 "inter_behaviors": self._get_inter_behaviors(behaviors[:self.valid_pos[uid]], max_his_len=self.max_his_len - 1) + [-1],  # decided in filter_by_behavior
@@ -416,7 +442,10 @@ class SSeqTargetDataset(SSeqDataset):
                 "actions": self._generate_actions(self.history_behaviors[uid][:self.valid_pos[uid]]),
                 "time": self._generate_times(times[:self.valid_pos[uid] + 1]),
                 "behavior": session_behaviors,
-            })
+            }
+            if self.add_uid:
+                sample['uid'] = int(uid) + 1
+            inter_data.append(sample)
 
         return inter_data
 
@@ -432,7 +461,7 @@ class SSeqTargetDataset(SSeqDataset):
                 session_items.append(self.get_behavior_item(items[i], behaviors[i]))
                 session_behaviors.append(self.behaviors.index(behaviors[i]))
             assert len(session_items) > 0, f"Session for user {uid} is empty after test position {self.test_pos[uid]}."
-            inter_data.append({
+            sample = {
                 "item": session_items,
                 "inters": self._get_inters(items[:self.test_pos[uid]], behaviors[:self.test_pos[uid]], max_his_len=self.max_his_len - 1) + [self.num_items + 1],  # add mask token
                 "inter_behaviors": self._get_inter_behaviors(behaviors[:self.test_pos[uid]], max_his_len=self.max_his_len - 1) + [-1],  # decided in filter_by_behavior
@@ -441,7 +470,10 @@ class SSeqTargetDataset(SSeqDataset):
                 "actions": self._generate_actions(self.history_behaviors[uid][:self.test_pos[uid]]),
                 "time": self._generate_times(times[:self.test_pos[uid] + 1]),
                 "behavior": session_behaviors,
-            })
+            }
+            if self.add_uid:
+                sample['uid'] = int(uid) + 1
+            inter_data.append(sample)
 
         return inter_data
 
@@ -486,7 +518,7 @@ class SSeqNegSampleDataset(SSeqDataset):
                 if sid not in session_ids_map:
                     session_ids_map[sid] = self._generate_session_ids(self.session[uid][:pos + 1])
                     times_map[sid] = self._generate_times(times[:pos + 1])
-                inter_data.append({
+                sample = {
                     "item": self.get_behavior_item(items[i], behaviors[i]),
                     "neg_item": self.get_behavior_item(neg_items[i], behaviors[i]),
                     "inters": self._get_inters(items[:pos], behaviors[:pos]),
@@ -495,7 +527,10 @@ class SSeqNegSampleDataset(SSeqDataset):
                     "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
                     "time": times_map[sid],
                     "behavior": self.behaviors.index(behaviors[i]),
-                })
+                }
+                if self.add_uid:
+                    sample['uid'] = int(uid) + 1
+                inter_data.append(sample)
 
         return inter_data
 
@@ -520,7 +555,7 @@ class SSeqUserLevelDataset(SSeqDataset):
                 behaviors = behaviors[begin_idx: begin_idx + self.max_his_len]
                 sids = sids[begin_idx: begin_idx + self.max_his_len]
                 times = times[begin_idx: begin_idx + self.max_his_len]
-            inter_data.append({
+            sample = {
                 "item": self.get_behavior_item(items[-1], behaviors[-1]),
                 "inters": self._get_inters(items, behaviors),  # use all history interactions
                 "inter_behaviors": self._get_inter_behaviors(behaviors),  # use all history interactions
@@ -528,7 +563,10 @@ class SSeqUserLevelDataset(SSeqDataset):
                 "actions": self._generate_actions(behaviors),
                 "time": self._generate_times(times),
                 "behavior": self.behaviors.index(behaviors[-1]),
-            })
+            }
+            if self.add_uid:
+                sample['uid'] = int(uid) + 1
+            inter_data.append(sample)
 
         return inter_data
 
@@ -540,10 +578,16 @@ class SSeqNegSampleEvalDataset(SSeqDataset):
 
     @property
     def cached_file_name(self) -> str:
-        if not self.diff:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.{self.mode}.pkl")
+        if not self.add_uid:
+            if not self.diff:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.{self.mode}.pkl")
+            else:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.diff.{self.mode}.pkl")
         else:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.diff.{self.mode}.pkl")
+            if not self.diff:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.adduid.{self.mode}.pkl")
+            else:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.diff.adduid.{self.mode}.pkl")
 
     def _sample_negative_items(self, num_samples: int, exclude_items: set[int]) -> list[int]:
         all_items = set(range(self.num))
@@ -571,7 +615,7 @@ class SSeqNegSampleEvalDataset(SSeqDataset):
             negative_behavior_items = [
                 self.get_behavior_item(neg_item, neg_behavior) for neg_item, neg_behavior in zip(negative_items, negative_behaviors)
             ]
-            inter_data.append({
+            sample = {
                 "item": session_items,
                 "neg_item": negative_behavior_items,
                 "inters": self._get_inters(items[:self.valid_pos[uid]], behaviors[:self.valid_pos[uid]]),
@@ -581,7 +625,10 @@ class SSeqNegSampleEvalDataset(SSeqDataset):
                 "actions": self._generate_actions(self.history_behaviors[uid][:self.valid_pos[uid]]),
                 "time": self._generate_times(times[:self.valid_pos[uid] + 1]),
                 "behavior": session_behaviors,
-            })
+            }
+            if self.add_uid:
+                sample['uid'] = int(uid) + 1
+            inter_data.append(sample)
 
         return inter_data
 
@@ -593,10 +640,16 @@ class SSeqTargetNegSampleEvalDataset(SSeqDataset):
 
     @property
     def cached_file_name(self) -> str:
-        if not self.diff:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.{self.mode}.pkl")
+        if not self.add_uid:
+            if not self.diff:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.{self.mode}.pkl")
+            else:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.diff.{self.mode}.pkl")
         else:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.diff.{self.mode}.pkl")
+            if not self.diff:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.adduid.{self.mode}.pkl")
+            else:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.neg{self.num_neg}.SMB.diff.adduid.{self.mode}.pkl")
 
     def _sample_negative_items(self, num_samples: int, exclude_items: set[int]) -> list[int]:
         all_items = set(range(self.num))
@@ -624,7 +677,7 @@ class SSeqTargetNegSampleEvalDataset(SSeqDataset):
             negative_behavior_items = [
                 self.get_behavior_item(neg_item, neg_behavior) for neg_item, neg_behavior in zip(negative_items, negative_behaviors)
             ]
-            inter_data.append({
+            sample = {
                 "item": session_items,
                 "neg_item": negative_behavior_items,
                 "inters": self._get_inters(items[:self.valid_pos[uid]], behaviors[:self.valid_pos[uid]], max_his_len=self.max_his_len - 1) + [self.num_items + 1],  # add mask token
@@ -634,7 +687,10 @@ class SSeqTargetNegSampleEvalDataset(SSeqDataset):
                 "actions": self._generate_actions(self.history_behaviors[uid][:self.valid_pos[uid]]),
                 "time": self._generate_times(times[:self.valid_pos[uid] + 1]),
                 "behavior": session_behaviors,
-            })
+            }
+            if self.add_uid:
+                sample['uid'] = int(uid) + 1
+            inter_data.append(sample)
 
         return inter_data
 

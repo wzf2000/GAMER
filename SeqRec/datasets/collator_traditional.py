@@ -40,6 +40,10 @@ def collate_with_padding(batch: list[dict], padding_side: str = 'right', targets
         ret["behavior"] = behavior
     if "item_range" in batch[0]:
         ret["item_range"] = batch[0]["item_range"]
+    if "uid" in batch[0]:
+        uid = [d["uid"] for d in batch]
+        uid = torch.tensor(uid, dtype=torch.long)
+        ret["uid"] = uid
     return ret
 
 

@@ -302,7 +302,7 @@ class MBSTransformerEncoderLayer(nn.Module):
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
         activation: str | Callable[[torch.Tensor], torch.Tensor] = F.relu,
-        layer_norm_eps: float = 1e-5,
+        layer_norm_eps: float = 1e-12,
         num_buckets: int = 32,
         max_distance: int = 40,
         behavior_attention: bool = True,
