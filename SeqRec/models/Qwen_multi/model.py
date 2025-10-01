@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from loguru import logger
-from typing import Unpack
+from typing import Unpack, Callable
 from functools import partial, wraps
 from transformers.utils import can_return_tuple
 from transformers.cache_utils import Cache, DynamicCache
@@ -13,11 +13,120 @@ from transformers.utils import add_start_docstrings_to_model_forward
 from typing import Optional, Tuple
 from transformers.cache_utils import SlidingWindowCache, StaticCache
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
-from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeAttention
+from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeRMSNorm, apply_rotary_pos_emb, eager_attention_forward
+from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
 from SeqRec.models.Qwen_multi.router import Qwen3SessionMoeMultiDecoderRouter
 from SeqRec.models.Qwen_multi.FFN import MyQwen3SessionMoeMultiSparseMLP, PBATransformersSparseMLP
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
+from transformers.activations import ACT2FN
+
+
+class Qwen3MoeAttention(nn.Module):
+    """Multi-headed attention from 'Attention Is All You Need' paper"""
+
+    def __init__(self, config: Qwen3Config, layer_idx: int, is_cross: bool):
+        super().__init__()
+        self.config = config
+        self.layer_idx = layer_idx
+        self.head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+        self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
+        self.scaling = (self.head_dim)**-0.5
+        self.attention_dropout = config.attention_dropout
+        self.is_causal = True
+
+        self.q_proj = nn.Linear(
+            config.hidden_size, config.num_attention_heads * self.head_dim, bias=config.attention_bias
+        )
+        self.k_proj = nn.Linear(
+            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
+        )
+        self.v_proj = nn.Linear(
+            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
+        )
+        self.o_proj = nn.Linear(
+            config.num_attention_heads * self.head_dim, config.hidden_size, bias=config.attention_bias
+        )
+        self.q_norm = Qwen3MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
+        self.k_norm = Qwen3MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # thus post q_norm does not need reshape
+        self.sliding_window = config.sliding_window
+        if not (
+            self.config.use_sliding_window
+            and getattr(self.config, "sliding_window", None) is not None
+            and self.layer_idx >= self.config.max_window_layers
+        ):
+            self.sliding_window = None
+
+        self.is_cross = is_cross
+        if self.is_cross:
+            self.behavior_embedding_dim = config.behavior_embedding_dim
+            self.q_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_attention_heads * config.behavior_embedding_dim)
+            self.k_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
+            self.v_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
+            self.gating = nn.Linear(config.hidden_size, config.hidden_size, bias=config.attention_bias)
+            self.act_fn = ACT2FN[config.hidden_act]
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        position_embeddings: Tuple[torch.Tensor, torch.Tensor],
+        attention_mask: Optional[torch.Tensor],
+        past_key_value: Optional[Cache] = None,
+        cache_position: Optional[torch.LongTensor] = None,
+        action_index: torch.Tensor = None,
+        **kwargs: Unpack[FlashAttentionKwargs],
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+        input_shape = hidden_states.shape[:-1]
+        hidden_shape = (*input_shape, -1, self.head_dim)
+
+        if self.is_cross:
+            behavior_embedding_shape = (*input_shape, -1, self.behavior_embedding_dim)
+            q_behavior_embedding = self.q_behavior_embedding(action_index).view(behavior_embedding_shape)
+            k_behavior_embedding = self.k_behavior_embedding(action_index).view(behavior_embedding_shape)
+            v_behavior_embedding = self.v_behavior_embedding(action_index).view(behavior_embedding_shape)
+            query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape) + q_behavior_embedding).transpose(1, 2)
+            key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape) + k_behavior_embedding).transpose(1, 2)
+            value_states = (self.v_proj(hidden_states).view(hidden_shape) + v_behavior_embedding).transpose(1, 2)
+        else:
+            query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+            key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+            value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+        cos, sin = position_embeddings
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+        if past_key_value is not None:
+            # sin and cos are specific to RoPE models; cache_position needed for the static cache
+            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+            key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+
+        attention_interface: Callable = eager_attention_forward
+        if self.config._attn_implementation != "eager":
+            if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
+                logger.warning(
+                    "`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to "
+                    'eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
+                )
+            else:
+                attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+
+        attn_output, attn_weights = attention_interface(
+            self,
+            query_states,
+            key_states,
+            value_states,
+            attention_mask,
+            dropout=0.0 if not self.training else self.attention_dropout,
+            scaling=self.scaling,
+            sliding_window=self.sliding_window,  # diff with Llama
+            **kwargs,
+        )
+
+        attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+        if self.is_cross:
+            attn_output = self.o_proj(attn_output) * self.act_fn(self.gating(hidden_states))
+        else:
+            attn_output = self.o_proj(attn_output)
+        return attn_output, attn_weights
 
 
 class Qwen3DecoderLayerSessionMoeMulti(nn.Module):
@@ -28,10 +137,10 @@ class Qwen3DecoderLayerSessionMoeMulti(nn.Module):
         self.behavior_injection = behavior_injection
         self.is_cross = is_cross
 
-        self.self_attn = Qwen3MoeAttention(config=config, layer_idx=layer_idx)
+        self.self_attn = Qwen3MoeAttention(config=config, layer_idx=layer_idx, is_cross=False)
 
         if self.is_cross:
-            self.cross_attn = Qwen3MoeAttention(config=config, layer_idx=layer_idx)
+            self.cross_attn = Qwen3MoeAttention(config=config, layer_idx=layer_idx, is_cross=True)
             self.post_self_attention_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
         if "mlp_type" not in config:
@@ -58,6 +167,7 @@ class Qwen3DecoderLayerSessionMoeMulti(nn.Module):
         hidden_states: torch.Tensor,
         position_indices: torch.Tensor,
         behavior_indices: torch.Tensor = None,
+        action_indices: torch.Tensor = None,
         multi_self_mask: Optional[torch.Tensor] = None,
         multi_cross_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
@@ -98,6 +208,7 @@ class Qwen3DecoderLayerSessionMoeMulti(nn.Module):
                 use_cache=use_cache,
                 cache_position=cache_position,
                 position_embeddings=position_embeddings,
+                action_index=action_indices,
                 **kwargs,
             )
             hidden_states = residual + self.dropout(hidden_states)
@@ -669,7 +780,7 @@ class Qwen3SessionMoeMultiModel(Qwen3ModelSessionMoeMulti):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        position_indices, behavior_indices = self.router(input_ids, cache_position=cache_position)
+        position_indices, behavior_indices, action_indices = self.router(input_ids, cache_position=cache_position)
 
         multi_self_mask = self._update_session_wise_causal_mask(
             attention_mask=attention_mask,
@@ -708,6 +819,7 @@ class Qwen3SessionMoeMultiModel(Qwen3ModelSessionMoeMulti):
                     hidden_states,
                     position_indices,
                     behavior_indices,
+                    action_indices,
                     multi_self_mask,
                     multi_cross_mask,
                     position_ids,
@@ -723,6 +835,7 @@ class Qwen3SessionMoeMultiModel(Qwen3ModelSessionMoeMulti):
                     hidden_states,
                     position_indices,
                     behavior_indices,
+                    action_indices,
                     multi_self_mask=multi_self_mask,
                     multi_cross_mask=multi_cross_mask,
                     position_ids=position_ids,
