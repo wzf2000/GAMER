@@ -83,7 +83,7 @@ class TrainSMBRec(Task):
         parser.add_argument(
             "--test_task",
             type=str,
-            default="sseq",
+            default="smb_dis",
             help="test task",
         )
         parser.add_argument(

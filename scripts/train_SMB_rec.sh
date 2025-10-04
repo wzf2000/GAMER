@@ -2,8 +2,8 @@
 : ${dataset:=Retail}
 : ${batch_size:=4096}
 : ${learning_rate:=1e-3}
-: ${tasks:=sseq}
-: ${test_task:=sseq}
+: ${tasks:=smb_dis}
+: ${test_task:=smb_dis}
 : ${gpu:=0}
 : ${epochs:=200}
 : ${backbone:=GRU4Rec}
@@ -20,7 +20,7 @@ if [ "${suffix}" != "" ]; then
     task_dir=${task_dir}_${suffix}
 fi
 
-output_dir=./checkpoint/sseq/${task_dir}/
+output_dir=./checkpoint/smb_dis/${task_dir}/
 result_dir=./results/${task_dir}/
 run_name=${task_dir}
 
