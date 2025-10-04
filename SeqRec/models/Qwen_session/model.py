@@ -1,7 +1,7 @@
 import torch
 from loguru import logger
 from typing import Unpack
-from functools import partial, wraps
+from functools import partial
 from transformers.utils import can_return_tuple
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.loss.loss_utils import ForCausalLMLoss

@@ -1,8 +1,8 @@
 import torch
 from torch import nn
 from loguru import logger
-from typing import Unpack
-from functools import partial, wraps
+from typing import Unpack, Optional, Tuple
+from functools import partial
 from transformers.utils import can_return_tuple
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.loss.loss_utils import ForCausalLMLoss
@@ -11,13 +11,12 @@ from transformers.models.qwen3.modeling_qwen3 import KwargsForCausalLM, Qwen3RMS
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.utils import add_start_docstrings_to_model_forward
-from typing import Optional, Tuple
 from transformers.cache_utils import SlidingWindowCache, StaticCache
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeAttention
 
-from SeqRec.models.Qwen_session_Moe.router import Qwen3SessionMoeDecoderRouter
-from SeqRec.models.Qwen_session_Moe.FFN import MyQwen3SessionMoeSparseMLP, PBATransformerSparseMLP
+from SeqRec.models.Qwen_Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
+from SeqRec.models.Qwen_Moe.router import Qwen3MoeDecoderRouter
 
 
 class Qwen3DecoderLayerSessionMoe(nn.Module):
@@ -34,7 +33,7 @@ class Qwen3DecoderLayerSessionMoe(nn.Module):
         else:
             self.mlp_type = config.mlp_type
         if self.mlp_type == "Qwen3":
-            self.mlp = MyQwen3SessionMoeSparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
+            self.mlp = MyQwen3SparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
         else:
             self.mlp = PBATransformerSparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
         self.input_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -107,7 +106,7 @@ class Qwen3ModelSessionMoe(Qwen3PreTrainedModel):
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        self.router = Qwen3SessionMoeDecoderRouter(config.n_positions, config)
+        self.router = Qwen3MoeDecoderRouter(config.n_positions, config)
 
         self.sparse_layers = config.sparse_layers_decoder
         self.behavior_injection_layers = config.behavior_injection_decoder

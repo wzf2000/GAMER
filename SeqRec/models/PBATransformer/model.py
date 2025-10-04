@@ -48,6 +48,7 @@ class PBATransformerPreTrainedModel(PreTrainedModel):
     """
 
     config_class = PBATransformerConfig
+    config: PBATransformerConfig
     base_model_prefix = "switch_transformers"
     supports_gradient_checkpointing = True
     _supports_cache_class = True

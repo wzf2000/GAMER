@@ -1,8 +1,8 @@
 import torch
 from torch import nn
 from loguru import logger
-from typing import Unpack, Callable
-from functools import partial, wraps
+from typing import Unpack, Callable, Optional, Tuple
+from functools import partial
 from transformers.utils import can_return_tuple
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.loss.loss_utils import ForCausalLMLoss
@@ -10,16 +10,15 @@ from transformers.models.qwen3 import Qwen3ForCausalLM, Qwen3Config, Qwen3PreTra
 from transformers.models.qwen3.modeling_qwen3 import KwargsForCausalLM, Qwen3RMSNorm, Qwen3RotaryEmbedding, QWEN3_INPUTS_DOCSTRING
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.utils import add_start_docstrings_to_model_forward
-from typing import Optional, Tuple
 from transformers.cache_utils import SlidingWindowCache, StaticCache
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeRMSNorm, apply_rotary_pos_emb, eager_attention_forward
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-
-from SeqRec.models.Qwen_multi.router import Qwen3SessionMoeMultiDecoderRouter
-from SeqRec.models.Qwen_multi.FFN import MyQwen3SessionMoeMultiSparseMLP, PBATransformerSparseMLP
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.activations import ACT2FN
+
+from SeqRec.models.Qwen_Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
+from SeqRec.models.Qwen_multi.router import Qwen3MultiDecoderRouter
 
 
 class Qwen3MoeAttention(nn.Module):
@@ -31,7 +30,7 @@ class Qwen3MoeAttention(nn.Module):
         self.layer_idx = layer_idx
         self.head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
         self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
-        self.scaling = (self.head_dim)**-0.5
+        self.scaling = (self.head_dim) ** -0.5
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
 
@@ -148,7 +147,7 @@ class Qwen3DecoderLayerSessionMoeMulti(nn.Module):
         else:
             self.mlp_type = config.mlp_type
         if self.mlp_type == "Qwen3":
-            self.mlp = MyQwen3SessionMoeMultiSparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
+            self.mlp = MyQwen3SparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
         else:
             self.mlp = PBATransformerSparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
         self.input_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -240,7 +239,7 @@ class Qwen3ModelSessionMoeMulti(Qwen3PreTrainedModel):
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        self.router = Qwen3SessionMoeMultiDecoderRouter(config.n_positions, config)
+        self.router = Qwen3MultiDecoderRouter(config.n_positions, config)
 
         self.sparse_layers = config.sparse_layers_decoder
         self.behavior_injection_layers = config.behavior_injection_decoder

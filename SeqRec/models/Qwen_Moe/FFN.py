@@ -2,11 +2,12 @@ import torch
 import torch.nn as nn
 from transformers.activations import ACT2FN
 from transformers.models.t5.modeling_t5 import T5DenseActDense
+from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
 
 
 class MyQwen3MoeMLP(nn.Module):
     def __init__(
-        self, config, behavior_injection: bool = False
+        self, config: Qwen3MoeConfig, behavior_injection: bool = False
     ):
         super().__init__()
         self.config = config
@@ -29,7 +30,7 @@ class MyQwen3MoeMLP(nn.Module):
 class MyQwen3SparseMLP(nn.Module):
     def __init__(
         self,
-        config,
+        config: Qwen3MoeConfig,
         expert_class: nn.Module = MyQwen3MoeMLP,
         is_sparse: bool = False,
         behavior_injection: bool = False,
@@ -55,7 +56,6 @@ class MyQwen3SparseMLP(nn.Module):
         position_index: torch.Tensor,
         behavior_index: torch.Tensor,
     ) -> torch.Tensor:
-        """ """
         next_states = torch.zeros_like(hidden_states)
         if self.behavior_injection:
             behavior_embedding = self.behavior_embedding(behavior_index)
@@ -73,7 +73,7 @@ class MyQwen3SparseMLP(nn.Module):
 
 
 class PBATransformerMlp(T5DenseActDense):
-    def __init__(self, config, behavior_injection: bool = False):
+    def __init__(self, config: Qwen3MoeConfig, behavior_injection: bool = False):
         super(T5DenseActDense, self).__init__()
         if behavior_injection:
             self.wi = nn.Linear(
@@ -91,7 +91,7 @@ class PBATransformerMlp(T5DenseActDense):
 class PBATransformerSparseMLP(nn.Module):
     def __init__(
         self,
-        config,
+        config: Qwen3MoeConfig,
         expert_class: nn.Module = PBATransformerMlp,
         is_sparse: bool = False,
         behavior_injection: bool = False,

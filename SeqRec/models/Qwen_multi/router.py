@@ -1,14 +1,15 @@
 import torch
 import torch.nn as nn
+from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeConfig
 
 
-class Qwen3SessionMoeMultiDecoderRouter(nn.Module):
+class Qwen3MultiDecoderRouter(nn.Module):
     """
     Router takes in the original input ids and generate the position router index and behavior tokens for each token.
     This is not the same as the Switch Transformers router.
     """
 
-    def __init__(self, num_items: int, config):
+    def __init__(self, num_items: int, config: Qwen3MoeConfig):
         super().__init__()
         self.num_items = num_items
         self.num_experts = config.num_experts
