@@ -18,7 +18,7 @@ def parse_global_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParse
     parser.add_argument(
         "--base_model",
         type=str,
-        default="./ckpt/s2s-models/TIGER",  # Default to use the TIGER (T5-based) model
+        default="./config/s2s-models/TIGER",  # Default to use the TIGER (T5-based) model
         help="Basic model path",
     )
     parser.add_argument(

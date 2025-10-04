@@ -5,7 +5,7 @@
         "**/node_modules/*/**": true,
         "**/__pycache__/**": true,
         "**/checkpoint/**": true,
-        "**/ckpt/**": true,
+        "**/config/**": true,
         "**/data/**": true,
         "**/logs/**": true,
         "**/runs/**": true,

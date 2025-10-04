@@ -19,26 +19,26 @@ task_dir=${tasks//,/-}
 backbone_arg=${backbone}
 
 if [ "${backbone}" = "TIGER" ]; then
-    base_model=./ckpt/s2s-models/TIGER
+    base_model=./config/s2s-models/TIGER
 elif [ "${backbone}" = "PBATransformer" ]; then
-    base_model=./ckpt/s2s-models/PBATransformer
+    base_model=./config/s2s-models/PBATransformer
 elif [ "${backbone}" = "Qwen3" ]; then
-    base_model=./ckpt/s2s-models/Qwen3-Light
+    base_model=./config/s2s-models/Qwen3-Light
 elif [ "${backbone}" = "Qwen3Moe" ]; then
-    base_model=./ckpt/s2s-models/Qwen3Moe
+    base_model=./config/s2s-models/Qwen3Moe
 elif [ "${backbone}" = "Qwen3ActionMoe" ]; then
-    base_model=./ckpt/s2s-models/Qwen3ActionMoe
+    base_model=./config/s2s-models/Qwen3ActionMoe
 elif [ "${backbone}" = "Qwen3Session" ]; then
-    base_model=./ckpt/s2s-models/Qwen3-Light
+    base_model=./config/s2s-models/Qwen3-Light
 elif [ "${backbone}" = "Qwen3Session2" ]; then
-    base_model=./ckpt/s2s-models/Qwen3-Light-2
+    base_model=./config/s2s-models/Qwen3-Light-2
     backbone_arg=Qwen3Session
 elif [ "${backbone}" = "Qwen3SessionMoe" ]; then
-    base_model=./ckpt/s2s-models/Qwen3SessionMoe
+    base_model=./config/s2s-models/Qwen3SessionMoe
 elif [ "${backbone}" = "Qwen3Multi" ]; then
-    base_model=./ckpt/s2s-models/Qwen3Multi
+    base_model=./config/s2s-models/Qwen3Multi
 elif [ "${backbone}" = "Qwen3SessionMulti" ]; then
-    base_model=./ckpt/s2s-models/Qwen3SessionMulti
+    base_model=./config/s2s-models/Qwen3SessionMulti
 else
     echo "Unsupported backbone model: ${backbone}."
     exit 1

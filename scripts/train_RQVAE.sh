@@ -33,7 +33,7 @@ if [ $gpu_num -gt 1 ]; then
     --data_path ./data/${dataset}/${dataset}.emb-${semantic_model}-td.npy \
     --alpha ${alpha} \
     --beta ${beta} \
-    --cf_emb ./ckpt/cf-embs/ckpt/${dataset}-32d-${cf_model}.pt \
+    --cf_emb ./pretrained_ckpt/cf-embs/${dataset}-32d-${cf_model}.pt \
     --ckpt_dir ./checkpoint/RQ-VAE/${dataset} \
     --batch_size ${per_device_batch_size} \
     ${extra_args_out}
@@ -44,7 +44,7 @@ else
     --data_path ./data/${dataset}/${dataset}.emb-${semantic_model}-td.npy \
     --alpha ${alpha} \
     --beta ${beta} \
-    --cf_emb ./ckpt/cf-embs/ckpt/${dataset}-32d-${cf_model}.pt \
+    --cf_emb ./pretrained_ckpt/cf-embs/${dataset}-32d-${cf_model}.pt \
     --ckpt_dir ./checkpoint/RQ-VAE/${dataset} \
     --batch_size ${per_device_batch_size} \
     ${extra_args_out}

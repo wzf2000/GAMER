@@ -18,11 +18,11 @@ per_device_batch_size=$(($batch_size / $gpu_num))
 task_dir=${tasks//,/-}
 
 if [ "${backbone}" = "TIGER" ]; then
-    base_model=./ckpt/s2s-models/TIGER
+    base_model=./config/s2s-models/TIGER
 elif [ "${backbone}" = "PBATransformer" ]; then
-    base_model=./ckpt/s2s-models/PBATransformer
+    base_model=./config/s2s-models/PBATransformer
 elif [ "${backbone}" = "Qwen3" ]; then
-    base_model=./ckpt/s2s-models/Qwen3-Light
+    base_model=./config/s2s-models/Qwen3-Light
 else
     echo "Unsupported backbone model: ${backbone}."
     exit 1

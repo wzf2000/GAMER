@@ -86,7 +86,7 @@ class TrainRQVAE(MultiGPUTask):
         parser.add_argument(
             "--cf_emb",
             type=str,
-            default="./ckpt/cf-embs/Instruments-32d-sasrec.pt",
+            default="./pretrained_ckpt/cf-embs/Instruments-32d-sasrec.pt",
             help="cf emb",
         )
         parser.add_argument(

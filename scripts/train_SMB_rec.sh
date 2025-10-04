@@ -10,7 +10,7 @@
 
 export CUDA_VISIBLE_DEVICES=$gpu
 
-base_model=./ckpt/dis-models/${backbone}
+base_model=./config/dis-models/${backbone}
 task_dir=${tasks//,/-}
 
 task_dir=${dataset}/${task_dir}/${backbone}
