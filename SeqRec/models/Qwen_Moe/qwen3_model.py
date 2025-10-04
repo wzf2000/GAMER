@@ -32,7 +32,7 @@ from transformers.utils import (
 from transformers.utils.deprecation import deprecate_kwarg
 from transformers.models.qwen3_moe import Qwen3MoeConfig
 from SeqRec.models.Qwen_Moe.router import QwenMoeDecoderRouter
-from SeqRec.models.Qwen_Moe.FFN import PBATransformersSparseMLP, MyQwen3SparseMLP
+from SeqRec.models.Qwen_Moe.FFN import PBATransformerSparseMLP, MyQwen3SparseMLP
 
 _CONFIG_FOR_DOC = "Qwen3MoeConfig"
 
@@ -47,13 +47,13 @@ class MyQwen3MoeDecoderLayer(nn.Module):
         self.self_attn = Qwen3MoeAttention(config, layer_idx)
 
         if "mlp_type" not in config:
-            self.mlp_type = "PBATransformers"
+            self.mlp_type = "PBATransformer"
         else:
             self.mlp_type = config.mlp_type
         if self.mlp_type == "Qwen3":
             self.mlp = MyQwen3SparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
         else:
-            self.mlp = PBATransformersSparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
+            self.mlp = PBATransformerSparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
 
         self.input_layernorm = Qwen3MoeRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = Qwen3MoeRMSNorm(config.hidden_size, eps=config.rms_norm_eps)

@@ -201,9 +201,9 @@ class TrainMBDecoder(MultiGPUTask):
             assert isinstance(
                 tokenizer, T5Tokenizer
             ), "Expected T5Tokenizer for TIGER backbone"
-        elif backbone == "PBATransformers":
+        elif backbone == "PBATransformer":
             from transformers import T5Tokenizer
-            from SeqRec.models.PBATransformers import PBATransformerConfig
+            from SeqRec.models.PBATransformer import PBATransformerConfig
             config: PBATransformerConfig = PBATransformerConfig.from_pretrained(
                 base_model
             )
@@ -214,7 +214,7 @@ class TrainMBDecoder(MultiGPUTask):
             )
             assert isinstance(
                 tokenizer, T5Tokenizer
-            ), "Expected T5Tokenizer for PBATransformers backbone"
+            ), "Expected T5Tokenizer for PBATransformer backbone"
         elif backbone == "Qwen3" or backbone == "Qwen3Moe":
             from transformers import Qwen3Config, Qwen2Tokenizer
             config: Qwen3Config = Qwen3Config.from_pretrained(base_model)
@@ -256,8 +256,8 @@ class TrainMBDecoder(MultiGPUTask):
             from SeqRec.models.TIGER import TIGER
             model = TIGER(config)
             model.set_hyper(temperature)
-        elif backbone == "PBATransformers":
-            from SeqRec.models.PBATransformers import PBATransformersForConditionalGeneration
+        elif backbone == "PBATransformer":
+            from SeqRec.models.PBATransformer import PBATransformerForConditionalGeneration
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
             single_item = first_dataset.get_behavior_item(
@@ -298,8 +298,8 @@ class TrainMBDecoder(MultiGPUTask):
                 )
             config.n_positions = max_his_len
             config.use_user_token = False
-            self.info(f"PBATransformers Model Config: {config}")
-            model = PBATransformersForConditionalGeneration(config)
+            self.info(f"PBATransformer Model Config: {config}")
+            model = PBATransformerForConditionalGeneration(config)
         elif backbone == "Qwen3":
             from SeqRec.models.Qwen import Qwen3WithTemperature
             model = Qwen3WithTemperature(config)

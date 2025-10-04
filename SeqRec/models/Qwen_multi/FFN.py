@@ -72,7 +72,7 @@ class MyQwen3SessionMoeMultiSparseMLP(nn.Module):
         return next_states
 
 
-class PBATransformersMlp(T5DenseActDense):
+class PBATransformerMlp(T5DenseActDense):
     def __init__(self, config, behavior_injection: bool = False):
         super(T5DenseActDense, self).__init__()
         if behavior_injection:
@@ -88,11 +88,11 @@ class PBATransformersMlp(T5DenseActDense):
         self.act = ACT2FN[config.hidden_act]
 
 
-class PBATransformersSparseMLP(nn.Module):
+class PBATransformerSparseMLP(nn.Module):
     def __init__(
         self,
         config,
-        expert_class: nn.Module = PBATransformersMlp,
+        expert_class: nn.Module = PBATransformerMlp,
         is_sparse: bool = False,
         behavior_injection: bool = False,
     ):

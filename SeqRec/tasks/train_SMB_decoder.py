@@ -202,9 +202,9 @@ class TrainSMBDecoder(MultiGPUTask):
             assert isinstance(
                 tokenizer, T5Tokenizer
             ), "Expected T5Tokenizer for TIGER backbone"
-        elif backbone == "PBATransformers":
+        elif backbone == "PBATransformer":
             from transformers import T5Tokenizer
-            from SeqRec.models.PBATransformers import PBATransformerConfig
+            from SeqRec.models.PBATransformer import PBATransformerConfig
             config: PBATransformerConfig = PBATransformerConfig.from_pretrained(
                 base_model
             )
@@ -215,10 +215,10 @@ class TrainSMBDecoder(MultiGPUTask):
             )
             assert isinstance(
                 tokenizer, T5Tokenizer
-            ), "Expected T5Tokenizer for PBATransformers backbone"
-        elif backbone == "PBATransformers_session" or backbone == "PBATransformers_time":
+            ), "Expected T5Tokenizer for PBATransformer backbone"
+        elif backbone == "PBATransformer_session" or backbone == "PBATransformer_time":
             from transformers import T5Tokenizer
-            from SeqRec.models.PBATransformers_session import PBATransformerConfigSession
+            from SeqRec.models.PBATransformer_session import PBATransformerConfigSession
             config: PBATransformerConfig = PBATransformerConfigSession.from_pretrained(
                 base_model
             )
@@ -229,7 +229,7 @@ class TrainSMBDecoder(MultiGPUTask):
             )
             assert isinstance(
                 tokenizer, T5Tokenizer
-            ), "Expected T5Tokenizer for PBATransformers backbone"
+            ), "Expected T5Tokenizer for PBATransformer backbone"
         elif backbone in ["Qwen3", "Qwen3Moe", "Qwen3Moeaction", "Qwen3Session", "Qwen3SessionMoe", "Qwen3Multi", "Qwen3MultiWosession"]:
             from transformers import Qwen3Config, Qwen2Tokenizer
             config: Qwen3Config = Qwen3Config.from_pretrained(base_model)
@@ -280,7 +280,7 @@ class TrainSMBDecoder(MultiGPUTask):
             from SeqRec.models.TIGER import TIGER
             model = TIGER(config)
             model.set_hyper(temperature)
-        elif backbone in ["PBATransformers", "PBATransformers_session", "PBATransformers_time"]:
+        elif backbone in ["PBATransformer", "PBATransformer_session", "PBATransformer_time"]:
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
             single_item = first_dataset.get_behavior_item(
@@ -314,13 +314,13 @@ class TrainSMBDecoder(MultiGPUTask):
                 )
             config.n_positions = max_his_len
             config.use_user_token = False
-            self.info(f"PBATransformers Model Config: {config}")
-            if backbone == "PBATransformers":
-                from SeqRec.models.PBATransformers import PBATransformersForConditionalGeneration
-                model = PBATransformersForConditionalGeneration(config)
+            self.info(f"PBATransformer Model Config: {config}")
+            if backbone == "PBATransformer":
+                from SeqRec.models.PBATransformer import PBATransformerForConditionalGeneration
+                model = PBATransformerForConditionalGeneration(config)
             else:
-                from SeqRec.models.PBATransformers_session import PBATransformersForConditionalGenerationSession
-                model = PBATransformersForConditionalGenerationSession(config)
+                from SeqRec.models.PBATransformer_session import PBATransformerForConditionalGenerationSession
+                model = PBATransformerForConditionalGenerationSession(config)
             model.set_hyper(temperature)
         elif backbone == "Qwen3":
             from SeqRec.models.Qwen import Qwen3WithTemperature
@@ -404,7 +404,7 @@ class TrainSMBDecoder(MultiGPUTask):
             model.is_parallelizable = True
             model.model_parallel = True
 
-        if backbone in ["PBATransformers_session", "PBATransformers_time"]:
+        if backbone in ["PBATransformer_session", "PBATransformer_time"]:
             label_names = ['input_ids', 'labels', 'behavior', 'session_ids', 'time', 'split']
         elif backbone in ["Qwen3Session", "Qwen3SessionMoe", "Qwen3Multi", "Qwen3MultiWosession"]:
             label_names = ['input_ids', 'labels', 'session_ids', 'extended_session_ids', 'split', 'actions']

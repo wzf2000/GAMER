@@ -16,7 +16,7 @@ from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeRMSNorm, apply_rotary_pos_emb, eager_attention_forward
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from SeqRec.models.Qwen_multi_wosession.router import Qwen3MoeMultiDecoderRouter
-from SeqRec.models.Qwen_multi_wosession.FFN import MyQwen3MoeMultiSparseMLP, PBATransformersSparseMLP
+from SeqRec.models.Qwen_multi_wosession.FFN import MyQwen3MoeMultiSparseMLP, PBATransformerSparseMLP
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.activations import ACT2FN
 
@@ -164,13 +164,13 @@ class Qwen3DecoderLayerMoeMulti(nn.Module):
             self.post_self_attention_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
         if "mlp_type" not in config:
-            self.mlp_type = "PBATransformers"
+            self.mlp_type = "PBATransformer"
         else:
             self.mlp_type = config.mlp_type
         if self.mlp_type == "Qwen3":
             self.mlp = MyQwen3MoeMultiSparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
         else:
-            self.mlp = PBATransformersSparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
+            self.mlp = PBATransformerSparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
         self.input_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_cross_attention_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.dropout = nn.Dropout(config.dropout_rate)

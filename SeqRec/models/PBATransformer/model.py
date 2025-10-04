@@ -26,13 +26,13 @@ from transformers.models.switch_transformers.modeling_switch_transformers import
     SwitchTransformersAttention,
 )
 
-from SeqRec.models.PBATransformers_session.configuration import PBATransformerConfigSession
-from SeqRec.models.PBATransformers_session.router import PBAEncoderRouterSession, PBADecoderRouterSession
-from SeqRec.models.PBATransformers_session.FFN import (
-    PBATransformersDenseActDense,
-    PBATransformersSparseMLPSession,
+from SeqRec.models.PBATransformer.configuration import PBATransformerConfig
+from SeqRec.models.PBATransformer.router import PBAEncoderRouter, PBADecoderRouter
+from SeqRec.models.PBATransformer.FFN import (
+    PBATransformerDenseActDense,
+    PBATransformerSparseMLP,
 )
-from SeqRec.models.PBATransformers_session.block import PBATransformersBlockSession
+from SeqRec.models.PBATransformer.block import PBATransformerBlock
 
 
 if is_torch_flex_attn_available():
@@ -41,18 +41,18 @@ if is_torch_flex_attn_available():
     from transformers.integrations.flex_attention import make_flex_block_causal_mask
 
 
-class PBATransformersPreTrainedModel(PreTrainedModel):
+class PBATransformerPreTrainedModel(PreTrainedModel):
     """
     An abstract class to handle weights initialization and a simple interface for downloading and loading pretrained
     models.
     """
 
-    config_class = PBATransformerConfigSession
+    config_class = PBATransformerConfig
     base_model_prefix = "switch_transformers"
     supports_gradient_checkpointing = True
     _supports_cache_class = True
     _supports_static_cache = False
-    _no_split_modules = ["PBATransformersBlock"]
+    _no_split_modules = ["PBATransformerBlock"]
 
     @property
     def dummy_inputs(self):
@@ -74,14 +74,14 @@ class PBATransformersPreTrainedModel(PreTrainedModel):
             module.weight.data.fill_(factor * 1.0)
         elif isinstance(
             module,
-            (PBATransformersForConditionalGenerationSession),
+            PBATransformerForConditionalGeneration,
         ):
             # Mesh TensorFlow embeddings initialization
             # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L1624
             module.shared.weight.data.normal_(mean=0.0, std=factor * 1.0)
             if hasattr(module, "lm_head") and not self.config.tie_word_embeddings:
                 module.lm_head.weight.data.normal_(mean=0.0, std=factor * 1.0)
-        elif isinstance(module, PBATransformersDenseActDense):
+        elif isinstance(module, PBATransformerDenseActDense):
             # Mesh TensorFlow FF initialization
             # See https://github.com/tensorflow/mesh/blob/master/mesh_tensorflow/transformer/transformer_layers.py#L56
             # and https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L89
@@ -113,7 +113,7 @@ class PBATransformersPreTrainedModel(PreTrainedModel):
                 module.relative_attention_bias.weight.data.normal_(
                     mean=0.0, std=factor * ((d_model) ** -0.5)
                 )
-        elif isinstance(module, PBATransformersSparseMLPSession):
+        elif isinstance(module, PBATransformerSparseMLP):
             # Mesh TensorFlow attention initialization to avoid scaling before softmax
             # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/attention.py#L136
             d_model = self.config.d_model
@@ -167,8 +167,8 @@ class PBATransformersPreTrainedModel(PreTrainedModel):
         return shifted_input_ids
 
 
-class PBATransformersStackSession(PBATransformersPreTrainedModel):
-    def __init__(self, config: PBATransformerConfigSession, embed_tokens: nn.Embedding | None = None):
+class PBATransformerStack(PBATransformerPreTrainedModel):
+    def __init__(self, config: PBATransformerConfig, embed_tokens: nn.Embedding | None = None):
         super().__init__(config)
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.d_model)
@@ -178,9 +178,9 @@ class PBATransformersStackSession(PBATransformersPreTrainedModel):
 
         self.is_decoder = config.is_decoder
         if self.is_decoder:
-            self.router = PBADecoderRouterSession(1, config)
+            self.router = PBADecoderRouter(1, config)
         else:
-            self.router = PBAEncoderRouterSession(config.n_positions, config)
+            self.router = PBAEncoderRouter(config.n_positions, config)
         self.sparse_layers = (
             config.sparse_layers_decoder
             if self.is_decoder
@@ -191,21 +191,6 @@ class PBATransformersStackSession(PBATransformersPreTrainedModel):
             if self.is_decoder
             else config.behavior_injection_encoder
         )
-        session_injection_layers = (
-            config.session_injection_decoder
-            if self.is_decoder
-            else config.session_injection_encoder
-        )
-        time_embedding_layers = (
-            config.time_embedding_decoder
-            if self.is_decoder
-            else config.time_embedding_encoder
-        )
-        session_embedding_layers = (
-            config.session_embedding_decoder
-            if self.is_decoder
-            else config.session_embedding_encoder
-        )
         config.num_layers = (
             config.num_decoder_layers if self.is_decoder else config.num_layers
         )
@@ -213,19 +198,13 @@ class PBATransformersStackSession(PBATransformersPreTrainedModel):
         for i in range(config.num_layers):
             is_sparse = i in self.sparse_layers
             is_injection = i in behavior_injection_layers
-            is_session = i in session_injection_layers
-            is_time_embedding = i in time_embedding_layers
-            is_session_embedding = i in session_embedding_layers
             self.block.append(
-                PBATransformersBlockSession(
+                PBATransformerBlock(
                     config,
                     has_relative_attention_bias=bool(i == 0),
                     is_sparse=is_sparse,
                     layer_idx=i,
                     behavior_injection=is_injection,
-                    session_injection=is_session,
-                    time_embedding=is_time_embedding,
-                    session_embedding=is_session_embedding,
                 )
             )
 
@@ -262,8 +241,6 @@ class PBATransformersStackSession(PBATransformersPreTrainedModel):
         output_router_logits: bool | None = True,
         return_dict: bool | None = None,
         cache_position: torch.LongTensor | None = None,
-        session_ids: torch.LongTensor | None = None,
-        time: torch.FloatTensor | None = None,
     ):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         output_attentions = (
@@ -347,14 +324,12 @@ class PBATransformersStackSession(PBATransformersPreTrainedModel):
             )
 
         if self.is_decoder:
-            position_indices, behavior_indices, session_indices, times = self.router(
+            position_indices, behavior_indices = self.router(
                 input_ids,
                 cache_position=cache_position,
-                session_ids=session_ids,
-                times=time,
             )
         else:
-            position_indices, behavior_indices, session_indices, times = self.router(input_ids, session_ids=session_ids, times=time)
+            position_indices, behavior_indices = self.router(input_ids)
 
         if attention_mask is None and not is_torchdynamo_compiling():
             # required mask seq length can be calculated via length of past
@@ -437,8 +412,6 @@ class PBATransformersStackSession(PBATransformersPreTrainedModel):
                 output_router_logits=output_router_logits,
                 return_dict=return_dict,
                 cache_position=cache_position,
-                session_indices=session_indices,
-                times=times,
             )
 
             router_probs = layer_outputs[-1]
@@ -629,14 +602,14 @@ class PBATransformersStackSession(PBATransformersPreTrainedModel):
         return causal_mask
 
 
-class PBATransformersForConditionalGenerationSession(PBATransformersPreTrainedModel, GenerationMixin):
+class PBATransformerForConditionalGeneration(PBATransformerPreTrainedModel, GenerationMixin):
     _tied_weights_keys = [
         "encoder.embed_tokens.weight",
         "decoder.embed_tokens.weight",
         "lm_head.weight",
     ]
 
-    def __init__(self, config: PBATransformerConfigSession):
+    def __init__(self, config: PBATransformerConfig):
         super().__init__(config)
         self.model_dim = config.d_model
 
@@ -646,13 +619,13 @@ class PBATransformersForConditionalGenerationSession(PBATransformersPreTrainedMo
         encoder_config.is_decoder = False
         encoder_config.use_cache = False
         encoder_config.is_encoder_decoder = False
-        self.encoder = PBATransformersStackSession(encoder_config, self.shared)
+        self.encoder = PBATransformerStack(encoder_config, self.shared)
 
         decoder_config = copy.deepcopy(config)
         decoder_config.is_decoder = True
         decoder_config.is_encoder_decoder = False
         decoder_config.num_layers = config.num_decoder_layers
-        self.decoder = PBATransformersStackSession(decoder_config, self.shared)
+        self.decoder = PBATransformerStack(decoder_config, self.shared)
 
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
@@ -688,10 +661,10 @@ class PBATransformersForConditionalGenerationSession(PBATransformersPreTrainedMo
     def get_output_embeddings(self) -> nn.Embedding:
         return self.lm_head
 
-    def get_encoder(self) -> PBATransformersStackSession:
+    def get_encoder(self) -> PBATransformerStack:
         return self.encoder
 
-    def get_decoder(self) -> PBATransformersStackSession:
+    def get_decoder(self) -> PBATransformerStack:
         return self.decoder
 
     def forward(
@@ -714,9 +687,6 @@ class PBATransformersForConditionalGenerationSession(PBATransformersPreTrainedMo
         output_router_logits: bool | None = True,
         return_dict: bool | None = None,
         cache_position: torch.LongTensor | None = None,
-        behavior: torch.LongTensor | None = None,
-        session_ids: torch.LongTensor | None = None,
-        time: torch.FloatTensor | None = None,
         split: str = None,
     ) -> tuple[torch.FloatTensor, ...] | Seq2SeqMoEOutput:
         r"""
@@ -772,8 +742,6 @@ class PBATransformersForConditionalGenerationSession(PBATransformersPreTrainedMo
                 output_hidden_states=output_hidden_states,
                 output_router_logits=output_router_logits,
                 return_dict=return_dict,
-                session_ids=session_ids,
-                time=time,
             )
         elif return_dict and not isinstance(encoder_outputs, MoEModelOutput):
             encoder_outputs = MoEModelOutput(
@@ -812,8 +780,6 @@ class PBATransformersForConditionalGenerationSession(PBATransformersPreTrainedMo
             output_router_logits=output_router_logits,
             return_dict=return_dict,
             cache_position=cache_position,
-            session_ids=None,
-            time=None,
         )
 
         sequence_output = decoder_outputs[0]

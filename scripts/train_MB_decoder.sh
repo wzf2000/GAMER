@@ -19,8 +19,8 @@ task_dir=${tasks//,/-}
 
 if [ "${backbone}" = "TIGER" ]; then
     base_model=./ckpt/s2s-models/TIGER
-elif [ "${backbone}" = "PBATransformers" ]; then
-    base_model=./ckpt/s2s-models/PBATransformers
+elif [ "${backbone}" = "PBATransformer" ]; then
+    base_model=./ckpt/s2s-models/PBATransformer
 elif [ "${backbone}" = "Qwen3" ]; then
     base_model=./ckpt/s2s-models/Qwen3-Light
 else

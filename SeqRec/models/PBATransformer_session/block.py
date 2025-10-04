@@ -5,11 +5,11 @@ from transformers.models.switch_transformers.modeling_switch_transformers import
     SwitchTransformersLayerCrossAttention,
 )
 
-from SeqRec.models.PBATransformers_session.configuration import PBATransformerConfigSession
-from SeqRec.models.PBATransformers_session.FFN import PBATransformersLayerFFSession
+from SeqRec.models.PBATransformer_session.configuration import PBATransformerConfigSession
+from SeqRec.models.PBATransformer_session.FFN import PBATransformerLayerFFSession
 
 
-class PBATransformersBlockSession(nn.Module):
+class PBATransformerBlockSession(nn.Module):
     def __init__(
         self,
         config: PBATransformerConfigSession,
@@ -34,7 +34,7 @@ class PBATransformersBlockSession(nn.Module):
             self.layer.append(SwitchTransformersLayerCrossAttention(config, layer_idx=layer_idx))
 
         self.layer.append(
-            PBATransformersLayerFFSession(
+            PBATransformerLayerFFSession(
                 config, is_sparse=self.is_sparse, behavior_injection=behavior_injection, session_injection=session_injection,
             )
         )

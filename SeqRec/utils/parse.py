@@ -13,7 +13,7 @@ def parse_global_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParse
         "--backbone",
         type=str,
         default="TIGER",
-        help="The backbone model to use, e.g., TIGER, PBATransformers, etc.",
+        help="The backbone model to use, e.g., TIGER, PBATransformer, etc.",
     )
     parser.add_argument(
         "--base_model",
