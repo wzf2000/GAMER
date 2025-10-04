@@ -175,26 +175,6 @@ class TestSMBDecoder(MultiGPUTask):
                     return_dict_in_generate=True,
                     early_stopping=True,
                 )
-            elif self.backbone in ["PBATransformer_session", "PBATransformer_time"]:
-                output: "GenerateBeamOutput" = (
-                    self.model
-                    if isinstance(self.model, GenerationMixin)
-                    else
-                    self.model.module
-                ).generate(
-                    input_ids=inputs.input_ids,
-                    attention_mask=inputs.attention_mask,
-                    decoder_input_ids=torch.tensor(decoder_input_ids, device=self.device),
-                    max_new_tokens=self.sole_item_len,
-                    prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
-                    num_beams=num_beams,
-                    num_return_sequences=num_beams,
-                    output_scores=True,
-                    return_dict_in_generate=True,
-                    early_stopping=True,
-                    session_ids=inputs.session_ids,
-                    time=inputs.time,
-                )
             else:
                 output: "GenerateBeamOutput" = (
                     self.model
@@ -382,12 +362,6 @@ class TestSMBDecoder(MultiGPUTask):
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
             self.model = PBATransformerForConditionalGeneration.from_pretrained(ckpt_path).to(self.device)
             self.config: PBATransformerConfig = self.model.config
-        elif backbone in ['PBATransformer_session', 'PBATransformer_time']:
-            from transformers import T5Tokenizer
-            from SeqRec.models.PBATransformer_session import PBATransformerConfigSession, PBATransformerForConditionalGenerationSession
-            self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
-            self.model = PBATransformerForConditionalGenerationSession.from_pretrained(ckpt_path).to(self.device)
-            self.config: PBATransformerConfigSession = self.model.config
         elif backbone == 'Qwen3':
             from transformers import Qwen3Config, Qwen2Tokenizer
             from SeqRec.models.Qwen import Qwen3WithTemperature
