@@ -10,12 +10,12 @@ from SeqRec.datasets.SMB_dis_dataset import SMBDisDataset, SMBDisUserLevelDatase
 from SeqRec.datasets.loading_SMB_dis import load_SMBDis_datasets, load_SMBDis_test_dataset
 from SeqRec.datasets.collator_traditional import TraditionalCollator, TraditionalTestCollator, TraditionalUserLevelCollator
 from SeqRec.modules.model_base.seq_model import SeqModel
-from SeqRec.models.GRU4Rec import GRU4Rec, GRU4RecConfig
-from SeqRec.models.SASRec import SASRec, SASRecConfig
-from SeqRec.models.BERT4Rec import BERT4Rec, BERT4RecConfig
-from SeqRec.models.MBHT import MBHT, MBHTConfig
-from SeqRec.models.MBSTR import MBSTR, MBSTRConfig
-from SeqRec.models.PBAT import PBAT, PBATConfig
+from SeqRec.models.discriminative.GRU4Rec import GRU4Rec, GRU4RecConfig
+from SeqRec.models.discriminative.SASRec import SASRec, SASRecConfig
+from SeqRec.models.discriminative.BERT4Rec import BERT4Rec, BERT4RecConfig
+from SeqRec.models.discriminative.MBHT import MBHT, MBHTConfig
+from SeqRec.models.discriminative.MBSTR import MBSTR, MBSTRConfig
+from SeqRec.models.discriminative.PBAT import PBAT, PBATConfig
 from SeqRec.utils.config import Config
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args

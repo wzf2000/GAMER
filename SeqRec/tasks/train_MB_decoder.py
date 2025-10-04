@@ -203,7 +203,7 @@ class TrainMBDecoder(MultiGPUTask):
             ), "Expected T5Tokenizer for TIGER backbone"
         elif backbone == "PBATransformer":
             from transformers import T5Tokenizer
-            from SeqRec.models.PBATransformer import PBATransformerConfig
+            from SeqRec.models.generative.PBATransformer import PBATransformerConfig
             config: PBATransformerConfig = PBATransformerConfig.from_pretrained(
                 base_model
             )
@@ -263,11 +263,11 @@ class TrainMBDecoder(MultiGPUTask):
             collator = EncoderDecoderCollator(tokenizer)
 
         if backbone == "TIGER":
-            from SeqRec.models.TIGER import TIGER
+            from SeqRec.models.generative.TIGER import TIGER
             model = TIGER(config)
             model.set_hyper(temperature)
         elif backbone == "PBATransformer":
-            from SeqRec.models.PBATransformer import PBATransformerForConditionalGeneration
+            from SeqRec.models.generative.PBATransformer import PBATransformerForConditionalGeneration
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
             single_item = first_dataset.get_behavior_item(
@@ -311,11 +311,11 @@ class TrainMBDecoder(MultiGPUTask):
             self.info(f"PBATransformer Model Config: {config}")
             model = PBATransformerForConditionalGeneration(config)
         elif backbone == "Qwen3":
-            from SeqRec.models.Qwen3 import Qwen3WithTemperature
+            from SeqRec.models.generative.Qwen3 import Qwen3WithTemperature
             model = Qwen3WithTemperature(config)
             model.set_hyper(temperature)
         elif backbone == "Qwen3Moe":
-            from SeqRec.models.Qwen3Moe import Qwen3MoeWithTemperature
+            from SeqRec.models.generative.Qwen3Moe import Qwen3MoeWithTemperature
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
             if isinstance(first_dataset, BaseMBDataset):

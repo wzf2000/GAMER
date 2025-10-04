@@ -261,19 +261,19 @@ class TestMBDecoder(MultiGPUTask):
         self.init(seed, False)
         if backbone == 'TIGER':
             from transformers import T5Config, T5Tokenizer
-            from SeqRec.models.TIGER import TIGER
+            from SeqRec.models.generative.TIGER import TIGER
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
             self.model = TIGER.from_pretrained(ckpt_path).to(self.device)
             self.config: T5Config = self.model.config
         elif backbone == 'PBATransformer':
             from transformers import T5Tokenizer
-            from SeqRec.models.PBATransformer import PBATransformerConfig, PBATransformerForConditionalGeneration
+            from SeqRec.models.generative.PBATransformer import PBATransformerConfig, PBATransformerForConditionalGeneration
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
             self.model = PBATransformerForConditionalGeneration.from_pretrained(ckpt_path).to(self.device)
             self.config: PBATransformerConfig = self.model.config
         elif backbone == 'Qwen3':
             from transformers import Qwen3Config, Qwen2Tokenizer
-            from SeqRec.models.Qwen3 import Qwen3WithTemperature
+            from SeqRec.models.generative.Qwen3 import Qwen3WithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3WithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:

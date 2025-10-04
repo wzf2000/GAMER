@@ -105,7 +105,7 @@ class Tokenize(Task):
         all_indices_str: np.ndarray,
         labels: dict[str, list[int]] | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        from SeqRec.models.tokenizer.layers import sinkhorn_algorithm
+        from SeqRec.models.tokenizer.RQVAE.layers import sinkhorn_algorithm
         tt = 0
         # There are often duplicate items in the dataset, and we no longer differentiate them
         while True:
@@ -214,7 +214,7 @@ class Tokenize(Task):
         epoch: int,
         checkpoint: str,
     ):
-        from SeqRec.models.tokenizer import RQVAE
+        from SeqRec.models.tokenizer.RQVAE import RQVAE
         ckpt_path = os.path.join(root_path, self.dataset, f'alpha{alpha}-beta{beta}', checkpoint)
         self.output_file = os.path.join(
             self.output_dir,

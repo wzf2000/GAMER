@@ -16,7 +16,7 @@ from SeqRec.utils.logging import set_color
 from SeqRec.utils.time import get_local_time
 from SeqRec.utils.pipe import get_tqdm
 from SeqRec.datasets.emb_dataset import EmbDataset
-from SeqRec.models.tokenizer import RQVAE
+from SeqRec.models.tokenizer.RQVAE import RQVAE
 
 
 class Trainer:

@@ -204,7 +204,7 @@ class TrainSMBDecoder(MultiGPUTask):
             ), "Expected T5Tokenizer for TIGER backbone"
         elif backbone == "PBATransformer":
             from transformers import T5Tokenizer
-            from SeqRec.models.PBATransformer import PBATransformerConfig
+            from SeqRec.models.generative.PBATransformer import PBATransformerConfig
             config: PBATransformerConfig = PBATransformerConfig.from_pretrained(
                 base_model
             )
@@ -273,7 +273,7 @@ class TrainSMBDecoder(MultiGPUTask):
             collator = EncoderDecoderCollator(tokenizer)
 
         if backbone == "TIGER":
-            from SeqRec.models.TIGER import TIGER
+            from SeqRec.models.generative.TIGER import TIGER
             model = TIGER(config)
             model.set_hyper(temperature)
         elif backbone == "PBATransformer":
@@ -311,11 +311,11 @@ class TrainSMBDecoder(MultiGPUTask):
             config.n_positions = max_his_len
             config.use_user_token = False
             self.info(f"PBATransformer Model Config: {config}")
-            from SeqRec.models.PBATransformer import PBATransformerForConditionalGeneration
+            from SeqRec.models.generative.PBATransformer import PBATransformerForConditionalGeneration
             model = PBATransformerForConditionalGeneration(config)
             model.set_hyper(temperature)
         elif backbone == "Qwen3":
-            from SeqRec.models.Qwen3 import Qwen3WithTemperature
+            from SeqRec.models.generative.Qwen3 import Qwen3WithTemperature
             model = Qwen3WithTemperature(config)
             model.set_hyper(temperature)
         elif backbone in ["Qwen3Moe", "Qwen3ActionMoe", "Qwen3SessionMoe", "Qwen3Multi", "Qwen3SessionMulti"]:
@@ -360,23 +360,23 @@ class TrainSMBDecoder(MultiGPUTask):
                 config.model_max_length = model_max_length
             self.info(f"Model Config: {config}")
             if backbone == "Qwen3Moe":
-                from SeqRec.models.Qwen3Moe import Qwen3MoeWithTemperature
+                from SeqRec.models.generative.Qwen3Moe import Qwen3MoeWithTemperature
                 model = Qwen3MoeWithTemperature(config)
             elif backbone == "Qwen3ActionMoe":
-                from SeqRec.models.Qwen3MoeAction import Qwen3ActionMoeWithTemperature
+                from SeqRec.models.generative.Qwen3MoeAction import Qwen3ActionMoeWithTemperature
                 model = Qwen3ActionMoeWithTemperature(config)
             elif backbone == "Qwen3SessionMoe":
-                from SeqRec.models.Qwen3SessionMoe import Qwen3SessionMoeWithTemperature
+                from SeqRec.models.generative.Qwen3SessionMoe import Qwen3SessionMoeWithTemperature
                 model = Qwen3SessionMoeWithTemperature(config)
             elif backbone == "Qwen3Multi":
-                from SeqRec.models.Qwen3Multi import Qwen3MultiWithTemperature
+                from SeqRec.models.generative.Qwen3Multi import Qwen3MultiWithTemperature
                 model = Qwen3MultiWithTemperature(config)
             else:
-                from SeqRec.models.Qwen3SessionMulti import Qwen3SessionMultiWithTemperature
+                from SeqRec.models.generative.Qwen3SessionMulti import Qwen3SessionMultiWithTemperature
                 model = Qwen3SessionMultiWithTemperature(config)
             model.set_hyper(temperature)
         elif backbone == "Qwen3Session":
-            from SeqRec.models.Qwen3Session import Qwen3SessionWithTemperature
+            from SeqRec.models.generative.Qwen3Session import Qwen3SessionWithTemperature
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
             single_item = first_dataset.get_behavior_item(

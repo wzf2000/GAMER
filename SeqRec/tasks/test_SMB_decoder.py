@@ -352,19 +352,19 @@ class TestSMBDecoder(MultiGPUTask):
         self.init(seed, False)
         if backbone == 'TIGER':
             from transformers import T5Config, T5Tokenizer
-            from SeqRec.models.TIGER import TIGER
+            from SeqRec.models.generative.TIGER import TIGER
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
             self.model = TIGER.from_pretrained(ckpt_path).to(self.device)
             self.config: T5Config = self.model.config
         elif backbone == 'PBATransformer':
             from transformers import T5Tokenizer
-            from SeqRec.models.PBATransformer import PBATransformerConfig, PBATransformerForConditionalGeneration
+            from SeqRec.models.generative.PBATransformer import PBATransformerConfig, PBATransformerForConditionalGeneration
             self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
             self.model = PBATransformerForConditionalGeneration.from_pretrained(ckpt_path).to(self.device)
             self.config: PBATransformerConfig = self.model.config
         elif backbone == 'Qwen3':
             from transformers import Qwen3Config, Qwen2Tokenizer
-            from SeqRec.models.Qwen3 import Qwen3WithTemperature
+            from SeqRec.models.generative.Qwen3 import Qwen3WithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3WithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
@@ -372,7 +372,7 @@ class TestSMBDecoder(MultiGPUTask):
             self.config: Qwen3Config = self.model.config
         elif backbone == 'Qwen3Moe':
             from transformers import Qwen3MoeConfig, Qwen2Tokenizer
-            from SeqRec.models.Qwen3Moe import Qwen3MoeWithTemperature
+            from SeqRec.models.generative.Qwen3Moe import Qwen3MoeWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3MoeWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
@@ -380,7 +380,7 @@ class TestSMBDecoder(MultiGPUTask):
             self.config: Qwen3MoeConfig = self.model.config
         elif backbone == 'Qwen3ActionMoe':
             from transformers import Qwen3MoeConfig, Qwen2Tokenizer
-            from SeqRec.models.Qwen3MoeAction import Qwen3ActionMoeWithTemperature
+            from SeqRec.models.generative.Qwen3MoeAction import Qwen3ActionMoeWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3ActionMoeWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
@@ -388,7 +388,7 @@ class TestSMBDecoder(MultiGPUTask):
             self.config: Qwen3MoeConfig = self.model.config
         elif backbone == 'Qwen3Session':
             from transformers import Qwen3Config, Qwen2Tokenizer
-            from SeqRec.models.Qwen3Session import Qwen3SessionWithTemperature
+            from SeqRec.models.generative.Qwen3Session import Qwen3SessionWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3SessionWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
@@ -396,7 +396,7 @@ class TestSMBDecoder(MultiGPUTask):
             self.config: Qwen3Config = self.model.config
         elif backbone == "Qwen3SessionMoe":
             from transformers import Qwen3MoeConfig, Qwen2Tokenizer
-            from SeqRec.models.Qwen3SessionMoe import Qwen3SessionMoeWithTemperature
+            from SeqRec.models.generative.Qwen3SessionMoe import Qwen3SessionMoeWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3SessionMoeWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
@@ -404,7 +404,7 @@ class TestSMBDecoder(MultiGPUTask):
             self.config: Qwen3MoeConfig = self.model.config
         elif backbone == "Qwen3Multi":
             from transformers import Qwen3MoeConfig, Qwen2Tokenizer
-            from SeqRec.models.Qwen3Multi import Qwen3MultiWithTemperature
+            from SeqRec.models.generative.Qwen3Multi import Qwen3MultiWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3MultiWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
@@ -412,7 +412,7 @@ class TestSMBDecoder(MultiGPUTask):
             self.config: Qwen3MoeConfig = self.model.config
         elif backbone == "Qwen3SessionMulti":
             from transformers import Qwen3MoeConfig, Qwen2Tokenizer
-            from SeqRec.models.Qwen3SessionMulti import Qwen3SessionMultiWithTemperature
+            from SeqRec.models.generative.Qwen3SessionMulti import Qwen3SessionMultiWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3SessionMultiWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:

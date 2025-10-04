@@ -164,7 +164,7 @@ class TrainRQVAE(MultiGPUTask):
         else:
             cf_emb = np.zeros((len(self.dataset), e_dim), dtype=np.float32)
 
-        from SeqRec.models.tokenizer import RQVAE
+        from SeqRec.models.tokenizer.RQVAE import RQVAE
         self.model = RQVAE(
             in_dim=self.dataset.dim,
             num_emb_list=num_emb_list,
