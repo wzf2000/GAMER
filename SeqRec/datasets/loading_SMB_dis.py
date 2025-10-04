@@ -1,15 +1,15 @@
 from torch.utils.data import ConcatDataset
 
-from SeqRec.datasets.SSeq_dataset import SSeqDataset, SSeqTargetDataset, SSeqUserLevelDataset, SSeqNegSampleDataset, SSeqNegSampleEvalDataset, SSeqTargetNegSampleEvalDataset
+from SeqRec.datasets.SMB_dis_dataset import SMBDisDataset, SMBDisTargetDataset, SMBDisUserLevelDataset, SMBDisNegSampleDataset, SMBDisNegSampleEvalDataset, SMBDisTargetNegSampleEvalDataset
 
 
-def load_SSeq_datasets(
+def load_SMBDis_datasets(
     dataset: str,
     data_path: str,
     max_his_len: int,
     tasks: str,
     add_uid: bool = False,
-) -> tuple[ConcatDataset, SSeqDataset]:
+) -> tuple[ConcatDataset, SMBDisDataset]:
     tasks: list[str] = tasks.split(",")
     seq_type = None
 
@@ -17,7 +17,7 @@ def load_SSeq_datasets(
     for task in tasks:
         if task.lower() == "sseq":
             seq_type = "sseq"
-            single_dataset = SSeqDataset(
+            single_dataset = SMBDisDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -27,7 +27,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_sample":
             seq_type = "sseq_sample"
-            single_dataset = SSeqDataset(
+            single_dataset = SMBDisDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -37,7 +37,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_diff":
             seq_type = "sseq_diff"
-            single_dataset = SSeqDataset(
+            single_dataset = SMBDisDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -47,7 +47,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_sample_diff":
             seq_type = "sseq_sample_diff"
-            single_dataset = SSeqDataset(
+            single_dataset = SMBDisDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -57,7 +57,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_target":
             seq_type = "sseq_target"
-            single_dataset = SSeqTargetDataset(
+            single_dataset = SMBDisTargetDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -67,7 +67,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_target_diff":
             seq_type = "sseq_target_diff"
-            single_dataset = SSeqTargetDataset(
+            single_dataset = SMBDisTargetDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -77,7 +77,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_decoder":
             seq_type = "sseq_target"
-            single_dataset = SSeqUserLevelDataset(
+            single_dataset = SMBDisUserLevelDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -87,7 +87,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_diff_decoder":
             seq_type = "sseq_target_diff"
-            single_dataset = SSeqUserLevelDataset(
+            single_dataset = SMBDisUserLevelDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -97,7 +97,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_sample_target":
             seq_type = "sseq_sample_target"
-            single_dataset = SSeqTargetDataset(
+            single_dataset = SMBDisTargetDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -107,7 +107,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_sample_target_diff":
             seq_type = "sseq_sample_target_diff"
-            single_dataset = SSeqTargetDataset(
+            single_dataset = SMBDisTargetDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -117,7 +117,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_sample_decoder":
             seq_type = "sseq_sample_target"
-            single_dataset = SSeqUserLevelDataset(
+            single_dataset = SMBDisUserLevelDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -127,7 +127,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_sample_diff_decoder":
             seq_type = "sseq_sample_target_diff"
-            single_dataset = SSeqUserLevelDataset(
+            single_dataset = SMBDisUserLevelDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -137,7 +137,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_neg":
             seq_type = "sseq"
-            single_dataset = SSeqNegSampleDataset(
+            single_dataset = SMBDisNegSampleDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -147,7 +147,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_sample_neg":
             seq_type = "sseq_sample"
-            single_dataset = SSeqNegSampleDataset(
+            single_dataset = SMBDisNegSampleDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -157,7 +157,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_diff_neg":
             seq_type = "sseq_diff"
-            single_dataset = SSeqNegSampleDataset(
+            single_dataset = SMBDisNegSampleDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -167,7 +167,7 @@ def load_SSeq_datasets(
             )
         elif task.lower() == "sseq_sample_diff_neg":
             seq_type = "sseq_sample_diff"
-            single_dataset = SSeqNegSampleDataset(
+            single_dataset = SMBDisNegSampleDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -182,7 +182,7 @@ def load_SSeq_datasets(
     train_data = ConcatDataset(train_datasets)
     if seq_type is not None:
         if seq_type == "sseq":
-            valid_data = SSeqDataset(
+            valid_data = SMBDisDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -191,7 +191,7 @@ def load_SSeq_datasets(
                 add_uid=add_uid,
             )
         elif seq_type == "sseq_sample":
-            valid_data = SSeqNegSampleEvalDataset(
+            valid_data = SMBDisNegSampleEvalDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -200,7 +200,7 @@ def load_SSeq_datasets(
                 add_uid=add_uid,
             )
         elif seq_type == "sseq_diff":
-            valid_data = SSeqDataset(
+            valid_data = SMBDisDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -209,7 +209,7 @@ def load_SSeq_datasets(
                 add_uid=add_uid,
             )
         elif seq_type == "sseq_sample_diff":
-            valid_data = SSeqNegSampleEvalDataset(
+            valid_data = SMBDisNegSampleEvalDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -218,7 +218,7 @@ def load_SSeq_datasets(
                 add_uid=add_uid,
             )
         elif seq_type == "sseq_target":
-            valid_data = SSeqTargetDataset(
+            valid_data = SMBDisTargetDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -227,7 +227,7 @@ def load_SSeq_datasets(
                 add_uid=add_uid,
             )
         elif seq_type == "sseq_target_diff":
-            valid_data = SSeqTargetDataset(
+            valid_data = SMBDisTargetDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -236,7 +236,7 @@ def load_SSeq_datasets(
                 add_uid=add_uid,
             )
         elif seq_type == "sseq_sample_target":
-            valid_data = SSeqTargetNegSampleEvalDataset(
+            valid_data = SMBDisTargetNegSampleEvalDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -245,7 +245,7 @@ def load_SSeq_datasets(
                 add_uid=add_uid,
             )
         elif seq_type == "sseq_sample_target_diff":
-            valid_data = SSeqTargetNegSampleEvalDataset(
+            valid_data = SMBDisTargetNegSampleEvalDataset(
                 dataset=dataset,
                 data_path=data_path,
                 max_his_len=max_his_len,
@@ -259,15 +259,15 @@ def load_SSeq_datasets(
     return train_data, valid_data
 
 
-def load_SSeq_test_dataset(
+def load_SMBDis_test_dataset(
     dataset: str,
     data_path: str,
     max_his_len: int,
     test_task: str,
     add_uid: bool = False,
-) -> SSeqDataset:
+) -> SMBDisDataset:
     if test_task.lower() == "sseq":
-        test_data = SSeqDataset(
+        test_data = SMBDisDataset(
             dataset=dataset,
             data_path=data_path,
             max_his_len=max_his_len,
@@ -276,7 +276,7 @@ def load_SSeq_test_dataset(
             add_uid=add_uid,
         )
     elif test_task.lower() == "sseq_diff":
-        test_data = SSeqDataset(
+        test_data = SMBDisDataset(
             dataset=dataset,
             data_path=data_path,
             max_his_len=max_his_len,
@@ -285,7 +285,7 @@ def load_SSeq_test_dataset(
             add_uid=add_uid,
         )
     elif test_task.lower() == "sseq_target":
-        test_data = SSeqTargetDataset(
+        test_data = SMBDisTargetDataset(
             dataset=dataset,
             data_path=data_path,
             max_his_len=max_his_len,
@@ -294,7 +294,7 @@ def load_SSeq_test_dataset(
             add_uid=add_uid,
         )
     elif test_task.lower() == "sseq_target_diff":
-        test_data = SSeqTargetDataset(
+        test_data = SMBDisTargetDataset(
             dataset=dataset,
             data_path=data_path,
             max_his_len=max_his_len,

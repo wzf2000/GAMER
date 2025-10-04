@@ -11,9 +11,9 @@ from torch.utils.data import Dataset
 from SeqRec.utils.pipe import set_seed, get_tqdm
 
 
-class BaseSSeqDataset(Dataset):
+class BaseSMBDisDataset(Dataset):
     """
-    Base class for session-wise multi-behavior sequential recommendation datasets.
+    Base class for session-wise multi-behavior sequential discriminative recommendation datasets.
     """
 
     def __init__(self, dataset: str, data_path: str, max_his_len: int, mode: str, add_uid: bool = False, **kwargs):
@@ -283,7 +283,7 @@ class BaseSSeqDataset(Dataset):
 
         return inter_data
 
-    def filter_by_behavior(self, behavior: str) -> "BaseSSeqDataset":
+    def filter_by_behavior(self, behavior: str) -> "BaseSMBDisDataset":
         if isinstance(self.inter_data[0]['behavior'], list):
             filtered_data = []
             inter_data = get_tqdm(self.inter_data, desc=f"Filtering by behavior - {behavior}")
@@ -337,7 +337,7 @@ class BaseSSeqDataset(Dataset):
         return ret
 
 
-class SSeqDataset(BaseSSeqDataset):
+class SMBDisDataset(BaseSMBDisDataset):
     """
     Session-wise multi-behavior dataset with treating the item with different behaviors as the same item (no diff) or different items (diff).
     """
@@ -372,7 +372,7 @@ class SSeqDataset(BaseSSeqDataset):
         else:
             return item + 1  # + 1 for padding index 0
 
-    def filter_by_behavior(self, behavior: str) -> "SSeqDataset":
+    def filter_by_behavior(self, behavior: str) -> "SMBDisDataset":
         if self.diff and self.mode == 'test':
             assert isinstance(self.inter_data[0]['behavior'], list)
             ret_dataset = super().filter_by_behavior(behavior)
@@ -384,7 +384,7 @@ class SSeqDataset(BaseSSeqDataset):
             return super().filter_by_behavior(behavior)
 
 
-class SSeqTargetDataset(SSeqDataset):
+class SMBDisTargetDataset(SMBDisDataset):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -477,7 +477,7 @@ class SSeqTargetDataset(SSeqDataset):
 
         return inter_data
 
-    def filter_by_behavior(self, behavior: str) -> "SSeqTargetDataset":
+    def filter_by_behavior(self, behavior: str) -> "SMBDisTargetDataset":
         ret_dataset = super().filter_by_behavior(behavior)
         for i in range(len(ret_dataset.inter_data)):
             # copy the inter_behaviors to avoid modifying the original data
@@ -486,7 +486,7 @@ class SSeqTargetDataset(SSeqDataset):
         return ret_dataset
 
 
-class SSeqNegSampleDataset(SSeqDataset):
+class SMBDisNegSampleDataset(SMBDisDataset):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -535,7 +535,7 @@ class SSeqNegSampleDataset(SSeqDataset):
         return inter_data
 
 
-class SSeqUserLevelDataset(SSeqDataset):
+class SMBDisUserLevelDataset(SMBDisDataset):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -571,7 +571,7 @@ class SSeqUserLevelDataset(SSeqDataset):
         return inter_data
 
 
-class SSeqNegSampleEvalDataset(SSeqDataset):
+class SMBDisNegSampleEvalDataset(SMBDisDataset):
     def __init__(self, num_neg: int = 1000, **kwargs):
         self.num_neg = num_neg
         super().__init__(**kwargs)
@@ -633,7 +633,7 @@ class SSeqNegSampleEvalDataset(SSeqDataset):
         return inter_data
 
 
-class SSeqTargetNegSampleEvalDataset(SSeqDataset):
+class SMBDisTargetNegSampleEvalDataset(SMBDisDataset):
     def __init__(self, num_neg: int = 1000, **kwargs):
         self.num_neg = num_neg
         super().__init__(**kwargs)
@@ -694,7 +694,7 @@ class SSeqTargetNegSampleEvalDataset(SSeqDataset):
 
         return inter_data
 
-    def filter_by_behavior(self, behavior: str) -> "SSeqTargetNegSampleEvalDataset":
+    def filter_by_behavior(self, behavior: str) -> "SMBDisTargetNegSampleEvalDataset":
         ret_dataset = super().filter_by_behavior(behavior)
         for i in range(len(ret_dataset.inter_data)):
             ret_dataset.inter_data[i]['inter_behaviors'] = ret_dataset.inter_data[i]['inter_behaviors'].copy()

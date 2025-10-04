@@ -6,8 +6,8 @@ from loguru import logger
 from torch.utils.data import DataLoader, ConcatDataset
 
 from SeqRec.tasks.base import Task
-from SeqRec.datasets.SSeq_dataset import SSeqDataset, SSeqUserLevelDataset
-from SeqRec.datasets.loading_SSeq import load_SSeq_datasets, load_SSeq_test_dataset
+from SeqRec.datasets.SMB_dis_dataset import SMBDisDataset, SMBDisUserLevelDataset
+from SeqRec.datasets.loading_SMB_dis import load_SMBDis_datasets, load_SMBDis_test_dataset
 from SeqRec.datasets.collator_traditional import TraditionalCollator, TraditionalTestCollator, TraditionalUserLevelCollator
 from SeqRec.modules.model_base.seq_model import SeqModel
 from SeqRec.models.GRU4Rec import GRU4Rec, GRU4RecConfig
@@ -23,22 +23,22 @@ from SeqRec.utils.pipe import set_seed
 from SeqRec.utils.pipe import get_tqdm
 
 
-class TrainSSeqRec(Task):
+class TrainSMBRec(Task):
     """
-    Train a SSeq recommender for the SeqRec model.
+    Train a SMB recommender for discriminative models.
     """
 
     @staticmethod
     def parser_name() -> str:
-        return "train_SSeq_rec"
+        return "train_SMB_rec"
 
     @staticmethod
     def add_sub_parsers(sub_parsers: SubParsersAction):
         """
-        Add subparsers for the TrainSSeqRec task.
+        Add subparsers for the TrainSMBRec task.
         """
         parser = sub_parsers.add_parser(
-            "train_SSeq_rec", help="Train a recommender for session-wise multi-behavior recommendation."
+            "train_SMB_rec", help="Train a recommender for session-wise multi-behavior recommendation."
         )
         parser = parse_global_args(parser)
         parser = parse_dataset_args(parser)
@@ -210,21 +210,21 @@ class TrainSSeqRec(Task):
                 name=(
                     wandb_run_name
                     if wandb_run_name != "default"
-                    else output_dir.split("checkpoint/SSeq-recommender/")[-1]
+                    else output_dir.split("checkpoint/SMB-recommender/")[-1]
                 ),
                 dir=f"runs/{self.parser_name()}",
                 job_type="train",
                 reinit="return_previous",
-                notes=f"Training SSeq recommender on {data_path} with base model {base_model}",
+                notes=f"Training SMB recommender on {data_path} with base model {base_model}",
             )
         ensure_dir(output_dir)
         if len(args) > 0 or len(kwargs) > 0:
             logger.warning("Unused parameters:", args, kwargs)
-        # backbone used for SSeq recommendation model name
+        # backbone used for SMB recommendation model name
         config_cls: type[Config] = eval(f"{backbone}Config")
         config = config_cls.from_pretrained(base_model)
 
-        train_data, valid_data = load_SSeq_datasets(
+        train_data, valid_data = load_SMBDis_datasets(
             dataset=dataset,
             data_path=data_path,
             max_his_len=max_his_len,
@@ -233,7 +233,7 @@ class TrainSSeqRec(Task):
         )
         self.target_behavior = valid_data.target_behavior
         valid_data = valid_data.filter_by_behavior(self.target_behavior)
-        first_dataset: SSeqDataset = train_data.datasets[0]
+        first_dataset: SMBDisDataset = train_data.datasets[0]
         num_items = first_dataset.num_items
         num_users = first_dataset.num_users
         self.behaviors = first_dataset.behaviors
@@ -242,7 +242,7 @@ class TrainSSeqRec(Task):
         logger.info(f"Number of items: {num_items}")
         logger.info(f"Training data size: {len(train_data)}")
 
-        if isinstance(first_dataset, SSeqUserLevelDataset):
+        if isinstance(first_dataset, SMBDisUserLevelDataset):
             logger.info("Using user-level collator for training.")
             train_collator = TraditionalUserLevelCollator()
         else:
@@ -271,7 +271,7 @@ class TrainSSeqRec(Task):
         self.device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
 
         if not only_test:
-            from SeqRec.trainers.SSeqRec import Trainer
+            from SeqRec.trainers.SMBRec import Trainer
             trainer = Trainer(
                 model=self.model,
                 train_dataloader=train_loader,
@@ -294,14 +294,14 @@ class TrainSSeqRec(Task):
             self.model.to(self.device)
 
         self.metric_list = metrics.split(",")
-        test_data = load_SSeq_test_dataset(
+        test_data = load_SMBDis_test_dataset(
             dataset=dataset,
             data_path=data_path,
             max_his_len=max_his_len,
             test_task=test_task,
             add_uid=add_uid,
         )
-        self.datasets: list[SSeqDataset] = []
+        self.datasets: list[SMBDisDataset] = []
         for behavior in self.behaviors:
             self.datasets.append(test_data.filter_by_behavior(behavior))
             self.info(f"Loaded dataset for behavior {behavior} with {len(self.datasets[-1])} samples.")
