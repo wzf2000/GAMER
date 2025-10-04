@@ -25,20 +25,20 @@ elif [ "${backbone}" = "PBATransformer" ]; then
 elif [ "${backbone}" = "Qwen3" ]; then
     base_model=./ckpt/s2s-models/Qwen3-Light
 elif [ "${backbone}" = "Qwen3Moe" ]; then
-    base_model=./ckpt/s2s-models/Qwen3-Moe
-elif [ "${backbone}" = "Qwen3Moeaction" ]; then
-    base_model=./ckpt/s2s-models/Qwen3-Moeaction
+    base_model=./ckpt/s2s-models/Qwen3Moe
+elif [ "${backbone}" = "Qwen3ActionMoe" ]; then
+    base_model=./ckpt/s2s-models/Qwen3ActionMoe
 elif [ "${backbone}" = "Qwen3Session" ]; then
     base_model=./ckpt/s2s-models/Qwen3-Light
 elif [ "${backbone}" = "Qwen3Session2" ]; then
     base_model=./ckpt/s2s-models/Qwen3-Light-2
     backbone_arg=Qwen3Session
 elif [ "${backbone}" = "Qwen3SessionMoe" ]; then
-    base_model=./ckpt/s2s-models/Qwen3-Session-Moe
+    base_model=./ckpt/s2s-models/Qwen3SessionMoe
 elif [ "${backbone}" = "Qwen3Multi" ]; then
-    base_model=./ckpt/s2s-models/Qwen3-Multi
-elif [ "${backbone}" = "Qwen3MultiWosession" ]; then
-    base_model=./ckpt/s2s-models/Qwen3-Multi-Wosession
+    base_model=./ckpt/s2s-models/Qwen3Multi
+elif [ "${backbone}" = "Qwen3SessionMulti" ]; then
+    base_model=./ckpt/s2s-models/Qwen3SessionMulti
 else
     echo "Unsupported backbone model: ${backbone}."
     exit 1
