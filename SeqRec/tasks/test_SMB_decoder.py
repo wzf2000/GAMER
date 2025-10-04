@@ -364,60 +364,60 @@ class TestSMBDecoder(MultiGPUTask):
             self.config: PBATransformerConfig = self.model.config
         elif backbone == 'Qwen3':
             from transformers import Qwen3Config, Qwen2Tokenizer
-            from SeqRec.models.Qwen import Qwen3WithTemperature
+            from SeqRec.models.Qwen3 import Qwen3WithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3WithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3Config = self.model.config
         elif backbone == 'Qwen3Moe':
-            from transformers import Qwen3Config, Qwen2Tokenizer
-            from SeqRec.models.Qwen_Moe import Qwen3WithTemperatureMoe
+            from transformers import Qwen3MoeConfig, Qwen2Tokenizer
+            from SeqRec.models.Qwen3Moe import Qwen3MoeWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
-            self.model = Qwen3WithTemperatureMoe.from_pretrained(ckpt_path).to(self.device)
+            self.model = Qwen3MoeWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
-            self.config: Qwen3Config = self.model.config
+            self.config: Qwen3MoeConfig = self.model.config
         elif backbone == 'Qwen3Moeaction':
-            from transformers import Qwen3Config, Qwen2Tokenizer
-            from SeqRec.models.Qwen_Moeaction import Qwen3WithTemperatureMoeaction
+            from transformers import Qwen3MoeConfig, Qwen2Tokenizer
+            from SeqRec.models.Qwen3MoeAction import Qwen3ActionMoeWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
-            self.model = Qwen3WithTemperatureMoeaction.from_pretrained(ckpt_path).to(self.device)
+            self.model = Qwen3ActionMoeWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
-            self.config: Qwen3Config = self.model.config
+            self.config: Qwen3MoeConfig = self.model.config
         elif backbone == 'Qwen3Session':
             from transformers import Qwen3Config, Qwen2Tokenizer
-            from SeqRec.models.Qwen_session import Qwen3SessionWithTemperature
+            from SeqRec.models.Qwen3Session import Qwen3SessionWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3SessionWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3Config = self.model.config
         elif backbone == "Qwen3SessionMoe":
-            from transformers import Qwen3Config, Qwen2Tokenizer
-            from SeqRec.models.Qwen_session_Moe import Qwen3SessionWithTemperatureMoe
+            from transformers import Qwen3MoeConfig, Qwen2Tokenizer
+            from SeqRec.models.Qwen3SessionMoe import Qwen3SessionMoeWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
-            self.model = Qwen3SessionWithTemperatureMoe.from_pretrained(ckpt_path).to(self.device)
+            self.model = Qwen3SessionMoeWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
-            self.config: Qwen3Config = self.model.config
+            self.config: Qwen3MoeConfig = self.model.config
         elif backbone == "Qwen3Multi":
-            from transformers import Qwen3Config, Qwen2Tokenizer
-            from SeqRec.models.Qwen_multi import Qwen3SessionWithTemperatureMoeMulti
+            from transformers import Qwen3MoeConfig, Qwen2Tokenizer
+            from SeqRec.models.Qwen3SessionMulti import Qwen3SessionMultiWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
-            self.model = Qwen3SessionWithTemperatureMoeMulti.from_pretrained(ckpt_path).to(self.device)
+            self.model = Qwen3SessionMultiWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
-            self.config: Qwen3Config = self.model.config
+            self.config: Qwen3MoeConfig = self.model.config
         elif backbone == "Qwen3MultiWosession":
-            from transformers import Qwen3Config, Qwen2Tokenizer
-            from SeqRec.models.Qwen_multi_wosession import Qwen3WithTemperatureMoeMulti
+            from transformers import Qwen3MoeConfig, Qwen2Tokenizer
+            from SeqRec.models.Qwen3Multi import Qwen3MultiWithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
-            self.model = Qwen3WithTemperatureMoeMulti.from_pretrained(ckpt_path).to(self.device)
+            self.model = Qwen3MultiWithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
-            self.config: Qwen3Config = self.model.config
+            self.config: Qwen3MoeConfig = self.model.config
         else:
             raise ValueError(f"Unsupported backbone: {backbone}")
 

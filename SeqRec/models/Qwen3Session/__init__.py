@@ -1,0 +1,1 @@
+from SeqRec.models.Qwen3Session.model import Qwen3SessionWithTemperature

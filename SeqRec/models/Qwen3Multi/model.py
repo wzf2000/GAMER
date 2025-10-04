@@ -6,8 +6,9 @@ from functools import partial
 from transformers.utils import can_return_tuple
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.loss.loss_utils import ForCausalLMLoss
-from transformers.models.qwen3 import Qwen3ForCausalLM, Qwen3Config, Qwen3PreTrainedModel
+from transformers.models.qwen3 import Qwen3ForCausalLM, Qwen3PreTrainedModel
 from transformers.models.qwen3.modeling_qwen3 import KwargsForCausalLM, Qwen3RMSNorm, Qwen3RotaryEmbedding, QWEN3_INPUTS_DOCSTRING
+from transformers.models.qwen3_moe import Qwen3MoeConfig
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.utils import add_start_docstrings_to_model_forward
 from transformers.cache_utils import SlidingWindowCache, StaticCache
@@ -17,14 +18,14 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.activations import ACT2FN
 
-from SeqRec.models.Qwen_Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
-from SeqRec.models.Qwen_multi.router import Qwen3MultiDecoderRouter
+from SeqRec.models.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
+from SeqRec.models.Qwen3Multi.router import Qwen3MultiDecoderRouter
 
 
-class Qwen3MoeAttention(nn.Module):
+class Qwen3MultiAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, config: Qwen3Config, layer_idx: int, is_cross: bool):
+    def __init__(self, config: Qwen3MoeConfig, layer_idx: int, is_cross: bool):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -64,6 +65,12 @@ class Qwen3MoeAttention(nn.Module):
             self.v_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
             self.gating = nn.Linear(config.hidden_size, config.hidden_size, bias=config.attention_bias)
             self.act_fn = ACT2FN[config.hidden_act]
+        # if self.is_cross:
+        #     self.behavior_embedding_dim = config.behavior_embedding_dim
+        #     self.q_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_attention_heads * config.behavior_embedding_dim)
+        #     self.k_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
+        #     self.q_behavior_norm = Qwen3MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
+        #     self.k_behavior_norm = Qwen3MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # thus post q_norm does not need reshape
 
     def forward(
         self,
@@ -92,6 +99,21 @@ class Qwen3MoeAttention(nn.Module):
             value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+        # query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+        # key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+        # value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+
+        # if self.is_cross:
+        #     behavior_embedding_shape = (*input_shape, -1, self.behavior_embedding_dim)
+        #     q_behavior_embedding = self.q_behavior_norm(self.q_behavior_embedding(action_index).view(behavior_embedding_shape)).transpose(1, 2)
+        #     k_behavior_embedding = self.k_behavior_norm(self.k_behavior_embedding(action_index).view(behavior_embedding_shape)).transpose(1, 2)
+        #     query_states = torch.cat((query_states, q_behavior_embedding), dim=-1)
+        #     key_states = torch.cat((key_states, k_behavior_embedding), dim=-1)
+        #     cos, sin = None, None
+        # else:
+        #     cos, sin = position_embeddings
+        #     query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         if past_key_value is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
@@ -128,18 +150,18 @@ class Qwen3MoeAttention(nn.Module):
         return attn_output, attn_weights
 
 
-class Qwen3DecoderLayerSessionMoeMulti(nn.Module):
-    def __init__(self, config: Qwen3Config, layer_idx: int, is_sparse: bool, behavior_injection: bool, is_cross: bool):
+class Qwen3MultiDecoderLayer(nn.Module):
+    def __init__(self, config: Qwen3MoeConfig, layer_idx: int, is_sparse: bool, behavior_injection: bool, is_cross: bool):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.is_sparse = is_sparse
         self.behavior_injection = behavior_injection
         self.is_cross = is_cross
 
-        self.self_attn = Qwen3MoeAttention(config=config, layer_idx=layer_idx, is_cross=False)
+        self.self_attn = Qwen3MultiAttention(config=config, layer_idx=layer_idx, is_cross=False)
 
         if self.is_cross:
-            self.cross_attn = Qwen3MoeAttention(config=config, layer_idx=layer_idx, is_cross=True)
+            self.cross_attn = Qwen3MultiAttention(config=config, layer_idx=layer_idx, is_cross=True)
             self.post_self_attention_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
         if "mlp_type" not in config:
@@ -225,15 +247,15 @@ class Qwen3DecoderLayerSessionMoeMulti(nn.Module):
         return outputs
 
 
-class Qwen3ModelSessionMoeMulti(Qwen3PreTrainedModel):
+class Qwen3MultiModelBase(Qwen3PreTrainedModel):
     """
     Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`Qwen3DecoderLayer`]
 
     Args:
-        config: Qwen3Config
+        config: Qwen3MoeConfig
     """
 
-    def __init__(self, config: Qwen3Config):
+    def __init__(self, config: Qwen3MoeConfig):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -251,7 +273,7 @@ class Qwen3ModelSessionMoeMulti(Qwen3PreTrainedModel):
             is_injection = i in self.behavior_injection_layers
             is_cross = i in self.cross_injection_layers
             self.layers.append(
-                Qwen3DecoderLayerSessionMoeMulti(
+                Qwen3MultiDecoderLayer(
                     config,
                     is_sparse=is_sparse,
                     layer_idx=i,
@@ -473,7 +495,7 @@ class Qwen3ModelSessionMoeMulti(Qwen3PreTrainedModel):
         device: torch.device,
         cache_position: torch.Tensor,
         batch_size: int,
-        config: Qwen3Config,
+        config: Qwen3MoeConfig,
         past_key_values: Cache,
     ):
         """
@@ -495,7 +517,7 @@ class Qwen3ModelSessionMoeMulti(Qwen3PreTrainedModel):
                 Indices depicting the position of the input sequence tokens in the sequence.
             batch_size (`torch.Tensor`):
                 Batch size.
-            config (`Qwen3Config`):
+            config (`Qwen3MoeConfig`):
                 The model's configuration class
             past_key_values (`Cache`):
                 The cache class that is being used currently to generate
@@ -534,20 +556,16 @@ class Qwen3ModelSessionMoeMulti(Qwen3PreTrainedModel):
         return causal_mask
 
 
-class Qwen3SessionMoeMultiModel(Qwen3ModelSessionMoeMulti):
-    def __init__(self, config: Qwen3Config):
+class Qwen3MultiModel(Qwen3MultiModelBase):
+    def __init__(self, config: Qwen3MoeConfig):
         assert 'num_positions' in config and isinstance(config.num_positions, int), "Config must have 'num_positions' attribute for Qwen3SessionModel."
         assert 'model_max_length' in config and isinstance(config.model_max_length, int), "Config must have 'model_max_length' attribute for Qwen3SessionModel."
         super().__init__(config)
         self.behavior_maps = config.behavior_maps
         max_item_num = config.model_max_length // config.num_positions
-        self.in_item_mask = torch.eye(config.num_positions * max_item_num)
-        block_lower = torch.tril(torch.ones(config.num_positions, config.num_positions), diagonal=-1)
-        for i in range(max_item_num):
-            st = i * config.num_positions
-            ed = (i + 1) * config.num_positions
-            self.in_item_mask[st:ed, st:ed] += block_lower
-        self.in_item_mask = 1 - self.in_item_mask
+        block_lower = torch.tril(torch.ones(config.num_positions * max_item_num, config.num_positions * max_item_num), diagonal=-1)
+        block_lower += torch.eye(config.num_positions * max_item_num)
+        self.in_item_mask = 1 - block_lower
         self.cross_past_key_values = None
         self.multi_self_mask = None
         self.multi_cross_mask = None
@@ -567,7 +585,6 @@ class Qwen3SessionMoeMultiModel(Qwen3ModelSessionMoeMulti):
         dtype, device = input_tensor.dtype, input_tensor.device
         min_dtype = torch.finfo(dtype).min
         if past_seen_tokens == 0:
-            assert session_ids is not None, "Session IDs must be provided to generate session-wise causal mask."
             # during training or the first time to generate, generate the complete causal mask
             target_length = sequence_length
             causal_mask = torch.full(
@@ -576,11 +593,12 @@ class Qwen3SessionMoeMultiModel(Qwen3ModelSessionMoeMulti):
                 dtype=dtype,
                 device=device
             )
+            mask = (self.in_item_mask[:sequence_length, :sequence_length].to(device) == 1)
+            mask = mask[None, None, :, :].expand(batch_size, 1, -1, -1)
+            action_mask = (actions[:, None] >= actions[..., None])[:, None]
+            mask = ~(~mask & ~action_mask)
             causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
             causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            session_mask = (session_ids[:, None] >= session_ids[..., None])[:, None]  # [B, 1, S, S]
-            action_mask = (actions[:, None] >= actions[..., None])[:, None]
-            mask = ~(~session_mask & ~action_mask)
             causal_mask *= mask
             if past_key_values is not None:
                 self.multi_cross_mask = causal_mask[:, :, -1, :]
@@ -626,7 +644,6 @@ class Qwen3SessionMoeMultiModel(Qwen3ModelSessionMoeMulti):
         dtype, device = input_tensor.dtype, input_tensor.device
         min_dtype = torch.finfo(dtype).min
         if past_seen_tokens == 0:
-            assert session_ids is not None, "Session IDs must be provided to generate session-wise causal mask."
             # during training or the first time to generate, generate the complete causal mask
             target_length = sequence_length
             causal_mask = torch.full(
@@ -635,12 +652,12 @@ class Qwen3SessionMoeMultiModel(Qwen3ModelSessionMoeMulti):
                 dtype=dtype,
                 device=device
             )
-            causal_mask *= self.in_item_mask[:sequence_length, :sequence_length].to(device)
+            mask = (self.in_item_mask[:sequence_length, :sequence_length].to(device) == 1)
+            mask = mask[None, None, :, :].expand(batch_size, 1, -1, -1)
+            action_mask = (actions[:, None] != actions[..., None])[:, None]
+            mask = ~(~mask & ~action_mask)
             causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
             causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            session_mask = (session_ids[:, None] >= session_ids[..., None])[:, None]  # [B, 1, S, S]
-            action_mask = (actions[:, None] != actions[..., None])[:, None]
-            mask = ~(~session_mask & ~action_mask)
             causal_mask *= mask
             if past_key_values is not None:
                 self.multi_self_mask = causal_mask[:, :, -1, :]
@@ -686,7 +703,6 @@ class Qwen3SessionMoeMultiModel(Qwen3ModelSessionMoeMulti):
         dtype, device = input_tensor.dtype, input_tensor.device
         min_dtype = torch.finfo(dtype).min
         if past_seen_tokens == 0:
-            assert session_ids is not None, "Session IDs must be provided to generate session-wise causal mask."
             # during training or the first time to generate, generate the complete causal mask
             target_length = sequence_length
             causal_mask = torch.full(
@@ -698,8 +714,6 @@ class Qwen3SessionMoeMultiModel(Qwen3ModelSessionMoeMulti):
             causal_mask *= self.in_item_mask[:sequence_length, :sequence_length].to(device)
             causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
             causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            session_mask = (session_ids[:, None] >= session_ids[..., None])[:, None]  # [B, 1, S, S]
-            causal_mask *= session_mask
         else:
             # not the first time to generate, generate the causal mask for the new tokens
             target_length = len(cache_position) + past_seen_tokens
@@ -866,10 +880,10 @@ class Qwen3SessionMoeMultiModel(Qwen3ModelSessionMoeMulti):
         )
 
 
-class Qwen3SessionWithTemperatureMoeMulti(Qwen3ForCausalLM):
-    def __init__(self, config: Qwen3Config):
+class Qwen3MultiWithTemperature(Qwen3ForCausalLM):
+    def __init__(self, config: Qwen3MoeConfig):
         super(Qwen3ForCausalLM, self).__init__(config)
-        self.model = Qwen3SessionMoeMultiModel(config)
+        self.model = Qwen3MultiModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = torch.nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
@@ -964,23 +978,6 @@ class Qwen3SessionWithTemperatureMoeMulti(Qwen3ForCausalLM):
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
-
-        if cache_position is not None and cache_position.min() == 0:
-            # the first time to generate
-            if extended_session_ids is not None:
-                self.max_extended_session_id = extended_session_ids.max(dim=-1)[0]
-        elif cache_position:
-            # not the first time to generate
-            if extended_session_ids is not None:
-                assert cache_position.shape[-1] == 1
-                if self.max_extended_session_id.ndim == 1:
-                    self.max_extended_session_id += 1
-                    extended_session_ids = self.max_extended_session_id[:, None]
-                else:
-                    self.max_extended_session_id += 1
-                    extended_session_ids = self.max_extended_session_id[None]
-        if extended_session_ids is not None:
-            position_ids = extended_session_ids
 
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs: BaseModelOutputWithPast = self.model(

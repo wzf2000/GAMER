@@ -30,9 +30,8 @@ from transformers.utils import (
 from transformers.utils.deprecation import deprecate_kwarg
 from transformers.models.qwen3_moe import Qwen3MoeConfig
 
-from SeqRec.models.Qwen_Moe.FFN import PBATransformerSparseMLP
-from SeqRec.models.Qwen_multi.router import Qwen3MultiDecoderRouter
-from SeqRec.models.Qwen_Moeaction.FFN import MyQwen3SparseMLP
+from SeqRec.models.Qwen3Moe.router import Qwen3MoeDecoderRouter
+from SeqRec.models.Qwen3Moe.FFN import PBATransformerSparseMLP, MyQwen3SparseMLP
 
 _CONFIG_FOR_DOC = "Qwen3MoeConfig"
 
@@ -64,7 +63,6 @@ class MyQwen3MoeDecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         position_indices: torch.Tensor,
         behavior_indices: torch.Tensor = None,
-        action_indices: torch.Tensor = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
@@ -121,7 +119,7 @@ class MyQwen3MoeDecoderLayer(nn.Module):
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
 
-        hidden_states = self.mlp(hidden_states, position_indices, behavior_indices, action_indices)
+        hidden_states = self.mlp(hidden_states, position_indices, behavior_indices)
         if isinstance(hidden_states, tuple):
             hidden_states, router_tuple = hidden_states
         else:
@@ -156,7 +154,7 @@ class MyQwen3MoeModel(Qwen3MoePreTrainedModel):
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        self.router = Qwen3MultiDecoderRouter(config.n_positions, config)
+        self.router = Qwen3MoeDecoderRouter(config.n_positions, config)
 
         self.sparse_layers = config.sparse_layers_decoder
         self.behavior_injection_layers = config.behavior_injection_decoder
@@ -236,7 +234,7 @@ class MyQwen3MoeModel(Qwen3MoePreTrainedModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        position_indices, behavior_indices, action_indices = self.router(input_ids, cache_position=cache_position)
+        position_indices, behavior_indices = self.router(input_ids, cache_position=cache_position)
 
         causal_mask = self._update_causal_mask(
             attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
@@ -262,7 +260,6 @@ class MyQwen3MoeModel(Qwen3MoePreTrainedModel):
                     hidden_states,
                     position_indices,
                     behavior_indices,
-                    action_indices,
                     causal_mask,
                     position_ids,
                     past_key_values,
@@ -277,7 +274,6 @@ class MyQwen3MoeModel(Qwen3MoePreTrainedModel):
                     hidden_states,
                     position_indices,
                     behavior_indices,
-                    action_indices,
                     attention_mask=causal_mask,
                     position_ids=position_ids,
                     past_key_value=past_key_values,
@@ -605,7 +601,7 @@ class MyQwen3MoeForCausalLM(Qwen3MoePreTrainedModel, GenerationMixin):
         )
 
 
-class Qwen3WithTemperatureMoeaction(MyQwen3MoeForCausalLM):
+class Qwen3MoeWithTemperature(MyQwen3MoeForCausalLM):
     def __init__(self, config):
         super().__init__(config)
         self.temperature = 1.0

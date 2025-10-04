@@ -215,7 +215,7 @@ class TrainMBDecoder(MultiGPUTask):
             assert isinstance(
                 tokenizer, T5Tokenizer
             ), "Expected T5Tokenizer for PBATransformer backbone"
-        elif backbone == "Qwen3" or backbone == "Qwen3Moe":
+        elif backbone == "Qwen3":
             from transformers import Qwen3Config, Qwen2Tokenizer
             config: Qwen3Config = Qwen3Config.from_pretrained(base_model)
             tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(
@@ -225,6 +225,16 @@ class TrainMBDecoder(MultiGPUTask):
             assert isinstance(
                 tokenizer, Qwen2Tokenizer
             ), "Expected Qwen2Tokenizer for Qwen3 backbone"
+        elif backbone == "Qwen3Moe":
+            from transformers import Qwen3MoeConfig, Qwen2Tokenizer
+            config: Qwen3MoeConfig = Qwen3MoeConfig.from_pretrained(base_model)
+            tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(
+                base_model,
+                model_max_length=model_max_length,
+            )
+            assert isinstance(
+                tokenizer, Qwen2Tokenizer
+            ), "Expected Qwen2Tokenizer for Qwen3Moe backbone"
         else:
             raise ValueError(f"Unsupported backbone model: {backbone}")
         deepspeed = None
@@ -301,11 +311,11 @@ class TrainMBDecoder(MultiGPUTask):
             self.info(f"PBATransformer Model Config: {config}")
             model = PBATransformerForConditionalGeneration(config)
         elif backbone == "Qwen3":
-            from SeqRec.models.Qwen import Qwen3WithTemperature
+            from SeqRec.models.Qwen3 import Qwen3WithTemperature
             model = Qwen3WithTemperature(config)
             model.set_hyper(temperature)
         elif backbone == "Qwen3Moe":
-            from SeqRec.models.Qwen_Moe import Qwen3WithTemperatureMoe
+            from SeqRec.models.Qwen3Moe import Qwen3MoeWithTemperature
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
             if isinstance(first_dataset, BaseMBDataset):
@@ -351,7 +361,7 @@ class TrainMBDecoder(MultiGPUTask):
             config.n_positions = max_his_len + 1
             config.use_user_token = False
             self.info(f"Model Config: {config}")
-            model = Qwen3WithTemperatureMoe(config)
+            model = Qwen3MoeWithTemperature(config)
             model.set_hyper(temperature)
         else:
             raise ValueError(f"Unsupported backbone model: {backbone}")

@@ -1,0 +1,1 @@
+from SeqRec.models.Qwen3Multi.model import Qwen3MultiWithTemperature

@@ -1,167 +1,33 @@
 import torch
 from torch import nn
 from loguru import logger
-from typing import Unpack, Callable, Optional, Tuple
+from typing import Unpack, Optional, Tuple
 from functools import partial
 from transformers.utils import can_return_tuple
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.loss.loss_utils import ForCausalLMLoss
-from transformers.models.qwen3 import Qwen3ForCausalLM, Qwen3Config, Qwen3PreTrainedModel
+from transformers.models.qwen3 import Qwen3ForCausalLM, Qwen3PreTrainedModel
 from transformers.models.qwen3.modeling_qwen3 import KwargsForCausalLM, Qwen3RMSNorm, Qwen3RotaryEmbedding, QWEN3_INPUTS_DOCSTRING
+from transformers.models.qwen3_moe import Qwen3MoeConfig
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
+from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.utils import add_start_docstrings_to_model_forward
 from transformers.cache_utils import SlidingWindowCache, StaticCache
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
-from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeRMSNorm, apply_rotary_pos_emb, eager_attention_forward
-from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
-from transformers.activations import ACT2FN
+from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeAttention
 
-from SeqRec.models.Qwen_Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
-from SeqRec.models.Qwen_multi.router import Qwen3MultiDecoderRouter
+from SeqRec.models.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
+from SeqRec.models.Qwen3Moe.router import Qwen3MoeDecoderRouter
 
 
-class Qwen3MoeAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
-
-    def __init__(self, config: Qwen3Config, layer_idx: int, is_cross: bool):
-        super().__init__()
-        self.config = config
-        self.layer_idx = layer_idx
-        self.head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
-        self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
-        self.scaling = (self.head_dim) ** -0.5
-        self.attention_dropout = config.attention_dropout
-        self.is_causal = True
-
-        self.q_proj = nn.Linear(
-            config.hidden_size, config.num_attention_heads * self.head_dim, bias=config.attention_bias
-        )
-        self.k_proj = nn.Linear(
-            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
-        )
-        self.v_proj = nn.Linear(
-            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
-        )
-        self.o_proj = nn.Linear(
-            config.num_attention_heads * self.head_dim, config.hidden_size, bias=config.attention_bias
-        )
-        self.q_norm = Qwen3MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
-        self.k_norm = Qwen3MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # thus post q_norm does not need reshape
-        self.sliding_window = config.sliding_window
-        if not (
-            self.config.use_sliding_window
-            and getattr(self.config, "sliding_window", None) is not None
-            and self.layer_idx >= self.config.max_window_layers
-        ):
-            self.sliding_window = None
-
-        self.is_cross = is_cross
-        if self.is_cross:
-            self.behavior_embedding_dim = config.behavior_embedding_dim
-            self.q_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_attention_heads * config.behavior_embedding_dim)
-            self.k_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
-            self.v_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
-            self.gating = nn.Linear(config.hidden_size, config.hidden_size, bias=config.attention_bias)
-            self.act_fn = ACT2FN[config.hidden_act]
-        # if self.is_cross:
-        #     self.behavior_embedding_dim = config.behavior_embedding_dim
-        #     self.q_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_attention_heads * config.behavior_embedding_dim)
-        #     self.k_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
-        #     self.q_behavior_norm = Qwen3MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
-        #     self.k_behavior_norm = Qwen3MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # thus post q_norm does not need reshape
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        position_embeddings: Tuple[torch.Tensor, torch.Tensor],
-        attention_mask: Optional[torch.Tensor],
-        past_key_value: Optional[Cache] = None,
-        cache_position: Optional[torch.LongTensor] = None,
-        action_index: torch.Tensor = None,
-        **kwargs: Unpack[FlashAttentionKwargs],
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        input_shape = hidden_states.shape[:-1]
-        hidden_shape = (*input_shape, -1, self.head_dim)
-
-        if self.is_cross:
-            behavior_embedding_shape = (*input_shape, -1, self.behavior_embedding_dim)
-            q_behavior_embedding = self.q_behavior_embedding(action_index).view(behavior_embedding_shape)
-            k_behavior_embedding = self.k_behavior_embedding(action_index).view(behavior_embedding_shape)
-            v_behavior_embedding = self.v_behavior_embedding(action_index).view(behavior_embedding_shape)
-            query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape) + q_behavior_embedding).transpose(1, 2)
-            key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape) + k_behavior_embedding).transpose(1, 2)
-            value_states = (self.v_proj(hidden_states).view(hidden_shape) + v_behavior_embedding).transpose(1, 2)
-        else:
-            query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-            key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-            value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-        cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-
-        # query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-        # key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-        # value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-
-        # if self.is_cross:
-        #     behavior_embedding_shape = (*input_shape, -1, self.behavior_embedding_dim)
-        #     q_behavior_embedding = self.q_behavior_norm(self.q_behavior_embedding(action_index).view(behavior_embedding_shape)).transpose(1, 2)
-        #     k_behavior_embedding = self.k_behavior_norm(self.k_behavior_embedding(action_index).view(behavior_embedding_shape)).transpose(1, 2)
-        #     query_states = torch.cat((query_states, q_behavior_embedding), dim=-1)
-        #     key_states = torch.cat((key_states, k_behavior_embedding), dim=-1)
-        #     cos, sin = None, None
-        # else:
-        #     cos, sin = position_embeddings
-        #     query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-
-        if past_key_value is not None:
-            # sin and cos are specific to RoPE models; cache_position needed for the static cache
-            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-            key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
-
-        attention_interface: Callable = eager_attention_forward
-        if self.config._attn_implementation != "eager":
-            if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
-                logger.warning(
-                    "`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to "
-                    'eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
-                )
-            else:
-                attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
-
-        attn_output, attn_weights = attention_interface(
-            self,
-            query_states,
-            key_states,
-            value_states,
-            attention_mask,
-            dropout=0.0 if not self.training else self.attention_dropout,
-            scaling=self.scaling,
-            sliding_window=self.sliding_window,  # diff with Llama
-            **kwargs,
-        )
-
-        attn_output = attn_output.reshape(*input_shape, -1).contiguous()
-        if self.is_cross:
-            attn_output = self.o_proj(attn_output) * self.act_fn(self.gating(hidden_states))
-        else:
-            attn_output = self.o_proj(attn_output)
-        return attn_output, attn_weights
-
-
-class Qwen3DecoderLayerMoeMulti(nn.Module):
-    def __init__(self, config: Qwen3Config, layer_idx: int, is_sparse: bool, behavior_injection: bool, is_cross: bool):
+class Qwen3SessionMoeDecoderLayer(nn.Module):
+    def __init__(self, config: Qwen3MoeConfig, layer_idx: int, is_sparse: bool, behavior_injection: bool):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.is_sparse = is_sparse
         self.behavior_injection = behavior_injection
-        self.is_cross = is_cross
 
-        self.self_attn = Qwen3MoeAttention(config=config, layer_idx=layer_idx, is_cross=False)
-
-        if self.is_cross:
-            self.cross_attn = Qwen3MoeAttention(config=config, layer_idx=layer_idx, is_cross=True)
-            self.post_self_attention_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.self_attn = Qwen3MoeAttention(config=config, layer_idx=layer_idx)
 
         if "mlp_type" not in config:
             self.mlp_type = "PBATransformer"
@@ -172,12 +38,12 @@ class Qwen3DecoderLayerMoeMulti(nn.Module):
         else:
             self.mlp = PBATransformerSparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
         self.input_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_cross_attention_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.dropout = nn.Dropout(config.dropout_rate)
         if (
             config.sliding_window and config._attn_implementation != "flash_attention_2"
         ):  # diff with Llama is this warning
-            logger.warning(
+            logger.warning_once(
                 f"Sliding Window Attention is enabled but not implemented for `{config._attn_implementation}`; "
                 "unexpected results may be encountered."
             )
@@ -187,24 +53,23 @@ class Qwen3DecoderLayerMoeMulti(nn.Module):
         hidden_states: torch.Tensor,
         position_indices: torch.Tensor,
         behavior_indices: torch.Tensor = None,
-        action_indices: torch.Tensor = None,
-        multi_self_mask: Optional[torch.Tensor] = None,
-        multi_cross_mask: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Cache] = None,
         output_attentions: Optional[bool] = False,
         use_cache: Optional[bool] = False,
         cache_position: Optional[torch.LongTensor] = None,
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
-        cross_past_key_value: Optional[Cache] = None,
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-        # Self Attention
         residual = hidden_states
+
         hidden_states = self.input_layernorm(hidden_states)
+
+        # Self Attention
         hidden_states, self_attn_weights = self.self_attn(
             hidden_states=hidden_states,
-            attention_mask=multi_self_mask,
+            attention_mask=attention_mask,
             position_ids=position_ids,
             past_key_value=past_key_value,
             output_attentions=output_attentions,
@@ -215,27 +80,9 @@ class Qwen3DecoderLayerMoeMulti(nn.Module):
         )
         hidden_states = residual + self.dropout(hidden_states)
 
-        # Cross Attention
-        if self.is_cross:
-            residual = hidden_states
-            hidden_states = self.post_self_attention_layernorm(hidden_states)
-            hidden_states, self_cross_weights = self.cross_attn(
-                hidden_states=hidden_states,
-                attention_mask=multi_cross_mask,
-                position_ids=position_ids,
-                past_key_value=cross_past_key_value,
-                output_attentions=output_attentions,
-                use_cache=use_cache,
-                cache_position=cache_position,
-                position_embeddings=position_embeddings,
-                action_index=action_indices,
-                **kwargs,
-            )
-            hidden_states = residual + self.dropout(hidden_states)
-
         # Fully Connected
         residual = hidden_states
-        hidden_states = self.post_cross_attention_layernorm(hidden_states)
+        hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states, position_indices, behavior_indices)
         hidden_states = residual + self.dropout(hidden_states)
 
@@ -246,38 +93,35 @@ class Qwen3DecoderLayerMoeMulti(nn.Module):
         return outputs
 
 
-class Qwen3ModelMoeMulti(Qwen3PreTrainedModel):
+class Qwen3SessionMoeModelBase(Qwen3PreTrainedModel):
     """
     Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`Qwen3DecoderLayer`]
 
     Args:
-        config: Qwen3Config
+        config: Qwen3MoeConfig
     """
 
-    def __init__(self, config: Qwen3Config):
+    def __init__(self, config: Qwen3MoeConfig):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        self.router = Qwen3MultiDecoderRouter(config.n_positions, config)
+        self.router = Qwen3MoeDecoderRouter(config.n_positions, config)
 
         self.sparse_layers = config.sparse_layers_decoder
         self.behavior_injection_layers = config.behavior_injection_decoder
-        self.cross_injection_layers = config.cross_attention_decoder
         self.num_layers = config.num_hidden_layers
         self.layers = nn.ModuleList()
         for i in range(self.num_layers):
             is_sparse = i in self.sparse_layers
             is_injection = i in self.behavior_injection_layers
-            is_cross = i in self.cross_injection_layers
             self.layers.append(
-                Qwen3DecoderLayerMoeMulti(
+                Qwen3SessionMoeDecoderLayer(
                     config,
                     is_sparse=is_sparse,
                     layer_idx=i,
                     behavior_injection=is_injection,
-                    is_cross=is_cross,
                 )
             )
         self.norm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -318,7 +162,7 @@ class Qwen3ModelMoeMulti(Qwen3PreTrainedModel):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
         if self.gradient_checkpointing and self.training and use_cache:
-            logger.warning(
+            logger.warning_once(
                 "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`."
             )
             use_cache = False
@@ -494,7 +338,7 @@ class Qwen3ModelMoeMulti(Qwen3PreTrainedModel):
         device: torch.device,
         cache_position: torch.Tensor,
         batch_size: int,
-        config: Qwen3Config,
+        config: Qwen3MoeConfig,
         past_key_values: Cache,
     ):
         """
@@ -516,7 +360,7 @@ class Qwen3ModelMoeMulti(Qwen3PreTrainedModel):
                 Indices depicting the position of the input sequence tokens in the sequence.
             batch_size (`torch.Tensor`):
                 Batch size.
-            config (`Qwen3Config`):
+            config (`Qwen3MoeConfig`):
                 The model's configuration class
             past_key_values (`Cache`):
                 The cache class that is being used currently to generate
@@ -555,137 +399,19 @@ class Qwen3ModelMoeMulti(Qwen3PreTrainedModel):
         return causal_mask
 
 
-class Qwen3MoeMultiModel(Qwen3ModelMoeMulti):
-    def __init__(self, config: Qwen3Config):
+class Qwen3SessionMoeModel(Qwen3SessionMoeModelBase):
+    def __init__(self, config: Qwen3MoeConfig):
         assert 'num_positions' in config and isinstance(config.num_positions, int), "Config must have 'num_positions' attribute for Qwen3SessionModel."
         assert 'model_max_length' in config and isinstance(config.model_max_length, int), "Config must have 'model_max_length' attribute for Qwen3SessionModel."
         super().__init__(config)
-        self.behavior_maps = config.behavior_maps
         max_item_num = config.model_max_length // config.num_positions
-        block_lower = torch.tril(torch.ones(config.num_positions * max_item_num, config.num_positions * max_item_num), diagonal=-1)
-        block_lower += torch.eye(config.num_positions * max_item_num)
-        self.in_item_mask = 1 - block_lower
-        self.cross_past_key_values = None
-        self.multi_self_mask = None
-        self.multi_cross_mask = None
-
-    def _update_session_multi_cross_mask(
-        self,
-        attention_mask: torch.Tensor | None = None,
-        input_tensor: torch.FloatTensor | None = None,
-        cache_position: torch.LongTensor | None = None,
-        past_key_values: Cache | None = None,
-        session_ids: torch.LongTensor | None = None,  # [B, S]
-        actions: torch.LongTensor | None = None,  # [B, S]
-    ) -> torch.Tensor:
-        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-        batch_size = input_tensor.shape[0]
-        sequence_length = input_tensor.shape[1]
-        dtype, device = input_tensor.dtype, input_tensor.device
-        min_dtype = torch.finfo(dtype).min
-        if past_seen_tokens == 0:
-            # during training or the first time to generate, generate the complete causal mask
-            target_length = sequence_length
-            causal_mask = torch.full(
-                (sequence_length, sequence_length),
-                fill_value=min_dtype,
-                dtype=dtype,
-                device=device
-            )
-            mask = (self.in_item_mask[:sequence_length, :sequence_length].to(device) == 1)
-            mask = mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            action_mask = (actions[:, None] >= actions[..., None])[:, None]
-            mask = ~(~mask & ~action_mask)
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            causal_mask *= mask
-            if past_key_values is not None:
-                self.multi_cross_mask = causal_mask[:, :, -1, :]
-        else:
-            # not the first time to generate, generate the causal mask for the new tokens
-            target_length = len(cache_position) + past_seen_tokens
-            b, h, _ = self.multi_cross_mask.shape
-            tmp = torch.full(
-                (b, h, 1),
-                fill_value=min_dtype,
-                dtype=dtype,
-                device=device,
-            )
-            causal_mask = torch.cat([self.multi_cross_mask, tmp], dim=-1)
-            self.multi_cross_mask = causal_mask
-            causal_mask = causal_mask[:, :, None, :]
-        if attention_mask is not None:
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            if attention_mask.shape[-1] > target_length:
-                attention_mask = attention_mask[:, :target_length]
-            mask_length = attention_mask.shape[-1]
-            padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :].to(
-                causal_mask.device
-            )
-            padding_mask = padding_mask == 0
-            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
-                padding_mask, min_dtype
-            )
-        return causal_mask
-
-    def _update_session_multi_self_mask(
-        self,
-        attention_mask: torch.Tensor | None = None,
-        input_tensor: torch.FloatTensor | None = None,
-        cache_position: torch.LongTensor | None = None,
-        past_key_values: Cache | None = None,
-        session_ids: torch.LongTensor | None = None,  # [B, S]
-        actions: torch.LongTensor | None = None,  # [B, S]
-    ) -> torch.Tensor:
-        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-        batch_size = input_tensor.shape[0]
-        sequence_length = input_tensor.shape[1]
-        dtype, device = input_tensor.dtype, input_tensor.device
-        min_dtype = torch.finfo(dtype).min
-        if past_seen_tokens == 0:
-            # during training or the first time to generate, generate the complete causal mask
-            target_length = sequence_length
-            causal_mask = torch.full(
-                (sequence_length, sequence_length),
-                fill_value=min_dtype,
-                dtype=dtype,
-                device=device
-            )
-            mask = (self.in_item_mask[:sequence_length, :sequence_length].to(device) == 1)
-            mask = mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            action_mask = (actions[:, None] != actions[..., None])[:, None]
-            mask = ~(~mask & ~action_mask)
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            causal_mask *= mask
-            if past_key_values is not None:
-                self.multi_self_mask = causal_mask[:, :, -1, :]
-        else:
-            # not the first time to generate, generate the causal mask for the new tokens
-            target_length = len(cache_position) + past_seen_tokens
-            b, h, _ = self.multi_self_mask.shape
-            tmp = torch.full(
-                (b, h, 1),
-                fill_value=0,
-                dtype=dtype,
-                device=device,
-            )
-            causal_mask = torch.cat([self.multi_self_mask, tmp], dim=-1)
-            self.multi_self_mask = causal_mask
-            causal_mask = causal_mask[:, :, None, :]
-        if attention_mask is not None:
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            if attention_mask.shape[-1] > target_length:
-                attention_mask = attention_mask[:, :target_length]
-            mask_length = attention_mask.shape[-1]
-            padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :].to(
-                causal_mask.device
-            )
-            padding_mask = padding_mask == 0
-            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
-                padding_mask, min_dtype
-            )
-        return causal_mask
+        self.in_item_mask = torch.eye(config.num_positions * max_item_num)
+        block_lower = torch.tril(torch.ones(config.num_positions, config.num_positions), diagonal=-1)
+        for i in range(max_item_num):
+            st = i * config.num_positions
+            ed = (i + 1) * config.num_positions
+            self.in_item_mask[st:ed, st:ed] += block_lower
+        self.in_item_mask = 1 - self.in_item_mask
 
     def _update_session_wise_causal_mask(
         self,
@@ -694,7 +420,6 @@ class Qwen3MoeMultiModel(Qwen3ModelMoeMulti):
         cache_position: torch.LongTensor | None = None,
         past_key_values: Cache | None = None,
         session_ids: torch.LongTensor | None = None,  # [B, S]
-        actions: torch.LongTensor | None = None,  # [B, S]
     ) -> torch.Tensor:
         past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
         batch_size = input_tensor.shape[0]
@@ -702,6 +427,7 @@ class Qwen3MoeMultiModel(Qwen3ModelMoeMulti):
         dtype, device = input_tensor.dtype, input_tensor.device
         min_dtype = torch.finfo(dtype).min
         if past_seen_tokens == 0:
+            assert session_ids is not None, "Session IDs must be provided to generate session-wise causal mask."
             # during training or the first time to generate, generate the complete causal mask
             target_length = sequence_length
             causal_mask = torch.full(
@@ -713,6 +439,8 @@ class Qwen3MoeMultiModel(Qwen3ModelMoeMulti):
             causal_mask *= self.in_item_mask[:sequence_length, :sequence_length].to(device)
             causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
             causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            session_mask = (session_ids[:, None] >= session_ids[..., None])[:, None]  # [B, 1, S, S]
+            causal_mask *= session_mask
         else:
             # not the first time to generate, generate the causal mask for the new tokens
             target_length = len(cache_position) + past_seen_tokens
@@ -752,7 +480,6 @@ class Qwen3MoeMultiModel(Qwen3ModelMoeMulti):
         output_hidden_states: bool | None = None,
         cache_position: torch.LongTensor | None = None,
         session_ids: torch.LongTensor | None = None,
-        actions: torch.LongTensor | None = None,
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ) -> BaseModelOutputWithPast:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -780,9 +507,6 @@ class Qwen3MoeMultiModel(Qwen3ModelMoeMulti):
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache()
 
-        if use_cache and past_key_values.get_seq_length() == 0:
-            self.cross_past_key_values = DynamicCache()
-
         if cache_position is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             cache_position = torch.arange(
@@ -792,24 +516,14 @@ class Qwen3MoeMultiModel(Qwen3ModelMoeMulti):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        position_indices, behavior_indices, action_indices = self.router(input_ids, cache_position=cache_position)
+        position_indices, behavior_indices = self.router(input_ids, cache_position=cache_position)
 
-        multi_self_mask = self._update_session_wise_causal_mask(
+        causal_mask = self._update_session_wise_causal_mask(
             attention_mask=attention_mask,
             input_tensor=inputs_embeds,
             cache_position=cache_position,
             past_key_values=past_key_values,
             session_ids=session_ids,
-            actions=actions,
-        )
-
-        multi_cross_mask = self._update_session_multi_cross_mask(
-            attention_mask=attention_mask,
-            input_tensor=inputs_embeds,
-            cache_position=cache_position,
-            past_key_values=past_key_values,
-            session_ids=session_ids,
-            actions=actions,
         )
 
         hidden_states = inputs_embeds
@@ -831,32 +545,26 @@ class Qwen3MoeMultiModel(Qwen3ModelMoeMulti):
                     hidden_states,
                     position_indices,
                     behavior_indices,
-                    action_indices,
-                    multi_self_mask,
-                    multi_cross_mask,
+                    causal_mask,
                     position_ids,
                     past_key_values,
                     output_attentions,
                     use_cache,
                     cache_position,
                     position_embeddings,
-                    self.cross_past_key_values,
                 )
             else:
                 layer_outputs = decoder_layer(
                     hidden_states,
                     position_indices,
                     behavior_indices,
-                    action_indices,
-                    multi_self_mask=multi_self_mask,
-                    multi_cross_mask=multi_cross_mask,
+                    attention_mask=causal_mask,
                     position_ids=position_ids,
                     past_key_value=past_key_values,
                     output_attentions=output_attentions,
                     use_cache=use_cache,
                     cache_position=cache_position,
                     position_embeddings=position_embeddings,
-                    cross_past_key_value=self.cross_past_key_values,
                     **flash_attn_kwargs,
                 )
 
@@ -879,10 +587,10 @@ class Qwen3MoeMultiModel(Qwen3ModelMoeMulti):
         )
 
 
-class Qwen3WithTemperatureMoeMulti(Qwen3ForCausalLM):
-    def __init__(self, config: Qwen3Config):
+class Qwen3SessionMoeWithTemperature(Qwen3ForCausalLM):
+    def __init__(self, config: Qwen3MoeConfig):
         super(Qwen3ForCausalLM, self).__init__(config)
-        self.model = Qwen3MoeMultiModel(config)
+        self.model = Qwen3SessionMoeModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = torch.nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
@@ -939,7 +647,6 @@ class Qwen3WithTemperatureMoeMulti(Qwen3ForCausalLM):
         logits_to_keep: int | torch.Tensor = 0,
         session_ids: torch.LongTensor | None = None,
         extended_session_ids: torch.LongTensor | None = None,
-        actions: torch.LongTensor | None = None,
         **kwargs: Unpack[KwargsForCausalLM],
     ) -> CausalLMOutputWithPast:
         r"""
@@ -978,6 +685,23 @@ class Qwen3WithTemperatureMoeMulti(Qwen3ForCausalLM):
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
 
+        if cache_position is not None and cache_position.min() == 0:
+            # the first time to generate
+            if extended_session_ids is not None:
+                self.max_extended_session_id = extended_session_ids.max(dim=-1)[0]
+        elif cache_position:
+            # not the first time to generate
+            if extended_session_ids is not None:
+                assert cache_position.shape[-1] == 1
+                if self.max_extended_session_id.ndim == 1:
+                    self.max_extended_session_id += 1
+                    extended_session_ids = self.max_extended_session_id[:, None]
+                else:
+                    self.max_extended_session_id += 1
+                    extended_session_ids = self.max_extended_session_id[None]
+        if extended_session_ids is not None:
+            position_ids = extended_session_ids
+
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs: BaseModelOutputWithPast = self.model(
             input_ids=input_ids,
@@ -990,7 +714,6 @@ class Qwen3WithTemperatureMoeMulti(Qwen3ForCausalLM):
             output_hidden_states=output_hidden_states,
             cache_position=cache_position,
             session_ids=session_ids,
-            actions=actions,
             **kwargs,
         )
 

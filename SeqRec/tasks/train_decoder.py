@@ -280,7 +280,7 @@ class TrainDecoder(MultiGPUTask):
             self.info(f"PBATransformer Model Config: {config}")
             model = PBATransformerForConditionalGeneration(config)
         elif backbone == "Qwen3":
-            from SeqRec.models.Qwen import Qwen3WithTemperature
+            from SeqRec.models.Qwen3 import Qwen3WithTemperature
             model = Qwen3WithTemperature(config)
             model.set_hyper(temperature)
         else:

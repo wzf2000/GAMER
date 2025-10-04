@@ -242,7 +242,7 @@ class TestDecoder(MultiGPUTask):
             self.config: PBATransformerConfig = self.model.config
         elif backbone == 'Qwen3':
             from transformers import Qwen3Config, Qwen2Tokenizer
-            from SeqRec.models.Qwen import Qwen3WithTemperature
+            from SeqRec.models.Qwen3 import Qwen3WithTemperature
             self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3WithTemperature.from_pretrained(ckpt_path).to(self.device)
             if self.model.config.pad_token_id is None:
