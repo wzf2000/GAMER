@@ -51,16 +51,16 @@
 
 ## Run Example
 
-We give an example of training and evaluating Qwen3Multi on KuaiADV3 with session-wise multi-behavior decoder, $4\times$ augmentation and semantic IDs tokenization.
+We give an example of training and evaluating Qwen3Multi on ShortVideoAD with session-wise multi-behavior decoder, $4\times$ augmentation and semantic IDs tokenization.
 
 For more details about the other tasks, please refer to [Scripts](./docs/scripts.md).
 
 ### Training Qwen3Multi
 
-Run the following command to train Qwen3Multi (GAMER architecture) on KuaiADV3 with session-wise multi-behavior decoder, $4\times$ augmentation and semantic IDs tokenization:
+Run the following command to train Qwen3Multi (GAMER architecture) on ShortVideoAD with session-wise multi-behavior decoder, $4\times$ augmentation and semantic IDs tokenization:
 
 ```bash
-dataset=KuaiADV3 original=1 batch_size=1024 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3Multi extra_args=max_his_len=100,gradient_accumulation_steps=4,warmup_ratio=0.04,patience=20 bash ./scripts/train_SMB_decoder.sh
+dataset=ShortVideoAD original=1 batch_size=1024 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3Multi extra_args=max_his_len=100,gradient_accumulation_steps=4,warmup_ratio=0.04,patience=20 bash ./scripts/train_SMB_decoder.sh
 ```
 
 ### Evaluating Qwen3Multi
@@ -68,5 +68,5 @@ dataset=KuaiADV3 original=1 batch_size=1024 tasks=smb_explicit_decoder_4 gpu=0,1
 Run the following command to evaluate Qwen3Multi trained above:
 
 ```bash
-dataset=KuaiADV3 original=1 batch_size=256 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3SessionMoe extra_args=max_his_len=100 bash ./scripts/test_SMB_decoder.sh
+dataset=ShortVideoAD original=1 batch_size=256 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3SessionMoe extra_args=max_his_len=100 bash ./scripts/test_SMB_decoder.sh
 ```
