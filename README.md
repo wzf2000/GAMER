@@ -1,4 +1,4 @@
-# SeqRec
+# GAMER: Generative Augmentation and Multi-Level Behavior Modeling for Sequential Recommendation
 
 ## File Structure
 
@@ -57,7 +57,7 @@ For more details about the other tasks, please refer to [Scripts](./docs/scripts
 
 ### Training Qwen3Multi
 
-Run the following command to train Qwen3Multi on KuaiADV3 with session-wise multi-behavior decoder, $4\times$ augmentation and semantic IDs tokenization:
+Run the following command to train Qwen3Multi (GAMER architecture) on KuaiADV3 with session-wise multi-behavior decoder, $4\times$ augmentation and semantic IDs tokenization:
 
 ```bash
 dataset=KuaiADV3 original=1 batch_size=1024 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3Multi extra_args=max_his_len=100,gradient_accumulation_steps=4,warmup_ratio=0.04,patience=20 bash ./scripts/train_SMB_decoder.sh
