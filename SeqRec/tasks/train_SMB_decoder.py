@@ -236,6 +236,17 @@ class TrainSMBDecoder(MultiGPUTask):
             assert isinstance(
                 tokenizer, Qwen2Tokenizer
             ), "Expected Qwen2Tokenizer for Qwen3 backbone"
+        elif backbone in ["LlamaMulti"]:
+            from transformers import Qwen2Tokenizer
+            from SeqRec.models.generative.LlamaMulti import LlamaConfig
+            config: LlamaConfig = LlamaConfig.from_pretrained(base_model)
+            tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(
+                base_model,
+                model_max_length=model_max_length,
+            )
+            assert isinstance(
+                tokenizer, Qwen2Tokenizer
+            ), "Expected Qwen2Tokenizer for Qwen3 backbone"
         else:
             raise ValueError(f"Unsupported backbone model: {backbone}")
         deepspeed = None
@@ -266,7 +277,7 @@ class TrainSMBDecoder(MultiGPUTask):
             for b in behavior_tokens
         ]
 
-        if backbone in ["Qwen3", "Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti"]:
+        if backbone in ["Qwen3", "Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "LlamaMulti"]:
             # default to ignore behavior tokens in Qwen3 models
             collator = DecoderOnlyCollator(tokenizer, only_train_response=not isinstance(first_dataset, SMBExplicitDatasetForDecoder), ignore_behavior_tokens=behavior_tokens)
         else:
@@ -318,7 +329,7 @@ class TrainSMBDecoder(MultiGPUTask):
             from SeqRec.models.generative.Qwen3 import Qwen3WithTemperature
             model = Qwen3WithTemperature(config)
             model.set_hyper(temperature)
-        elif backbone in ["Qwen3Multi", "Qwen3SessionMulti"]:
+        elif backbone in ["Qwen3Multi", "Qwen3SessionMulti", "LlamaMulti"]:
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
             single_item = first_dataset.get_behavior_item(
@@ -356,12 +367,14 @@ class TrainSMBDecoder(MultiGPUTask):
                 )
             config.n_positions = max_his_len + 1
             config.use_user_token = False
-            if backbone in ["Qwen3Multi", "Qwen3SessionMulti"]:
-                config.model_max_length = model_max_length
+            config.model_max_length = model_max_length
             self.info(f"Model Config: {config}")
             if backbone == "Qwen3Multi":
                 from SeqRec.models.generative.Qwen3Multi import Qwen3MultiWithTemperature
                 model = Qwen3MultiWithTemperature(config)
+            elif backbone == "LlamaMulti":
+                from SeqRec.models.generative.LlamaMulti import LlamaMultiWithTemperature
+                model = LlamaMultiWithTemperature(config)
             else:
                 from SeqRec.models.generative.Qwen3SessionMulti import Qwen3SessionMultiWithTemperature
                 model = Qwen3SessionMultiWithTemperature(config)
@@ -387,7 +400,7 @@ class TrainSMBDecoder(MultiGPUTask):
             model.is_parallelizable = True
             model.model_parallel = True
 
-        if backbone in ["Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti"]:
+        if backbone in ["Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "LlamaMulti"]:
             label_names = ['input_ids', 'labels', 'session_ids', 'extended_session_ids', 'split', 'actions']
         else:
             label_names = ['input_ids', 'labels', 'split']
@@ -419,6 +432,7 @@ class TrainSMBDecoder(MultiGPUTask):
             deepspeed=deepspeed,
             ddp_find_unused_parameters=False if self.ddp else None,
             eval_delay=1 if save_and_eval_strategy == "epoch" else 2000,
+            report_to="none",
             run_name=(
                 wandb_run_name
                 if wandb_run_name != "default"

@@ -33,6 +33,8 @@ elif [ "${backbone}" = "Qwen3Multi" ]; then
     base_model=./config/s2s-models/Qwen3Multi
 elif [ "${backbone}" = "Qwen3SessionMulti" ]; then
     base_model=./config/s2s-models/Qwen3SessionMulti
+elif [ "${backbone}" = "LlamaMulti" ]; then
+    base_model=./config/s2s-models/LlamaMulti
 else
     echo "Unsupported backbone model: ${backbone}."
     exit 1
