@@ -98,7 +98,7 @@ class LlamaAttention(nn.Module):
         self.layer_idx = layer_idx
         self.head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
         self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
-        self.scaling = self.head_dim**-0.5
+        self.scaling = self.head_dim ** -0.5
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
 
@@ -117,7 +117,7 @@ class LlamaAttention(nn.Module):
 
         self.is_cross = is_cross
         if self.is_cross:
-            self.behavior_embedding_dim = config.hidden_size // config.num_attention_heads
+            self.behavior_embedding_dim = config.head_dim
             self.q_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_attention_heads * self.behavior_embedding_dim)
             self.k_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * self.behavior_embedding_dim)
             self.v_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * self.behavior_embedding_dim)
@@ -205,7 +205,7 @@ class LlamaMultiDecoderLayer(nn.Module):
         self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_cross_attention_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.dropout = nn.Dropout(config.dropout_rate)
-    
+
     def forward(
         self,
         hidden_states: torch.Tensor,

@@ -59,7 +59,7 @@ class Qwen3MultiAttention(nn.Module):
 
         self.is_cross = is_cross
         if self.is_cross:
-            self.behavior_embedding_dim = config.behavior_embedding_dim
+            self.behavior_embedding_dim = config.head_dim
             self.q_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_attention_heads * config.behavior_embedding_dim)
             self.k_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
             self.v_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
@@ -93,7 +93,6 @@ class Qwen3MultiAttention(nn.Module):
             value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-
 
         if past_key_value is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache

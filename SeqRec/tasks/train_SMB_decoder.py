@@ -135,6 +135,12 @@ class TrainSMBDecoder(MultiGPUTask):
             default="default",
             help="Name for the Weights & Biases run",
         )
+        parser.add_argument(
+            "--debug",
+            action="store_true",
+            default=False,
+            help="Enable debug mode without logging to WandB",
+        )
 
     def invoke(
         self,
@@ -169,6 +175,7 @@ class TrainSMBDecoder(MultiGPUTask):
         deepspeed: str | None,
         temperature: float,
         wandb_run_name: str,
+        debug: bool,
         *args,
         **kwargs,
     ):
@@ -178,7 +185,7 @@ class TrainSMBDecoder(MultiGPUTask):
         # Implementation of the training logic goes here.
         self.init(
             seed,
-            True,
+            not debug,
             (
                 wandb_run_name
                 if wandb_run_name != "default"
@@ -432,7 +439,6 @@ class TrainSMBDecoder(MultiGPUTask):
             deepspeed=deepspeed,
             ddp_find_unused_parameters=False if self.ddp else None,
             eval_delay=1 if save_and_eval_strategy == "epoch" else 2000,
-            report_to="none",
             run_name=(
                 wandb_run_name
                 if wandb_run_name != "default"
@@ -440,6 +446,8 @@ class TrainSMBDecoder(MultiGPUTask):
             ),
             label_names=label_names,
         )
+        if debug:
+            training_args.report_to = "none"
 
         from transformers import EarlyStoppingCallback
         from transformers.trainer import Trainer
@@ -460,4 +468,4 @@ class TrainSMBDecoder(MultiGPUTask):
         trainer.save_state()
         trainer.save_model(output_dir=output_dir)
         self.info("Training completed successfully.")
-        self.finish(True)
+        self.finish(not debug)

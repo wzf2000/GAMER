@@ -33,6 +33,9 @@ elif [ "${backbone}" = "Qwen3Multi" ]; then
     base_model=./config/s2s-models/Qwen3Multi
 elif [ "${backbone}" = "Qwen3SessionMulti" ]; then
     base_model=./config/s2s-models/Qwen3SessionMulti
+elif [ "${backbone}" = "Llama" ]; then
+    base_model=./config/s2s-models/Llama
+    backbone_arg=LlamaMulti
 elif [ "${backbone}" = "LlamaMulti" ]; then
     base_model=./config/s2s-models/LlamaMulti
 else
