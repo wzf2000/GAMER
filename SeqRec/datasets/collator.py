@@ -125,6 +125,8 @@ class EncoderDecoderTestCollator:
             return_attention_mask=True,
         )
 
+        if "uid" in batch[0]:
+            inputs["uid"] = [d["uid"] for d in batch]
         if "behavior" in batch[0]:
             # If the batch contains target behavior, add it to the inputs
             inputs["behavior"] = [d["behavior"] for d in batch]
@@ -170,6 +172,8 @@ class DecoderOnlyTestCollator(object):
             truncation=True,
             return_attention_mask=True,
         )
+        if "uid" in batch[0]:
+            inputs["uid"] = [d["uid"] for d in batch]
         if "behavior" in batch[0]:
             # If the batch contains target behavior, add it to the inputs
             inputs["behavior"] = [d["behavior"] for d in batch]

@@ -132,6 +132,7 @@ class SeqRecDataset(BaseSeqDataset):
             if self.max_his_len > 0:
                 history = history[-self.max_his_len :]
             one_data["inters"] = "".join(history)
+            one_data["uid"] = uid
             inter_data.append(one_data)
 
         return inter_data
@@ -141,4 +142,7 @@ class SeqRecDataset(BaseSeqDataset):
 
     def __getitem__(self, index: int) -> dict[str, str]:
         d = self.inter_data[index]
-        return dict(input_ids=d["inters"], labels=d["item"], split=self.mode)
+        ret_d = dict(input_ids=d["inters"], labels=d["item"], split=self.mode)
+        if "uid" in d:
+            ret_d["uid"] = d["uid"]
+        return ret_d

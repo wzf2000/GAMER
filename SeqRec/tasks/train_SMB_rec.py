@@ -110,8 +110,9 @@ class TrainSMBRec(Task):
             help='Only perform testing without training.',
         )
 
-    def test_single_behavior(self, data_loader, behavior) -> dict:
+    def test_single_behavior(self, data_loader: DataLoader, behavior: str) -> dict:
         eval_results = {metric: [] for metric in self.metric_list}
+        user_metric_dict: dict[str, dict[int, float]] = {m: {} for m in self.metric_list}
         with torch.no_grad():
             for batch, targets in get_tqdm(data_loader, desc=f"{behavior} testing"):
                 batch = {k: (v.to(self.device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
@@ -119,16 +120,22 @@ class TrainSMBRec(Task):
                 scores = scores.cpu().numpy()
                 ranks = np.argsort(-scores, axis=1)
                 for metric in self.metric_list:
-                    for single_ranks, single_targets in zip(ranks, targets):
+                    for batch_i, (single_ranks, single_targets) in enumerate(zip(ranks, targets)):
                         single_targets = list(set(single_targets))
                         metric_name, k = metric.split('@')
                         k = int(k)
                         if metric_name == "hit":
                             hit = np.isin(single_targets, single_ranks[:k])
                             eval_results[metric].append(float(np.any(hit)))
+                            if 'uid' in batch:
+                                uid = batch['uid'][batch_i].item()
+                                user_metric_dict[metric][uid] = float(np.any(hit))
                         elif metric_name == "recall":
                             recall = np.isin(single_targets, single_ranks[:k])
                             eval_results[metric].append(np.mean(recall.astype(float)))
+                            if 'uid' in batch:
+                                uid = batch['uid'][batch_i].item()
+                                user_metric_dict[metric][uid] = np.mean(recall.astype(float))
                         elif metric_name == "ndcg":
                             dcg = 0.0
                             idcg = 0.0
@@ -140,11 +147,30 @@ class TrainSMBRec(Task):
                                 idcg += 1.0 / np.log2(i + 2)
                             ndcg = dcg / idcg if idcg > 0 else 0.0
                             eval_results[metric].append(ndcg)
+                            if 'uid' in batch:
+                                uid = batch['uid'][batch_i].item()
+                                user_metric_dict[metric][uid] = ndcg
                         else:
                             raise ValueError(f"Unsupported metric: {metric}")
         eval_results = {metric: np.mean(values) for metric, values in eval_results.items()}
         eval_msg = " - ".join([f"{metric}: {value:.4f}" for metric, value in eval_results.items()])
         logger.info(f"{behavior} test results - {eval_msg}")
+        if len(user_metric_dict[self.metric_list[0]]) > 0:
+            # Save user-level metrics
+            save_path = os.path.join(
+                self.result_dir,
+                f"result-{self.test_task}",
+                f"user_level_metrics_behavior_{behavior}.json"
+            )
+            ensure_dir(os.path.dirname(save_path))
+            user_metric_list: dict[str, list[float]] = {}
+            sorted_uids = sorted(user_metric_dict[self.metric_list[0]].keys())
+            for m in self.metric_list:
+                user_metric_list[m] = [user_metric_dict[m][uid] for uid in sorted_uids]
+                assert len(user_metric_list[m]) == len(data_loader.dataset), "User-level metric length should match dataset length."
+            with open(save_path, 'w', encoding='utf-8') as f:
+                json.dump(user_metric_list, f, indent=4)
+            logger.info(f"Saved user-level metrics to {save_path}.")
         return eval_results
 
     def test(self) -> list[dict[str, float]]:
@@ -318,6 +344,9 @@ class TrainSMBRec(Task):
         state_dict = torch.load(output_dir + '/best_model.pth', map_location='cpu')
         self.model.load_state_dict(state_dict)
         self.model.eval()
+        self.result_dir = result_dir
+        self.test_task = test_task
+
         results = self.test()
         logger.success("======================================================")
         logger.success("Results:")
@@ -328,8 +357,8 @@ class TrainSMBRec(Task):
                 if isinstance(res[m], float):
                     logger.success(f"\t{m} = {res[m]:.4f}")
         logger.success("======================================================")
-        ensure_dir(result_dir)
-        result_file = os.path.join(result_dir, f"result-{test_task}.json")
+        ensure_dir(self.result_dir)
+        result_file = os.path.join(self.result_dir, f"result-{self.test_task}.json")
         with open(result_file, "w") as f:
             json.dump(results, f, indent=4)
         logger.success(f"Results saved to {result_file}.")

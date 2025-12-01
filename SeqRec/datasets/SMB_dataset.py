@@ -341,6 +341,7 @@ class BaseSMBDataset(Dataset):
                 session_behaviors.append(behaviors[i])
             assert len(session_items) > 0, f"Session for user {uid} is empty after test position {self.test_pos[uid]}."
             inter_data.append({
+                "uid": uid,
                 "item": session_items,
                 "inters": self._get_inters(items[:self.test_pos[uid]], behaviors[:self.test_pos[uid]]),
                 "inters_item_list": self._get_inters_with_only_items(items[:self.test_pos[uid]]),
@@ -429,6 +430,8 @@ class BaseSMBDataset(Dataset):
                     "behavior": behaviors,
                     "time": d["time"],
                 })
+                if 'uid' in d:
+                    filtered_data[-1]['uid'] = d['uid']
         else:
             filtered_data = [
                 d for d in self.inter_data if d["behavior"] == behavior
@@ -443,7 +446,7 @@ class BaseSMBDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, str | list[str] | list[int]]:
         d = self.inter_data[index]
-        return dict(
+        ret_d = dict(
             input_ids=d["inters"],
             labels=d["item"],
             behavior=d["behavior"],
@@ -454,6 +457,9 @@ class BaseSMBDataset(Dataset):
             inters_item_list=d.get("inters_item_list", []),
             split=self.mode
         )
+        if 'uid' in d:
+            ret_d['uid'] = d['uid']
+        return ret_d
 
 
 class SMBDataset(BaseSMBDataset):
@@ -867,6 +873,7 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
                 times[:self.test_pos[uid]]
             )
             inter_data.append({
+                "uid": uid,
                 "item": session_items,
                 # Original history without dropping
                 "inters": self._get_inters(items[:self.test_pos[uid]], behaviors[:self.test_pos[uid]]),
@@ -923,6 +930,8 @@ class SMBAugmentEvaluationDataset(SMBExplicitDataset):
                         "behavior": behaviors,
                         "time": d["time"],
                     })
+                if 'uid' in d:
+                    filtered_data[-1]['uid'] = d['uid']
         else:
             filtered_data = [
                 d for d in self.inter_data if d["behavior"] == behavior
@@ -962,6 +971,7 @@ class SMBDropGTEvaluationDataset(SMBExplicitDataset):
             sids_dropped = [sid for sid, is_gt in zip(sids[:self.test_pos[uid]], GT_index) if not is_gt]
             times_dropped = [time for time, is_gt in zip(times[:self.test_pos[uid]], GT_index) if not is_gt]
             inter_data.append({
+                "uid": uid,
                 "item": session_items,
                 "inters": self._get_inters(items_dropped, behaviors_dropped),
                 "inters_item_list": self._get_inters_with_only_items(items_dropped),

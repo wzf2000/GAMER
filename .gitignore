@@ -15,5 +15,6 @@ data/*/*
 !data/**/*.session.json
 !data/**/*.time.json
 !data/**/*.behavior_level.json
+scripts/test.sh
 *.pth
 *.ipynb

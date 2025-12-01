@@ -148,6 +148,7 @@ class BaseMBDataset(Dataset):
             items = self.remapped_inters[uid]
             behaviors = self.history_behaviors[uid]
             inter_data.append({
+                "uid": uid,
                 "item": self.get_behavior_item(items[-1], behaviors[-1]),
                 "inters": self._get_inters(items, behaviors),
                 "behavior": behaviors[-1],
@@ -222,7 +223,10 @@ class BaseMBDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, str]:
         d = self.inter_data[index]
-        return dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], split=self.mode)
+        ret_d = dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], split=self.mode)
+        if "uid" in d:
+            ret_d["uid"] = d["uid"]
+        return ret_d
 
 
 class MBDataset(BaseMBDataset):

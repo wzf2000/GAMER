@@ -1,6 +1,7 @@
 import os
 import json
 import torch
+import numpy as np
 import torch.distributed as dist
 from loguru import logger
 from typing import Callable, TYPE_CHECKING
@@ -99,6 +100,8 @@ class TestMBDecoder(MultiGPUTask):
         total = 0
         pbar = get_tqdm(desc="Testing" if eval_type is None else f"Testing ({eval_type.value})", total=len(loader))
 
+        user_metric_dict: dict[str, dict[int, float]] = {m: {} for m in self.metric_list}
+
         for batch in loader:
             batch: tuple["BatchEncoding", list[str], torch.LongTensor]
             inputs = batch[0].to(self.device)
@@ -188,10 +191,30 @@ class TestMBDecoder(MultiGPUTask):
                 for ga_res in res_gather_list:
                     all_device_topk_res += ga_res
                 topk_res = all_device_topk_res
+
+                if 'uid' in inputs:
+                    uid = inputs['uid']
+                    uid_gather_list = [None for _ in range(self.world_size)]
+                    dist.all_gather_object(obj=uid, object_list=uid_gather_list)
+                    all_device_uids = []
+                    for ga_uids in uid_gather_list:
+                        all_device_uids += ga_uids
+                    uid = all_device_uids
             else:
                 total += batch_size
+                if 'uid' in inputs:
+                    uid = inputs['uid']
 
-            batch_metrics_res = get_metrics_results(topk_res, self.metric_list)
+            if 'uid' in inputs:
+                batch_metrics_res = get_metrics_results(topk_res, self.metric_list, list_output=True)
+                for m in batch_metrics_res:
+                    for i in range(len(uid)):
+                        user_metric_dict[m][uid[i]] = batch_metrics_res[m][i]
+                batch_metrics_res = {
+                    m: sum(batch_metrics_res[m]) for m in batch_metrics_res
+                }
+            else:
+                batch_metrics_res = get_metrics_results(topk_res, self.metric_list, list_output=False)
             for m, res in batch_metrics_res.items():
                 if m not in results:
                     results[m] = res
@@ -212,6 +235,25 @@ class TestMBDecoder(MultiGPUTask):
             dist.barrier()
         for m in results:
             results[m] = results[m] / total
+
+        if len(user_metric_dict[self.metric_list[0]]) > 0:
+            # Save user-level metrics
+            save_path = os.path.join(
+                self.results_file.replace(".json", ""),
+                f"user_level_metrics_[{eval_type.value}].json",
+            )
+            ensure_dir(os.path.dirname(save_path))
+            # sort the metric with uid and transform to list[float]
+            user_metric_list = {}
+            for m in user_metric_dict:
+                sorted_uids = sorted(user_metric_dict[m].keys())
+                user_metric_list[m] = [user_metric_dict[m][uid] for uid in sorted_uids]
+                assert len(user_metric_list[m]) == len(loader.dataset), "User-level metric length should match dataset length."
+                results[m] = np.mean(user_metric_list[m])  # Prevent duplicate user metric calculation by DistributedSampler
+            if self.local_rank == 0:
+                with open(save_path, 'w', encoding='utf-8') as f:
+                    json.dump(user_metric_list, f, indent=4)
+            self.info(f"Saved user-level metrics to {save_path}.")
 
         return results
 
@@ -299,6 +341,7 @@ class TestMBDecoder(MultiGPUTask):
                 test_dataset,
                 num_replicas=self.world_size,
                 rank=self.local_rank,
+                shuffle=False,
             ) for test_dataset in self.datasets]
             self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model).to(self.device)
             self.model = DDP(self.model, device_ids=[self.local_rank])
@@ -365,6 +408,8 @@ class TestMBDecoder(MultiGPUTask):
         self.model.eval()
         self.metric_list = metrics.split(",")
         self.backbone = backbone
+        self.results_file = results_file
+
         results = self.test(num_beams)
         logger.success("======================================================")
         logger.success("Results:")
@@ -376,9 +421,9 @@ class TestMBDecoder(MultiGPUTask):
                     logger.success(f"\t{m} = {res[m]:.4f}")
         logger.success("======================================================")
         if self.local_rank == 0:
-            ensure_dir(os.path.dirname(results_file))
-            with open(results_file, "w") as f:
+            ensure_dir(os.path.dirname(self.results_file))
+            with open(self.results_file, "w") as f:
                 json.dump(results, f, indent=4)
-        logger.success(f"Results saved to {results_file}.")
+        logger.success(f"Results saved to {self.results_file}.")
 
         self.finish(False)
