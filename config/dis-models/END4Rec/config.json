@@ -1,0 +1,8 @@
+{
+    "n_layers": 2,
+    "hidden_size": 64,
+    "n_chunks": 4,
+    "tau": 1.0,
+    "cl_weight": 0.1,
+    "compactness_weight": 0.01
+}

@@ -16,6 +16,7 @@ from SeqRec.models.discriminative.BERT4Rec import BERT4Rec, BERT4RecConfig
 from SeqRec.models.discriminative.MBHT import MBHT, MBHTConfig
 from SeqRec.models.discriminative.MBSTR import MBSTR, MBSTRConfig
 from SeqRec.models.discriminative.PBAT import PBAT, PBATConfig
+from SeqRec.models.discriminative.END4Rec import END4Rec, END4RecConfig
 from SeqRec.utils.config import Config
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
