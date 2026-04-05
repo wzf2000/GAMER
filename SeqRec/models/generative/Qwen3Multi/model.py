@@ -537,8 +537,8 @@ class Qwen3MultiModelBase(Qwen3PreTrainedModel):
 
 class Qwen3MultiModel(Qwen3MultiModelBase):
     def __init__(self, config: Qwen3MoeConfig):
-        assert 'num_positions' in config and isinstance(config.num_positions, int), "Config must have 'num_positions' attribute for Qwen3SessionModel."
-        assert 'model_max_length' in config and isinstance(config.model_max_length, int), "Config must have 'model_max_length' attribute for Qwen3SessionModel."
+        assert 'num_positions' in config and isinstance(config.num_positions, int), "Config must have 'num_positions' attribute for Qwen3MultiModel."
+        assert 'model_max_length' in config and isinstance(config.model_max_length, int), "Config must have 'model_max_length' attribute for Qwen3MultiModel."
         super().__init__(config)
         self.behavior_maps = config.behavior_maps
         max_item_num = config.model_max_length // config.num_positions
