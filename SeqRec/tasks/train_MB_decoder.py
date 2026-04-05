@@ -235,6 +235,16 @@ class TrainMBDecoder(MultiGPUTask):
             assert isinstance(
                 tokenizer, Qwen2Tokenizer
             ), "Expected Qwen2Tokenizer for Qwen3Moe backbone"
+        elif backbone == "Qwen3Multi":
+            from transformers import Qwen3MoeConfig, Qwen2Tokenizer
+            config: Qwen3MoeConfig = Qwen3MoeConfig.from_pretrained(base_model)
+            tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(
+                base_model,
+                model_max_length=model_max_length,
+            )
+            assert isinstance(
+                tokenizer, Qwen2Tokenizer
+            ), "Expected Qwen2Tokenizer for Qwen3Multi backbone"
         else:
             raise ValueError(f"Unsupported backbone model: {backbone}")
         deepspeed = None
@@ -257,7 +267,7 @@ class TrainMBDecoder(MultiGPUTask):
             tokenizer.save_pretrained(output_dir)
             config.save_pretrained(output_dir)
 
-        if backbone == "Qwen3" or backbone == "Qwen3Moe":
+        if backbone in ["Qwen3", "Qwen3Moe", "Qwen3Multi"]:
             collator = DecoderOnlyCollator(tokenizer, only_train_response=not isinstance(first_dataset, MBExplicitDatasetForDecoder))
         else:
             collator = EncoderDecoderCollator(tokenizer)
@@ -314,7 +324,7 @@ class TrainMBDecoder(MultiGPUTask):
             from SeqRec.models.generative.Qwen3 import Qwen3WithTemperature
             model = Qwen3WithTemperature(config)
             model.set_hyper(temperature)
-        elif backbone == "Qwen3Moe":
+        elif backbone in ["Qwen3Moe", "Qwen3Multi"]:
             from SeqRec.models.generative.Qwen3Moe import Qwen3MoeWithTemperature
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
@@ -360,8 +370,13 @@ class TrainMBDecoder(MultiGPUTask):
                 )
             config.n_positions = max_his_len + 1
             config.use_user_token = False
+            config.model_max_length = model_max_length
             self.info(f"Model Config: {config}")
-            model = Qwen3MoeWithTemperature(config)
+            if backbone == "Qwen3Moe":
+                model = Qwen3MoeWithTemperature(config)
+            else:
+                from SeqRec.models.generative.Qwen3Multi import Qwen3MultiWithTemperature
+                model = Qwen3MultiWithTemperature(config)
             model.set_hyper(temperature)
         else:
             raise ValueError(f"Unsupported backbone model: {backbone}")
@@ -371,6 +386,11 @@ class TrainMBDecoder(MultiGPUTask):
         if not self.ddp and torch.cuda.device_count() > 1:
             model.is_parallelizable = True
             model.model_parallel = True
+
+        if backbone == "Qwen3Multi":
+            label_names = ['input_ids', 'labels', 'actions']
+        else:
+            label_names = ['input_ids', 'labels']
 
         from transformers.training_args import TrainingArguments
         training_args = TrainingArguments(
@@ -404,6 +424,7 @@ class TrainMBDecoder(MultiGPUTask):
                 if wandb_run_name != "default"
                 else output_dir.split("checkpoint/MB-decoder/")[-1]
             ),
+            label_names=label_names,
         )
 
         from transformers import EarlyStoppingCallback

@@ -37,7 +37,12 @@ class BaseMBDataset(Dataset):
         self.mode = mode
         self.filter_target = filter_target
 
-        self.inter_suffix = "MB.inter"
+        if os.path.exists(os.path.join(self.data_path, self.dataset + ".MB.inter.json")):
+            self.inter_suffix = "MB.inter"
+            self.behavior_suffix = "MB.behavior"
+        else:
+            self.inter_suffix = "SMB.inter"
+            self.behavior_suffix = "SMB.behavior"
 
         # load data
         self._load_data()
@@ -58,10 +63,13 @@ class BaseMBDataset(Dataset):
     def _load_data(self):
         with open(os.path.join(self.data_path, self.dataset + f".{self.inter_suffix}.json"), "r") as f:
             self.inters: dict[str, list[int]] = json.load(f)
-        with open(os.path.join(self.data_path, self.dataset + ".MB.behavior.json"), "r") as f:
+        with open(os.path.join(self.data_path, self.dataset + f".{self.behavior_suffix}.json"), "r") as f:
             self.history_behaviors: dict[str, list[str]] = json.load(f)
         with open(os.path.join(self.data_path, self.dataset + self.index_file), "r") as f:
             self.indices: dict[str, list[str]] = json.load(f)
+        index_lengths = {len(v) for v in self.indices.values()}
+        assert len(index_lengths) == 1, f"All indices must have the same length, but got lengths: {index_lengths}"
+        self.sole_item_len = index_lengths.pop()
         assert os.path.exists(os.path.join(self.data_path, self.dataset + '.behavior_level.json')), (
             f"Behavior level file {self.data_path}/{self.dataset}.behavior_level.json does not exist."
         )
@@ -98,6 +106,11 @@ class BaseMBDataset(Dataset):
             "This method should be implemented in subclasses to return the behavior token."
         )
 
+    def token_count(self) -> int:
+        raise NotImplementedError(
+            "This method should be implemented in subclasses to return the token count."
+        )
+
     def _get_inters(self, history_items: list[str], history_behaviors: list[str]) -> str:
         target_item = history_items[-1]
         target_behavior = history_behaviors[-1]
@@ -114,6 +127,18 @@ class BaseMBDataset(Dataset):
         ]
         return "".join(history_behavior_items)
 
+    def _generate_actions(self, actions: list[int], max_his_len: int | None = None) -> list[int]:
+        ret = []
+        if max_his_len is None:
+            max_his_len = self.max_his_len
+        if max_his_len > 0:
+            if self.mode in ["train", "valid"]:
+                max_his_len += 1
+            actions = actions[-max_his_len:]
+        for action in actions:
+            ret.extend([self.behavior_level[action]] * self.token_count())
+        return ret
+
     def _process_train_data(self) -> list[dict[str, str]]:
         inter_data = []
         pbar = get_tqdm(self.remapped_inters, desc="Processing training data")
@@ -124,6 +149,7 @@ class BaseMBDataset(Dataset):
                 inter_data.append({
                     "item": self.get_behavior_item(items[i], behaviors[i]),
                     "inters": self._get_inters(items[:i + 1], behaviors[:i + 1]),
+                    "actions": self._generate_actions(behaviors[:i + 1]),
                     "behavior": behaviors[i],
                 })
 
@@ -137,6 +163,7 @@ class BaseMBDataset(Dataset):
             inter_data.append({
                 "item": self.get_behavior_item(items[-2], behaviors[-2]),
                 "inters": self._get_inters(items[:-1], behaviors[:-1]),
+                "actions": self._generate_actions(behaviors[:-1]),
                 "behavior": behaviors[-2],
             })
 
@@ -151,6 +178,7 @@ class BaseMBDataset(Dataset):
                 "uid": uid,
                 "item": self.get_behavior_item(items[-1], behaviors[-1]),
                 "inters": self._get_inters(items, behaviors),
+                "actions": self._generate_actions(behaviors),
                 "behavior": behaviors[-1],
             })
 
@@ -223,7 +251,7 @@ class BaseMBDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, str]:
         d = self.inter_data[index]
-        ret_d = dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], split=self.mode)
+        ret_d = dict(input_ids=d["inters"], labels=d["item"], behavior=d["behavior"], actions=d["actions"], split=self.mode)
         if "uid" in d:
             ret_d["uid"] = d["uid"]
         return ret_d
@@ -250,6 +278,9 @@ class MBDataset(BaseMBDataset):
     def get_behavior_tokens(self, behavior: str) -> list[str]:
         # No explicit behavior tokens in this dataset
         return []
+
+    def token_count(self) -> int:
+        return self.sole_item_len
 
 
 class MBExplicitDataset(BaseMBDataset):
@@ -280,6 +311,10 @@ class MBExplicitDataset(BaseMBDataset):
 
     def get_behavior_tokens(self, behavior: str) -> list[str]:
         return [f"<behavior_{behavior}>"]
+
+    def token_count(self) -> int:
+        # Each item is represented by sole_item_len tokens, plus one behavior token
+        return self.sole_item_len + 1
 
 
 class MBExplicitDatasetForDecoder(MBExplicitDataset):
@@ -339,6 +374,7 @@ class MBExplicitDatasetForDecoder(MBExplicitDataset):
                 inter_data.append({
                     "item": self.get_behavior_item(items[-1], behaviors[-1]),
                     "inters": self._get_inters(items, behaviors),
+                    "actions": self._generate_actions(behaviors),
                     "behavior": behaviors[-1],
                 })
 

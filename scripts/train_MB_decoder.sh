@@ -23,6 +23,8 @@ elif [ "${backbone}" = "PBATransformer" ]; then
     base_model=./config/s2s-models/PBATransformer
 elif [ "${backbone}" = "Qwen3" ]; then
     base_model=./config/s2s-models/Qwen3-Light
+elif [ "${backbone}" = "Qwen3Multi" ]; then
+    base_model=./config/s2s-models/Qwen3Multi
 else
     echo "Unsupported backbone model: ${backbone}."
     exit 1

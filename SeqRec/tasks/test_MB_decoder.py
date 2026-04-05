@@ -112,7 +112,7 @@ class TestMBDecoder(MultiGPUTask):
                 behavior_tokens = [''.join(dataset.get_behavior_tokens(b)) for b in behaviors]
                 behavior_tokens = self.tokenizer.batch_encode_plus(behavior_tokens, add_special_tokens=False)["input_ids"]
                 decoder_input_ids = [[self.config.decoder_start_token_id] + tokens for tokens in behavior_tokens]
-                if self.backbone == 'Qwen3':
+                if self.backbone in ['Qwen3', 'Qwen3Multi']:
                     # Get any item in all_items
                     max_new_tokens = self.sole_item_len
                     inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
@@ -122,7 +122,7 @@ class TestMBDecoder(MultiGPUTask):
                 else:
                     prefix_allowed_tokens_fn = self.prefix_allowed_tokens
             else:
-                if self.backbone == 'Qwen3':
+                if self.backbone in ['Qwen3', 'Qwen3Multi']:
                     max_new_tokens = self.item_len
                     inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
                     inputs.attention_mask = inputs.attention_mask[:, :-max_new_tokens]
@@ -140,6 +140,24 @@ class TestMBDecoder(MultiGPUTask):
                     input_ids=inputs.input_ids,
                     attention_mask=inputs.attention_mask,
                     max_new_tokens=max_new_tokens,
+                    prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                    num_beams=num_beams,
+                    num_return_sequences=num_beams,
+                    output_scores=True,
+                    return_dict_in_generate=True,
+                    early_stopping=True,
+                )
+            elif self.backbone == 'Qwen3Multi':
+                output: "GenerateBeamOutput" = (
+                    self.model
+                    if isinstance(self.model, GenerationMixin)
+                    else
+                    self.model.module
+                ).generate(
+                    input_ids=inputs.input_ids,
+                    attention_mask=inputs.attention_mask,
+                    actions=inputs.actions,
+                    max_new_tokens=self.sole_item_len,
                     prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
                     num_beams=num_beams,
                     num_return_sequences=num_beams,
@@ -168,7 +186,7 @@ class TestMBDecoder(MultiGPUTask):
             output_ids = output.sequences
             scores = output.sequences_scores
 
-            if self.backbone == 'Qwen3':
+            if self.backbone in ['Qwen3', 'Qwen3Multi']:
                 output_ids = output_ids[:, -self.item_len:]
 
             output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
@@ -321,6 +339,14 @@ class TestMBDecoder(MultiGPUTask):
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3Config = self.model.config
+        elif backbone == 'Qwen3Multi':
+            from transformers import Qwen3MoeConfig, Qwen2Tokenizer
+            from SeqRec.models.generative.Qwen3Multi import Qwen3MultiWithTemperature
+            self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
+            self.model = Qwen3MultiWithTemperature.from_pretrained(ckpt_path).to(self.device)
+            if self.model.config.pad_token_id is None:
+                self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
+            self.config: Qwen3MoeConfig = self.model.config
         else:
             raise ValueError(f"Unsupported backbone: {backbone}")
 
@@ -348,7 +374,7 @@ class TestMBDecoder(MultiGPUTask):
         else:
             self.samplers = [None] * len(self.datasets)
 
-        if backbone == 'Qwen3':
+        if backbone in ['Qwen3', 'Qwen3Multi']:
             collator = DecoderOnlyTestCollator(self.tokenizer)
         else:
             collator = EncoderDecoderTestCollator(self.tokenizer)
@@ -366,7 +392,7 @@ class TestMBDecoder(MultiGPUTask):
         last_token_set: set[int] = set([tokens[-1] for tokens in items_tokens])
         last_token_set.add(self.config.pad_token_id)  # Ensure pad token is included
         self.info("Complete get all behavior items last token set.")
-        if backbone == 'Qwen3':
+        if backbone in ['Qwen3', 'Qwen3Multi']:
             candidate_trie = Trie(items_tokens)
             self.prefix_allowed_tokens = prefix_allowed_tokens_fn_by_last_token(candidate_trie, last_token_set)
         else:
@@ -380,7 +406,7 @@ class TestMBDecoder(MultiGPUTask):
         behaviors = self.datasets[0].behaviors
         for behavior in behaviors:
             all_items = self.datasets[0].get_all_items(behavior)
-            if backbone == 'Qwen3':
+            if backbone in ['Qwen3', 'Qwen3Multi']:
                 candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items), add_special_tokens=False)["input_ids"]
                 behavior_trie = Trie(candidate_tokens)
                 self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn_by_last_token(behavior_trie, last_token_set)
