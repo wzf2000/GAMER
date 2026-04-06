@@ -612,66 +612,6 @@ class Qwen3SessionMultiModel(Qwen3SessionMultiModelBase):
             )
         return causal_mask
 
-    def _update_session_multi_self_mask(
-        self,
-        attention_mask: torch.Tensor | None = None,
-        input_tensor: torch.FloatTensor | None = None,
-        cache_position: torch.LongTensor | None = None,
-        past_key_values: Cache | None = None,
-        session_ids: torch.LongTensor | None = None,  # [B, S]
-        actions: torch.LongTensor | None = None,  # [B, S]
-    ) -> torch.Tensor:
-        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-        batch_size = input_tensor.shape[0]
-        sequence_length = input_tensor.shape[1]
-        dtype, device = input_tensor.dtype, input_tensor.device
-        min_dtype = torch.finfo(dtype).min
-        if past_seen_tokens == 0:
-            assert session_ids is not None, "Session IDs must be provided to generate session-wise causal mask."
-            # during training or the first time to generate, generate the complete causal mask
-            target_length = sequence_length
-            causal_mask = torch.full(
-                (sequence_length, sequence_length),
-                fill_value=min_dtype,
-                dtype=dtype,
-                device=device
-            )
-            causal_mask *= self.in_item_mask[:sequence_length, :sequence_length].to(device)
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            session_mask = (session_ids[:, None] >= session_ids[..., None])[:, None]  # [B, 1, S, S]
-            action_mask = (actions[:, None] != actions[..., None])[:, None]
-            mask = ~(~session_mask & ~action_mask)
-            causal_mask *= mask
-            if past_key_values is not None:
-                self.multi_self_mask = causal_mask[:, :, -1, :]
-        else:
-            # not the first time to generate, generate the causal mask for the new tokens
-            target_length = len(cache_position) + past_seen_tokens
-            b, h, _ = self.multi_self_mask.shape
-            tmp = torch.full(
-                (b, h, 1),
-                fill_value=0,
-                dtype=dtype,
-                device=device,
-            )
-            causal_mask = torch.cat([self.multi_self_mask, tmp], dim=-1)
-            self.multi_self_mask = causal_mask
-            causal_mask = causal_mask[:, :, None, :]
-        if attention_mask is not None:
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            if attention_mask.shape[-1] > target_length:
-                attention_mask = attention_mask[:, :target_length]
-            mask_length = attention_mask.shape[-1]
-            padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :].to(
-                causal_mask.device
-            )
-            padding_mask = padding_mask == 0
-            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
-                padding_mask, min_dtype
-            )
-        return causal_mask
-
     def _update_session_wise_causal_mask(
         self,
         attention_mask: torch.Tensor | None = None,
