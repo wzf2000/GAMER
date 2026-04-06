@@ -548,6 +548,129 @@ class Qwen3MultiModel(Qwen3MultiModelBase):
         self.cross_past_key_values = None
         self.multi_self_mask = None
         self.multi_cross_mask = None
+        logger.info(f"Using cross_mask_type: {getattr(config, 'cross_mask_type', 'level')} for Qwen3MultiModel.")
+
+    def _compute_action_block_mask(
+        self,
+        actions: torch.LongTensor,  # [B, S]
+        sequence_length: int,
+        batch_size: int,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """
+        Build the [B, 1, S, S] additive attention bias for cross-attention, combining
+        the in-item causal mask with an action-level gating strategy.
+
+        The variant is selected by ``config.cross_mask_type`` (default ``"level"``):
+
+        ``"level"`` (default)
+            Hard mask — only tokens whose **query** action-level is **strictly
+            greater** than the **key** action-level may attend.
+            Blocks when ``key_level >= query_level``.
+
+        ``"causal"``
+            No action-level gating.  Plain in-item left-to-right causal mask only;
+            all past tokens are reachable regardless of action level.
+
+        ``"reverse"``
+            Reversed direction — only tokens whose **query** action-level is
+            **strictly less** than the **key** action-level may attend
+            (blocks when ``key_level <= query_level``).
+
+        ``"geq"``
+            Like ``"level"`` but relaxes the same-level constraint: tokens whose
+            query action-level is **greater than or equal to** the key action-level
+            may attend (blocks only when ``key_level > query_level``).
+
+        ``"soft"``
+            Replaces the binary 0 / min_dtype mask with a continuous additive bias
+            proportional to ``(query_level − key_level)``, inspired by ALiBi /
+            RoPE but using action level instead of position index.
+            • bias = 0          when query_level >= key_level (allowed direction)
+            • bias ∈ [min_dtype, 0)  scaled by the level gap otherwise
+            Steepness is controlled by ``config.cross_mask_soft_scale``
+            (default 1.0; higher values make the transition sharper).
+
+        Returns a tensor of shape ``[B, 1, S, S]`` with 0.0 where attention is
+        permitted and ``min_dtype`` (or a continuous negative bias for ``"soft"``)
+        where it is blocked.
+        """
+        min_dtype = torch.finfo(dtype).min
+        mask_type: str = getattr(self.config, "cross_mask_type", "level")
+
+        # In-item causal block: True where j > i (strictly future token — must block)
+        in_item_block = (
+            self.in_item_mask[:sequence_length, :sequence_length].to(device) == 1
+        )  # [S, S] bool
+        in_item_block = in_item_block[None, None, :, :].expand(
+            batch_size, 1, -1, -1
+        )  # [B, 1, S, S]
+
+        # ------------------------------------------------------------------
+        # Variant 1 — causal only: no action-level gating
+        # ------------------------------------------------------------------
+        if mask_type == "causal":
+            causal_mask = torch.zeros(
+                batch_size, 1, sequence_length, sequence_length,
+                dtype=dtype, device=device,
+            )
+            causal_mask.masked_fill_(in_item_block, min_dtype)
+            return causal_mask
+
+        # ------------------------------------------------------------------
+        # Variant 4 — soft: continuous bias based on (query_level − key_level)
+        # ------------------------------------------------------------------
+        if mask_type == "soft":
+            soft_scale: float = float(getattr(self.config, "cross_mask_soft_scale", 1.0))
+            num_behavior: float = float(max(1, getattr(self.config, "num_behavior", 1)))
+            # level_diff[b, i, j] = actions[b, i] − actions[b, j]
+            #   > 0  →  query is higher level  →  allowed direction  →  bias 0
+            #   = 0  →  same level              →  allowed           →  bias 0
+            #   < 0  →  query is lower level    →  blocked direction →  bias negative
+            # [B, S, 1] − [B, 1, S]  →  [B, S, S], then unsqueeze head dim
+            level_diff = (
+                actions[..., None].float() - actions[:, None, :].float()
+            ).unsqueeze(1)  # [B, 1, S, S]
+            # Normalise so a gap of `num_behavior` saturates to min_dtype
+            scale = abs(min_dtype) / num_behavior * soft_scale
+            soft_bias = (level_diff.clamp(max=0.0) * scale).clamp(min=min_dtype).to(dtype)
+            # Strictly-future in-item tokens must always be fully blocked
+            soft_bias.masked_fill_(in_item_block, min_dtype)
+            return soft_bias  # [B, 1, S, S]
+
+        # ------------------------------------------------------------------
+        # Variants 2 & 3 (binary) — level / reverse / geq
+        #   actions[:, None]    = [B, 1, S]  →  key dimension   (j)
+        #   actions[..., None]  = [B, S, 1]  →  query dimension (i)
+        #   result[b, i, j]     compares key_j versus query_i
+        # ------------------------------------------------------------------
+        if mask_type == "level":
+            # Original: block when key_level >= query_level
+            # ALLOW only when query_level > key_level  (strictly higher → lower)
+            action_block = (actions[:, None] >= actions[..., None])[:, None]
+        elif mask_type == "reverse":
+            # Variant 2 — reverse: block when key_level <= query_level
+            # ALLOW only when key_level > query_level  (strictly lower → higher)
+            action_block = (actions[:, None] <= actions[..., None])[:, None]
+        elif mask_type == "geq":
+            # Variant 3 — relaxed: block only when key_level > query_level
+            # ALLOW when query_level >= key_level  (same level ok)
+            action_block = (actions[:, None] > actions[..., None])[:, None]
+        else:
+            raise ValueError(
+                f"Unknown cross_mask_type '{mask_type}'. "
+                "Choose from: 'level', 'causal', 'reverse', 'geq', 'soft'."
+            )
+
+        # Block if in-item future token  OR  action-level condition violated
+        block_condition = ~(~in_item_block & ~action_block)  # logical OR
+        causal_mask = torch.zeros(
+            batch_size, 1, sequence_length, sequence_length,
+            dtype=dtype, device=device,
+        )
+        causal_mask.masked_fill_(block_condition, min_dtype)
+        return causal_mask  # [B, 1, S, S]
 
     def _update_session_multi_cross_mask(
         self,
@@ -566,19 +689,9 @@ class Qwen3MultiModel(Qwen3MultiModelBase):
         if past_seen_tokens == 0:
             # during training or the first time to generate, generate the complete causal mask
             target_length = sequence_length
-            causal_mask = torch.full(
-                (sequence_length, sequence_length),
-                fill_value=min_dtype,
-                dtype=dtype,
-                device=device
+            causal_mask = self._compute_action_block_mask(
+                actions, sequence_length, batch_size, dtype, device
             )
-            mask = (self.in_item_mask[:sequence_length, :sequence_length].to(device) == 1)
-            mask = mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            action_mask = (actions[:, None] >= actions[..., None])[:, None]
-            mask = ~(~mask & ~action_mask)
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            causal_mask *= mask
             if past_key_values is not None:
                 self.multi_cross_mask = causal_mask[:, :, -1, :]
         else:
@@ -593,65 +706,6 @@ class Qwen3MultiModel(Qwen3MultiModelBase):
             )
             causal_mask = torch.cat([self.multi_cross_mask, tmp], dim=-1)
             self.multi_cross_mask = causal_mask
-            causal_mask = causal_mask[:, :, None, :]
-        if attention_mask is not None:
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            if attention_mask.shape[-1] > target_length:
-                attention_mask = attention_mask[:, :target_length]
-            mask_length = attention_mask.shape[-1]
-            padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :].to(
-                causal_mask.device
-            )
-            padding_mask = padding_mask == 0
-            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
-                padding_mask, min_dtype
-            )
-        return causal_mask
-
-    def _update_session_multi_self_mask(
-        self,
-        attention_mask: torch.Tensor | None = None,
-        input_tensor: torch.FloatTensor | None = None,
-        cache_position: torch.LongTensor | None = None,
-        past_key_values: Cache | None = None,
-        session_ids: torch.LongTensor | None = None,  # [B, S]
-        actions: torch.LongTensor | None = None,  # [B, S]
-    ) -> torch.Tensor:
-        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-        batch_size = input_tensor.shape[0]
-        sequence_length = input_tensor.shape[1]
-        dtype, device = input_tensor.dtype, input_tensor.device
-        min_dtype = torch.finfo(dtype).min
-        if past_seen_tokens == 0:
-            # during training or the first time to generate, generate the complete causal mask
-            target_length = sequence_length
-            causal_mask = torch.full(
-                (sequence_length, sequence_length),
-                fill_value=min_dtype,
-                dtype=dtype,
-                device=device
-            )
-            mask = (self.in_item_mask[:sequence_length, :sequence_length].to(device) == 1)
-            mask = mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            action_mask = (actions[:, None] != actions[..., None])[:, None]
-            mask = ~(~mask & ~action_mask)
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            causal_mask *= mask
-            if past_key_values is not None:
-                self.multi_self_mask = causal_mask[:, :, -1, :]
-        else:
-            # not the first time to generate, generate the causal mask for the new tokens
-            target_length = len(cache_position) + past_seen_tokens
-            b, h, _ = self.multi_self_mask.shape
-            tmp = torch.full(
-                (b, h, 1),
-                fill_value=0,
-                dtype=dtype,
-                device=device,
-            )
-            causal_mask = torch.cat([self.multi_self_mask, tmp], dim=-1)
-            self.multi_self_mask = causal_mask
             causal_mask = causal_mask[:, :, None, :]
         if attention_mask is not None:
             causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
