@@ -18,7 +18,7 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.activations import ACT2FN
 
-from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
+from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP, DenseMLP, RouterMoeBlock
 from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
 
 
@@ -149,6 +149,10 @@ class Qwen3MultiDecoderLayer(nn.Module):
             self.mlp_type = config.mlp_type
         if self.mlp_type == "Qwen3":
             self.mlp = MyQwen3SparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
+        elif self.mlp_type == "dense":
+            self.mlp = DenseMLP(config)
+        elif self.mlp_type == "RouterMoe":
+            self.mlp = RouterMoeBlock(config, behavior_injection=self.behavior_injection)
         else:
             self.mlp = PBATransformerSparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
         self.input_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)

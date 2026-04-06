@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers.activations import ACT2FN
 from transformers.models.t5.modeling_t5 import T5DenseActDense
 from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
@@ -86,6 +87,88 @@ class PBATransformerMlp(T5DenseActDense):
         self.wo = nn.Linear(config.intermediate_size, config.moe_intermediate_size, bias=False)
         self.dropout = nn.Dropout(config.dropout_rate)
         self.act = ACT2FN[config.hidden_act]
+
+
+class DenseMLP(nn.Module):
+    """Plain Qwen3-style FFN without any MoE or routing. Ignores position/behavior indices."""
+
+    def __init__(self, config: Qwen3MoeConfig, behavior_injection: bool = False):
+        super().__init__()
+        # behavior_injection is intentionally ignored for dense MLP
+        self.gate_proj = nn.Linear(config.hidden_size, config.intermediate_size, bias=False)
+        self.up_proj = nn.Linear(config.hidden_size, config.intermediate_size, bias=False)
+        self.down_proj = nn.Linear(config.intermediate_size, config.hidden_size, bias=False)
+        self.act_fn = ACT2FN[config.hidden_act]
+        self.dropout = nn.Dropout(config.dropout_rate)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        position_index: torch.Tensor,
+        behavior_index: torch.Tensor,
+    ) -> torch.Tensor:
+        return self.down_proj(
+            self.dropout(self.act_fn(self.gate_proj(hidden_states))) * self.up_proj(hidden_states)
+        )
+
+
+class RouterMoeBlock(nn.Module):
+    """Qwen3MoE-style MoE with learned top-k routing. Routing is NOT fixed by position/behavior indices.
+    When behavior_injection=True, behavior embeddings are added to the router logits."""
+
+    def __init__(self, config: Qwen3MoeConfig, behavior_injection: bool = False):
+        super().__init__()
+        self.num_experts = getattr(config, "num_experts", 8)
+        self.top_k = getattr(config, "num_experts_per_tok", 2)
+        self.norm_topk_prob = getattr(config, "norm_topk_prob", False)
+
+        self.gate = nn.Linear(config.hidden_size, self.num_experts, bias=False)
+        self.experts = nn.ModuleList([MyQwen3MoeMLP(config) for _ in range(self.num_experts)])
+
+        self.behavior_injection = behavior_injection
+        if self.behavior_injection:
+            self.behavior_embedding = nn.Embedding(
+                config.num_behavior + 1, config.behavior_embedding_dim
+            )
+            self.behavior_gate = nn.Linear(config.behavior_embedding_dim, self.num_experts, bias=False)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        position_index: torch.Tensor,
+        behavior_index: torch.Tensor,
+    ) -> torch.Tensor:
+        B, S, D = hidden_states.shape
+        hidden_flat = hidden_states.view(-1, D)  # [T, D]
+
+        router_logits = self.gate(hidden_flat)  # [T, num_experts]
+        if self.behavior_injection:
+            beh_emb = self.behavior_embedding(behavior_index.view(-1))  # [T, beh_dim]
+            router_logits = router_logits + self.behavior_gate(beh_emb)
+
+        routing_weights = torch.softmax(router_logits.float(), dim=-1)
+        routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
+        # selected_experts: [T, top_k], routing_weights: [T, top_k]
+        if self.norm_topk_prob:
+            routing_weights = routing_weights / routing_weights.sum(dim=-1, keepdim=True)
+        routing_weights = routing_weights.to(hidden_states.dtype)
+
+        # expert_mask: [num_experts, top_k, T]
+        expert_mask = F.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
+
+        final_hidden = torch.zeros_like(hidden_flat)
+        for expert_idx in range(self.num_experts):
+            expert = self.experts[expert_idx]
+            # idx: which top-k slot, top_x: which token
+            idx, top_x = torch.where(expert_mask[expert_idx])
+            if top_x.shape[0] == 0:
+                continue
+            current_state = hidden_flat[top_x]  # [num_tokens, D]
+            expert_out = expert(current_state).to(hidden_states.dtype)
+            weighted = expert_out * routing_weights[top_x, idx, None]
+            final_hidden.index_add_(0, top_x, weighted)
+
+        return final_hidden.view(B, S, D)
 
 
 class PBATransformerSparseMLP(nn.Module):
