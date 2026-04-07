@@ -1,3 +1,7 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:11f3db90d2b15b15e18e194f8d21a6b9fa50fa8e4c08747520e2a98f9971c5a6
-size 78
+{
+    "pv": 0,
+    "click": 1,
+    "cart": 2,
+    "collect": 2,
+    "buy": 2
+}

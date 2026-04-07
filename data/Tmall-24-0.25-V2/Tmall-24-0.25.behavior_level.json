@@ -1,3 +1,6 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:fec91330f2329cbde035a815cc13cc81f65c98d6339ee9aa49d7cdb4589bdb6e
-size 68
+{
+    "click": 0,
+    "collect": 1,
+    "cart": 1,
+    "alipay": 1
+}
