@@ -68,5 +68,5 @@ dataset=ShortVideoAD original=1 batch_size=1024 tasks=smb_explicit_decoder_4 gpu
 Run the following command to evaluate Qwen3Multi trained above:
 
 ```bash
-dataset=ShortVideoAD original=1 batch_size=256 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3SessionMoe extra_args=max_his_len=100 bash ./scripts/test_SMB_decoder.sh
+dataset=ShortVideoAD original=1 batch_size=256 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3Multi extra_args=max_his_len=100 bash ./scripts/test_SMB_decoder.sh
 ```
