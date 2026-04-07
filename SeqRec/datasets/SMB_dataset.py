@@ -140,10 +140,10 @@ class BaseSMBDataset(Dataset):
         self.max_behavior_level = max(self.behavior_level.values())
         # get the target behavior
         max_level_behaviors = [b for b, level in self.behavior_level.items() if level == self.max_behavior_level]
-        assert len(max_level_behaviors) == 1, (
-            f"Expected exactly one target behavior with max level, but found {len(max_level_behaviors)}: {max_level_behaviors}"
-        )
-        self.target_behavior = max_level_behaviors[0]
+        if len(max_level_behaviors) > 1:
+            logger.warning(f"Expected exactly one target behavior with max level, but found {len(max_level_behaviors)}: {max_level_behaviors}")
+        self.target_behavior = max_level_behaviors[-1]
+        logger.info(f"Target behavior: {self.target_behavior}")
         self.behaviors = list(self.behavior_level.keys())
 
     def _remap_items(self):
@@ -559,7 +559,7 @@ class SMBExplicitDatasetForDecoder(SMBExplicitDataset):
                 continue
             drop_indices = []
             for behavior, level in self.behavior_level.items():
-                if level == self.max_behavior_level:
+                if behavior == self.target_behavior:
                     continue  # Skip the target behavior
                 if behavior not in behavior_indices or len(behavior_indices[behavior]) == 0:
                     continue
