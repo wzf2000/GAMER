@@ -29,10 +29,6 @@ data/Tmall-24-0.25/Tmall-24-0.25.SMB.item.json filter=lfs diff=lfs merge=lfs -te
 data/Tmall-24-0.25/Tmall-24-0.25.SMB.session.json filter=lfs diff=lfs merge=lfs -text
 data/Tmall-24-0.25/Tmall-24-0.25.SMB.time.json filter=lfs diff=lfs merge=lfs -text
 data/Tmall-24-0.25/Tmall-24-0.25.item.json filter=lfs diff=lfs merge=lfs -text
-data/Tmall-24-0.25/Tmall.MB.behavior.json filter=lfs diff=lfs merge=lfs -text
-data/Tmall-24-0.25/Tmall.MB.inter.json filter=lfs diff=lfs merge=lfs -text
-data/Tmall-24-0.25/Tmall.SMB.time.json filter=lfs diff=lfs merge=lfs -text
-data/Tmall-24-0.25/Tmall.item.json filter=lfs diff=lfs merge=lfs -text
 data/Tmall/Tmall.MB.behavior.json filter=lfs diff=lfs merge=lfs -text
 data/Tmall/Tmall.MB.inter.json filter=lfs diff=lfs merge=lfs -text
 data/Tmall/Tmall.item.json filter=lfs diff=lfs merge=lfs -text
