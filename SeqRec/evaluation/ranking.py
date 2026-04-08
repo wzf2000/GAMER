@@ -43,7 +43,7 @@ def ndcg_k(topk_results: list[list[int]], k: int, targets: set[list[str]] | None
             if res[j] == 1:
                 cnt += 1
             one_ndcg += res[j] / math.log(j + 2, 2)
-            if cnt == 1 and targets is None or cnt == len(targets[i]):
+            if cnt == 1 and targets is None or targets is not None and cnt == len(targets[i]):
                 break
         if targets is not None:
             ideal_dcg = 0.0
