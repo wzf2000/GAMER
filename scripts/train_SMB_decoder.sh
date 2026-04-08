@@ -126,6 +126,11 @@ extra_args_out=$(echo "$extra_args" | awk -F, '{
 }')
 echo "Extra arguments: ${extra_args_out}"
 
+: ${extra_flags:=}
+# transform the format of "X,Y" into "--X --Y"
+extra_flags_out=$(echo "$extra_flags" | awk -F, '{for(i=1; i<=NF; i++) printf "--%s ", $i}')
+echo "Extra flags: ${extra_flags_out}"
+
 if [ $gpu_num -eq 1 ]; then
     echo "Using single GPU: ${gpu}"
     python main.py train_SMB_decoder \
