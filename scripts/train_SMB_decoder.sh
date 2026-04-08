@@ -145,7 +145,8 @@ if [ $gpu_num -eq 1 ]; then
         --epochs ${epochs} \
         --index_file ${index_file} \
         --temperature 0.7 \
-        ${extra_args_out}
+        ${extra_args_out} \
+        ${extra_flags_out}
 else
     echo "Using multiple GPUs: ${gpu}"
     torchrun --nproc_per_node=${gpu_num} --master_port=${port} ./main.py train_SMB_decoder \
@@ -160,5 +161,6 @@ else
         --epochs ${epochs} \
         --index_file ${index_file} \
         --temperature 0.7 \
-        ${extra_args_out}
+        ${extra_args_out} \
+        ${extra_flags_out}
 fi
