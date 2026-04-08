@@ -7,6 +7,7 @@ from SeqRec.datasets.loading_MB import load_MB_datasets
 from SeqRec.datasets.collator import EncoderDecoderCollator, DecoderOnlyCollator
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
+from SeqRec.utils.logging import replace_progress_callback
 
 
 class TrainMBDecoder(MultiGPUTask):
@@ -438,6 +439,7 @@ class TrainMBDecoder(MultiGPUTask):
             data_collator=collator,
             callbacks=[EarlyStoppingCallback(early_stopping_patience=patience)],
         )
+        replace_progress_callback(trainer)
         model.config.use_cache = False
 
         trainer.train(resume_from_checkpoint=resume_from_checkpoint)
