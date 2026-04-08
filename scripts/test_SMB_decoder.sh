@@ -21,6 +21,8 @@ if [ "${backbone}" = "Qwen3Session2" ]; then
     backbone_arg=Qwen3Session
 elif [ "${backbone}" = "Llama" ]; then
     backbone_arg=LlamaMulti
+elif [[ "${backbone}" == Qwen3Multi* ]]; then
+    backbone_arg=Qwen3Multi
 fi
 
 task_dir=${tasks//,/-}
