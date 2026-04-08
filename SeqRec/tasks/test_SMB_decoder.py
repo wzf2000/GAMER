@@ -98,7 +98,7 @@ class TestSMBDecoder(MultiGPUTask):
 
         duplicate_ratios = []
         for batch in loader:
-            batch: tuple["BatchEncoding", list[list[str]], torch.LongTensor]
+            batch: tuple["BatchEncoding", list[list[str]]]
             inputs = batch[0].to(self.device)
             targets = batch[1]
             batch_size = len(targets)

@@ -2,7 +2,7 @@ import torch
 from loguru import logger
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
-from SeqRec.datasets.SMB_dataset import BaseSMBDataset, SMBExplicitDatasetForDecoder
+from SeqRec.datasets.SMB_dataset import BaseSMBDataset, SMBExplicitDatasetForDecoder, SMBFixedRatioDatasetForDecoder
 from SeqRec.datasets.loading_SMB import load_SMB_datasets
 from SeqRec.datasets.collator import EncoderDecoderCollator, DecoderOnlyCollator
 from SeqRec.utils.futils import ensure_dir
@@ -286,7 +286,8 @@ class TrainSMBDecoder(MultiGPUTask):
 
         if backbone in ["Qwen3", "Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "LlamaMulti"]:
             # default to ignore behavior tokens in Qwen3 models
-            collator = DecoderOnlyCollator(tokenizer, only_train_response=not isinstance(first_dataset, SMBExplicitDatasetForDecoder), ignore_behavior_tokens=behavior_tokens)
+            _decoder_only_types = (SMBExplicitDatasetForDecoder, SMBFixedRatioDatasetForDecoder)
+            collator = DecoderOnlyCollator(tokenizer, only_train_response=not isinstance(first_dataset, _decoder_only_types), ignore_behavior_tokens=behavior_tokens)
         else:
             collator = EncoderDecoderCollator(tokenizer)
 
