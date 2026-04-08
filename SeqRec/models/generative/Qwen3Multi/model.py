@@ -152,7 +152,7 @@ class Qwen3MultiDecoderLayer(nn.Module):
         elif self.mlp_type == "dense":
             self.mlp = DenseMLP(config)
         elif self.mlp_type == "RouterMoe":
-            self.mlp = RouterMoeBlock(config, behavior_injection=self.behavior_injection)
+            self.mlp = RouterMoeBlock(config)
         else:
             self.mlp = PBATransformerSparseMLP(config, is_sparse=self.is_sparse, behavior_injection=self.behavior_injection)
         self.input_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)

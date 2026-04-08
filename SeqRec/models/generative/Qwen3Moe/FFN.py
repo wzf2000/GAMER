@@ -113,10 +113,9 @@ class DenseMLP(nn.Module):
 
 
 class RouterMoeBlock(nn.Module):
-    """Qwen3MoE-style MoE with learned top-k routing. Routing is NOT fixed by position/behavior indices.
-    When behavior_injection=True, behavior embeddings are added to the router logits."""
+    """Qwen3MoE-style MoE with learned top-k routing. Routing is NOT fixed by position/behavior indices."""
 
-    def __init__(self, config: Qwen3MoeConfig, behavior_injection: bool = False):
+    def __init__(self, config: Qwen3MoeConfig):
         super().__init__()
         self.num_experts = getattr(config, "num_experts", 8)
         self.top_k = getattr(config, "num_experts_per_tok", 2)
@@ -124,13 +123,6 @@ class RouterMoeBlock(nn.Module):
 
         self.gate = nn.Linear(config.hidden_size, self.num_experts, bias=False)
         self.experts = nn.ModuleList([MyQwen3MoeMLP(config) for _ in range(self.num_experts)])
-
-        self.behavior_injection = behavior_injection
-        if self.behavior_injection:
-            self.behavior_embedding = nn.Embedding(
-                config.num_behavior + 1, config.behavior_embedding_dim
-            )
-            self.behavior_gate = nn.Linear(config.behavior_embedding_dim, self.num_experts, bias=False)
 
     def forward(
         self,
@@ -142,9 +134,6 @@ class RouterMoeBlock(nn.Module):
         hidden_flat = hidden_states.view(-1, D)  # [T, D]
 
         router_logits = self.gate(hidden_flat)  # [T, num_experts]
-        if self.behavior_injection:
-            beh_emb = self.behavior_embedding(behavior_index.view(-1))  # [T, beh_dim]
-            router_logits = router_logits + self.behavior_gate(beh_emb)
 
         routing_weights = torch.softmax(router_logits.float(), dim=-1)
         routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
