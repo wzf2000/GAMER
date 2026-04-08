@@ -128,6 +128,12 @@ class TrainSMBDecoder(MultiGPUTask):
             default=1.0,
             help="Temperature for softmax scaling",
         )
+        parser.add_argument(
+            "--find_unused_parameters",
+            action="store_true",
+            default=False,
+            help="Find unused parameters",
+        )
 
         parser.add_argument(
             "--wandb_run_name",
@@ -174,6 +180,7 @@ class TrainSMBDecoder(MultiGPUTask):
         bf16: bool,
         deepspeed: str | None,
         temperature: float,
+        find_unused_parameters: bool,
         wandb_run_name: str,
         debug: bool,
         *args,
@@ -438,7 +445,7 @@ class TrainSMBDecoder(MultiGPUTask):
             save_total_limit=2,
             load_best_model_at_end=True,
             deepspeed=deepspeed,
-            ddp_find_unused_parameters=False if self.ddp else None,
+            ddp_find_unused_parameters=find_unused_parameters if self.ddp else None,
             eval_delay=1 if save_and_eval_strategy == "epoch" else 2000,
             run_name=(
                 wandb_run_name
