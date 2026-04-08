@@ -178,7 +178,7 @@ class BaseMBDataset(Dataset):
                 "uid": uid,
                 "item": self.get_behavior_item(items[-1], behaviors[-1]),
                 "inters": self._get_inters(items, behaviors),
-                "actions": self._generate_actions(behaviors),
+                "actions": self._generate_actions(behaviors[:-1]),
                 "behavior": behaviors[-1],
             })
 

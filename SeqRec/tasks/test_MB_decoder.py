@@ -103,11 +103,12 @@ class TestMBDecoder(MultiGPUTask):
         user_metric_dict: dict[str, dict[int, float]] = {m: {} for m in self.metric_list}
 
         for batch in loader:
-            batch: tuple["BatchEncoding", list[str], torch.LongTensor]
+            batch: tuple["BatchEncoding", list[str]]
             inputs = batch[0].to(self.device)
             targets = batch[1]
             if eval_type in [EvaluationType.TARGET_BEHAVIOR, EvaluationType.BEHAVIOR_SPECIFIC]:
-                behaviors: list[str] = inputs.pop("target_behavior", None)
+                behaviors: list[str] = inputs.pop("behavior", None)
+                assert behaviors is not None, "behaviors should not be None"
                 dataset: BaseMBDataset = loader.dataset
                 behavior_tokens = [''.join(dataset.get_behavior_tokens(b)) for b in behaviors]
                 behavior_tokens = self.tokenizer.batch_encode_plus(behavior_tokens, add_special_tokens=False)["input_ids"]
@@ -117,6 +118,8 @@ class TestMBDecoder(MultiGPUTask):
                     max_new_tokens = self.sole_item_len
                     inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
                     inputs.attention_mask = inputs.attention_mask[:, :-max_new_tokens]
+                    action = [[dataset.behavior_level[u]] for u in behaviors]
+                    inputs.actions = torch.cat([inputs.actions, torch.tensor(action, device=self.device)], dim=1)
                 if eval_type == EvaluationType.TARGET_BEHAVIOR:
                     prefix_allowed_tokens_fn = self.prefix_allowed_tokens_by_behavior[dataset.target_behavior]
                 else:
