@@ -63,7 +63,6 @@ def load_MB_datasets(
                 index_file=index_file,
                 mode="train",
                 behavior_first=True,  # Default behavior first for explicit token dataset
-                filter_target=True,  # Filter target items for explicit token dataset
                 augment=augment,  # Augment interactions for explicit token dataset
             )
         elif task.lower() == "mb_explicit_back":
