@@ -76,6 +76,8 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
                             help="Checkpoint path for the baseline model.")
         parser.add_argument("--baseline_backbone", type=str, default=None,
                             help="Backbone type for baseline (default: same as --backbone).")
+        parser.add_argument("--baseline_max_his_len", type=int, default=None, required=True,
+                            help="the max number of items in history sequence for baseline, -1 means no limit, required if --baseline_backbone is not None")
         # Dataset / inference
         parser.add_argument("--test_task", type=str, default="smb_explicit")
         parser.add_argument("--target_behavior", type=str, default=None,
@@ -454,6 +456,7 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
         ckpt_path: str,
         baseline_ckpt_path: str,
         baseline_backbone: str | None,
+        baseline_max_his_len: int,
         test_task: str,
         target_behavior: str | None,
         test_batch_size: int,
@@ -478,7 +481,11 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
         base_dataset: BaseSMBDataset = load_SMB_test_dataset(
             dataset, data_path, max_his_len, index_file, test_task
         )
+        baseline_base_dataset: BaseSMBDataset = load_SMB_test_dataset(
+            dataset, data_path, baseline_max_his_len, index_file, test_task
+        )
         base_dataset.get_all_items()
+        baseline_base_dataset.get_all_items()
         eval_behavior = target_behavior if target_behavior else base_dataset.target_behavior
         all_behaviors = base_dataset.behaviors
         logger.info(
@@ -490,6 +497,7 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
 
         # Pre-compute history target-behavior count for every test user
         filtered_dataset = base_dataset.filter_by_behavior(eval_behavior)
+        baseline_filtered_dataset = baseline_base_dataset.filter_by_behavior(eval_behavior)
         uid_target_counts: dict[str, int] = {}
         for sample in filtered_dataset.inter_data:
             uid = sample.get("uid")
@@ -532,7 +540,7 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
         logger.info(f"Loading baseline model: {baseline_backbone} from {baseline_ckpt_path}")
         base_is_dec = self._is_decoder_only_backbone(baseline_backbone)
         self._load_model_and_tokenizer(baseline_backbone, baseline_ckpt_path)
-        self._build_tries(base_dataset, base_is_dec)
+        self._build_tries(baseline_base_dataset, base_is_dec)
         base_collator = (
             DecoderOnlyTestCollator(self.tokenizer)
             if base_is_dec
@@ -541,7 +549,7 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
         self.model.eval()
         with torch.no_grad():
             results_base = self._collect_results(
-                filtered_dataset, base_collator, eval_behavior,
+                baseline_filtered_dataset, base_collator, eval_behavior,
                 num_beams, base_is_dec, baseline_backbone, test_batch_size,
                 desc=f"Baseline [{baseline_backbone}] inference",
             )
