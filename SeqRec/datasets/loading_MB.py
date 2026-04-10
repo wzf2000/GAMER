@@ -91,7 +91,7 @@ def load_MB_datasets(
                 index_file=index_file,
                 mode="valid",
             )
-        elif mb_type == "explicit":
+        elif mb_type == "explicit" or mb_type == "explicit_decoder":
             valid_data = MBExplicitDataset(
                 dataset=dataset,
                 data_path=data_path,
@@ -100,7 +100,7 @@ def load_MB_datasets(
                 mode="valid",
                 behavior_first=True,  # Default behavior first for explicit token dataset
             )
-        elif mb_type == "explicit_filter" or mb_type == "explicit_decoder":
+        elif mb_type == "explicit_filter":
             valid_data = MBExplicitDataset(
                 dataset=dataset,
                 data_path=data_path,

@@ -389,9 +389,9 @@ class TrainMBDecoder(MultiGPUTask):
             model.model_parallel = True
 
         if backbone == "Qwen3Multi":
-            label_names = ['input_ids', 'labels', 'actions']
+            label_names = ['input_ids', 'labels', 'actions', 'split']
         else:
-            label_names = ['input_ids', 'labels']
+            label_names = ['input_ids', 'labels', 'split']
 
         from transformers.training_args import TrainingArguments
         training_args = TrainingArguments(
