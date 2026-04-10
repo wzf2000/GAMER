@@ -71,8 +71,6 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
         # Our model
         parser.add_argument("--ckpt_path", type=str, required=True,
                             help="Checkpoint path for our model.")
-        parser.add_argument("--backbone", type=str, default="Qwen3Multi",
-                            help="Backbone type for our model.")
         # Baseline
         parser.add_argument("--baseline_ckpt_path", type=str, required=True,
                             help="Checkpoint path for the baseline model.")
