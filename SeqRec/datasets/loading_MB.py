@@ -149,6 +149,15 @@ def load_MB_test_dataset(
             mode="test",
             behavior_first=True,  # Default behavior first for explicit token dataset
         )
+    elif test_task.lower() == "mb_explicit_valid":
+        test_data = MBExplicitDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="valid_test",
+            behavior_first=True,  # Default behavior first for explicit token dataset
+        )
     elif test_task.lower() == "mb_explicit_filter":
         test_data = MBExplicitDataset(
             dataset=dataset,

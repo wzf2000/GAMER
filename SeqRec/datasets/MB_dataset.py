@@ -55,6 +55,8 @@ class BaseMBDataset(Dataset):
             self.inter_data = self._process_valid_data()
         elif self.mode == "test":
             self.inter_data = self._process_test_data()
+        elif self.mode == "valid_test":
+            self.inter_data = self._process_valid_test_data()
         else:
             raise NotImplementedError
 
@@ -164,6 +166,21 @@ class BaseMBDataset(Dataset):
                 "item": self.get_behavior_item(items[-2], behaviors[-2]),
                 "inters": self._get_inters(items[:-1], behaviors[:-1]),
                 "actions": self._generate_actions(behaviors[:-1]),
+                "behavior": behaviors[-2],
+            })
+
+        return inter_data
+
+    def _process_valid_test_data(self) -> list[dict[str, str]]:
+        inter_data = []
+        for uid in self.remapped_inters:
+            items = self.remapped_inters[uid]
+            behaviors = self.history_behaviors[uid]
+            inter_data.append({
+                "uid": uid,
+                "item": self.get_behavior_item(items[-2], behaviors[-2]),
+                "inters": self._get_inters(items[:-1], behaviors[:-1]),
+                "actions": self._generate_actions(behaviors[:-2]),
                 "behavior": behaviors[-2],
             })
 
