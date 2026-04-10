@@ -237,7 +237,7 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
         if backbone in ("Qwen3Multi", "Qwen3SessionMulti", "LlamaMulti"):
             gen_kwargs["actions"] = inp.actions
         if not is_decoder_only:
-            pass  # encoder-decoder: decoder_input_ids added by generate automatically
+            gen_kwargs["decoder_input_ids"] = torch.tensor([[self.config.decoder_start_token_id] + tokens for tokens in beh_ids], device=self.device)
 
         output: "GenerateBeamOutput" = gen_model.generate(**gen_kwargs)
         out_ids = output.sequences
