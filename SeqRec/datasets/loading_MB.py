@@ -125,6 +125,45 @@ def load_MB_datasets(
     return train_data, valid_data
 
 
+def load_MB_valid_dataset(
+    dataset: str,
+    data_path: str,
+    max_his_len: int,
+    index_file: str,
+    task: str,
+) -> MBDataset | MBExplicitDataset:
+    if task.lower() == "mb":
+        valid_data = MBDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="valid",
+        )
+    elif task.lower() == "mb_explicit":
+        valid_data = MBExplicitDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="valid",
+            behavior_first=True,  # Default behavior first for explicit token dataset
+        )
+    elif task.lower() == "mb_explicit_back":
+        valid_data = MBExplicitDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            index_file=index_file,
+            mode="valid",
+            behavior_first=False,  # Default behavior last for explicit token dataset
+        )
+    else:
+        raise NotImplementedError
+
+    return valid_data
+
+
 def load_MB_test_dataset(
     dataset: str,
     data_path: str,
