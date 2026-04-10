@@ -414,7 +414,7 @@ class TestMBDecoder(MultiGPUTask):
 
         if valid_loss:
             if backbone in ['Qwen3', 'Qwen3Multi']:
-                collator = DecoderOnlyCollator(self.tokenizer)
+                collator = DecoderOnlyCollator(self.tokenizer, only_train_response=True)
             else:
                 collator = EncoderDecoderCollator(self.tokenizer)
         else:
