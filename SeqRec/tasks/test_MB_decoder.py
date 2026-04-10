@@ -63,6 +63,12 @@ class TestMBDecoder(MultiGPUTask):
             action="store_true",
             help="Filter out the collision items from the test data",
         )
+        parser.add_argument(
+            "--eval_types",
+            type=str,
+            default="target_behavior,behavior_specific,behavior_item",
+            help="Evaluation type, separate by comma, valid values: target_behavior, behavior_specific, behavior_item",
+        )
 
     def check_collision_items(self, filter: bool = False) -> list[dict[str, int | float]]:
         ret_list = []
@@ -280,18 +286,11 @@ class TestMBDecoder(MultiGPUTask):
 
     def test(self, num_beams: int) -> list[dict[str, float]]:
         results = []
-        result = self.test_single_type(self.loaders[1], num_beams, EvaluationType.TARGET_BEHAVIOR)
-        result['eval_type'] = "Target Behavior"
-        result['collision_info'] = self.collision_info[1]
-        results.append(result)
-        result = self.test_single_type(self.loaders[0], num_beams, EvaluationType.BEHAVIOR_SPECIFIC)
-        result['eval_type'] = "Behavior Specific"
-        result['collision_info'] = self.collision_info[0]
-        results.append(result)
-        result = self.test_single_type(self.loaders[0], num_beams, EvaluationType.BEHAVIOR_ITEM)
-        result['eval_type'] = "Behavior Item"
-        result['collision_info'] = self.collision_info[0]
-        results.append(result)
+        for eval_type in self.eval_types:
+            result = self.test_single_type(self.loaders[eval_type], num_beams, eval_type)
+            result['eval_type'] = eval_type.value
+            result['collision_info'] = self.collision_info[1 if eval_type == EvaluationType.TARGET_BEHAVIOR else 0]
+            results.append(result)
         return results
 
     def invoke(
@@ -315,6 +314,7 @@ class TestMBDecoder(MultiGPUTask):
         metrics: str,
         test_task: str,
         filter: bool,
+        eval_types: str,
         *args,
         **kwargs
     ):
@@ -322,6 +322,10 @@ class TestMBDecoder(MultiGPUTask):
         Test the MB decoder using the provided arguments.
         """
         self.init(seed, False)
+        self.eval_types = eval_types.split(",")
+        for eval_type in self.eval_types:
+            assert eval_type in ["target_behavior", "behavior_specific", "behavior_item"], f"Invalid evaluation type: {eval_type}"
+        self.eval_types = [EvaluationType(eval_type) for eval_type in self.eval_types]
         if backbone == 'TIGER':
             from transformers import T5Config, T5Tokenizer
             from SeqRec.models.generative.TIGER import TIGER
