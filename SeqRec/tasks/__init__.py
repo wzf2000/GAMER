@@ -10,6 +10,7 @@ from SeqRec.tasks.test_decoder import TestDecoder
 from SeqRec.tasks.test_MB_decoder import TestMBDecoder
 from SeqRec.tasks.test_SMB_decoder import TestSMBDecoder
 from SeqRec.tasks.test_SMB_rule import TestSMBRule
+from SeqRec.tasks.test_MB_rule import TestMBRule
 from SeqRec.tasks.analyze_behavior_dropout import AnalyzeBehaviorDropout
 from SeqRec.tasks.analyze_sparse_behavior import AnalyzeSparseTargetBehavior
 from SeqRec.utils.func_util import subclasses_recursive
