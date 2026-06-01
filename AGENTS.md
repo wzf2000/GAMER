@@ -64,6 +64,22 @@
 - For behavior changes, use the smallest relevant task/script invocation first. Full training jobs can be expensive and should not be run without user confirmation.
 - If GPU, data, checkpoint, or network requirements prevent verification, state exactly what was not run and why.
 
+## Git Workflow
+
+- Use `dev` as the long-running development branch for this workspace.
+- Keep project rule files on `dev`; do not merge the whole `dev` branch into `master` when the intent is to publish only implementation changes.
+- To bring actual development work into `master`, check out `master` and cherry-pick only the relevant feature/fix commits.
+- Do not cherry-pick commits that only add or update agent rule files unless the user explicitly asks to publish those rules.
+- Keep commits focused so functional changes can be cherry-picked without also carrying local workflow or rule-file changes.
+
+## Commit Messages
+
+- Follow the existing history style: English sentence case, imperative/descriptive summary, ending with a period.
+- Start with an action verb such as `Add`, `Update`, `Fix`, `Remove`, or `Refactor`.
+- Keep the subject line concise and specific to the actual change.
+- Prefer messages like `Add suffix handling in test_MB_decoder script to customize task directory naming.`
+- Avoid vague messages such as `Update files.` or `Fix stuff.`
+
 ## Agent Workflow
 
 - Read `README.md`, `docs/scripts.md`, and the relevant `SeqRec/tasks/` file before changing a workflow.
