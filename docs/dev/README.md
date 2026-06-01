@@ -9,6 +9,10 @@ Use this directory for planning, design notes, decisions, and development record
 - `decisions/`: decision records for important technical or workflow choices.
 - `notes/`: temporary development notes, debugging records, and experiment observations.
 
+## Current Index
+
+- `design/2026-06-01-paper-code-map.md`: maps the arXiv GAMER paper concepts to the current code implementation, baselines, and train/test pipeline.
+
 ## File Names
 
 Use Markdown files named with this pattern:
