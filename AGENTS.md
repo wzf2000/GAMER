@@ -57,6 +57,16 @@
 - `.gitignore` intentionally ignores most generated data and model artifacts while allowing lightweight dataset JSON metadata/index files.
 - Be careful with commands that write to `data/`, `checkpoint/`, `results/`, `logs/`, `runs/`, or `wandb/`; explain the expected outputs before running expensive jobs.
 
+## Development Documentation
+
+- Use `docs/dev/` for development planning, design documents, decisions, and notes that should live on the `dev` branch.
+- Use `docs/dev/roadmap.md` for long-term planning, milestones, priorities, and active work.
+- Use `docs/dev/design/` for feature, experiment, and refactor design documents.
+- Use `docs/dev/decisions/` for important technical or workflow decisions, using a lightweight ADR style when useful.
+- Use `docs/dev/notes/` for temporary development notes, debugging records, and experiment observations.
+- Prefer Markdown files named `YYYY-MM-DD-short-topic.md`.
+- Keep these development documents on `dev` by default. Cherry-pick them to `master` only when they are needed with a published feature or the user explicitly asks.
+
 ## Testing And Verification
 
 - For shell script edits, run `bash -n <script>` at minimum.
