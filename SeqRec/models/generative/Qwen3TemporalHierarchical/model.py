@@ -37,6 +37,7 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
         self.is_temporal_hierarchical = is_temporal_hierarchical
+        self.th_attention_mode = getattr(config, "th_attention_mode", "relation_bias")
 
         self.q_proj = nn.Linear(
             config.hidden_size, config.num_attention_heads * self.head_dim, bias=config.attention_bias
@@ -74,12 +75,22 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
                 config.num_behavior + 1,
                 config.num_key_value_heads * self.behavior_embedding_dim,
             )
-            self.level_pair_bias = nn.Parameter(
-                torch.zeros(config.num_behavior + 1, config.num_behavior + 1, config.num_attention_heads)
+            if self.th_attention_mode not in ("relation_bias", "multi_view"):
+                raise ValueError("th_attention_mode must be 'relation_bias' or 'multi_view'.")
+            self.use_relation_bias = self.th_attention_mode == "relation_bias" or bool(
+                getattr(config, "th_multi_view_use_relation_bias", False)
             )
+            if self.use_relation_bias:
+                self.level_pair_bias = nn.Parameter(
+                    torch.zeros(config.num_behavior + 1, config.num_behavior + 1, config.num_attention_heads)
+                )
             self.gating = nn.Linear(config.hidden_size, config.hidden_size, bias=config.attention_bias)
             self.act_fn = ACT2FN[config.hidden_act]
-            self._init_level_pair_bias()
+            if self.use_relation_bias:
+                self._init_level_pair_bias()
+            if self.th_attention_mode == "multi_view":
+                view_ids = self._build_multi_view_head_ids(config)
+                self.register_buffer("multi_view_head_ids", view_ids, persistent=False)
 
     def _init_level_pair_bias(self):
         init_type = getattr(self.config, "th_relation_bias_init", "zero")
@@ -104,6 +115,57 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
         key_action_index = key_action_index.clamp(min=0, max=self.config.num_behavior)
         pair_bias = self.level_pair_bias[query_action_index[:, :, None], key_action_index[:, None, :]]
         return pair_bias.permute(0, 3, 1, 2).to(dtype)
+
+    @staticmethod
+    def _build_multi_view_head_ids(config: Qwen3MoeConfig) -> torch.Tensor:
+        view_types = getattr(config, "th_multi_view_types", ["temporal", "same", "up", "down"])
+        allocation = getattr(config, "th_multi_view_head_allocation", None)
+        valid_views = {"temporal": 0, "same": 1, "up": 2, "down": 3}
+        for view in view_types:
+            if view not in valid_views:
+                raise ValueError(f"Unsupported th_multi_view type: {view}")
+        if allocation is None:
+            base = config.num_attention_heads // len(view_types)
+            allocation = [base] * len(view_types)
+            for i in range(config.num_attention_heads - sum(allocation)):
+                allocation[i] += 1
+        if len(allocation) != len(view_types):
+            raise ValueError("th_multi_view_head_allocation must match th_multi_view_types length.")
+        if sum(allocation) != config.num_attention_heads:
+            raise ValueError("th_multi_view_head_allocation must sum to num_attention_heads.")
+        head_ids = []
+        for view, count in zip(view_types, allocation):
+            head_ids.extend([valid_views[view]] * int(count))
+        return torch.tensor(head_ids, dtype=torch.long)
+
+    def _compute_multi_view_bias(
+        self,
+        query_action_index: torch.Tensor,
+        key_action_index: torch.Tensor,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        query_level = query_action_index[:, :, None]
+        key_level = key_action_index[:, None, :]
+        special_pair = (query_level == 0) | (key_level == 0)
+        same_block = (query_level != key_level) & ~special_pair
+        up_block = (query_level <= key_level) & ~special_pair
+        down_block = (query_level >= key_level) & ~special_pair
+        block_by_view = torch.stack(
+            [
+                torch.zeros_like(same_block),
+                same_block,
+                up_block,
+                down_block,
+            ],
+            dim=1,
+        )
+        head_block = block_by_view[:, self.multi_view_head_ids.to(query_action_index.device)]
+        bias = torch.zeros(
+            head_block.shape,
+            dtype=dtype,
+            device=query_action_index.device,
+        )
+        return bias.masked_fill(head_block, torch.finfo(dtype).min)
 
     def forward(
         self,
@@ -142,8 +204,18 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
         if self.is_temporal_hierarchical:
-            relation_bias = self._compute_level_pair_bias(action_index, key_action_index, hidden_states.dtype)
-            attention_mask = relation_bias if attention_mask is None else attention_mask + relation_bias
+            extra_bias = None
+            if self.th_attention_mode == "relation_bias":
+                extra_bias = self._compute_level_pair_bias(action_index, key_action_index, hidden_states.dtype)
+            elif self.th_attention_mode == "multi_view":
+                extra_bias = self._compute_multi_view_bias(action_index, key_action_index, hidden_states.dtype)
+                if self.use_relation_bias:
+                    extra_bias = extra_bias + self._compute_level_pair_bias(
+                        action_index,
+                        key_action_index,
+                        hidden_states.dtype,
+                    )
+            attention_mask = extra_bias if attention_mask is None else attention_mask + extra_bias
 
         attention_interface: Callable = eager_attention_forward
         if self.config._attn_implementation != "eager":
