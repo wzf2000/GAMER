@@ -13,36 +13,15 @@ export CUDA_VISIBLE_DEVICES=$gpu
 export CUDA_LAUNCH_BLOCKING=1
 export OMP_NUM_THREADS=1
 
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "${script_dir}/lib/s2s_backbone.sh"
+
 gpu_num=$(echo $gpu | awk -F, '{print NF}')
 per_device_batch_size=$(($batch_size / $gpu_num))
 task_dir=${tasks//,/-}
-backbone_arg=${backbone}
 
-if [ "${backbone}" = "TIGER" ]; then
-    base_model=./config/s2s-models/TIGER
-elif [ "${backbone}" = "PBATransformer" ]; then
-    base_model=./config/s2s-models/PBATransformer
-elif [ "${backbone}" = "Qwen3" ]; then
-    base_model=./config/s2s-models/Qwen3-Light
-elif [ "${backbone}" = "Qwen3Session" ]; then
-    base_model=./config/s2s-models/Qwen3-Light
-elif [ "${backbone}" = "Qwen3Session2" ]; then
-    base_model=./config/s2s-models/Qwen3-Light-2
-    backbone_arg=Qwen3Session
-elif [[ "${backbone}" == Qwen3Multi* ]]; then
-    base_model=./config/s2s-models/${backbone}
-    backbone_arg=Qwen3Multi
-elif [[ "${backbone}" == Qwen3TemporalHierarchical* ]]; then
-    base_model=./config/s2s-models/${backbone}
-    backbone_arg=Qwen3TemporalHierarchical
-elif [ "${backbone}" = "Qwen3SessionMulti" ]; then
-    base_model=./config/s2s-models/Qwen3SessionMulti
-elif [ "${backbone}" = "Llama" ]; then
-    base_model=./config/s2s-models/Llama
-    backbone_arg=LlamaMulti
-elif [ "${backbone}" = "LlamaMulti" ]; then
-    base_model=./config/s2s-models/LlamaMulti
-else
+backbone_arg=$(resolve_s2s_backbone_arg "${backbone}")
+if ! base_model=$(resolve_s2s_base_model "${backbone}"); then
     echo "Unsupported backbone model: ${backbone}."
     exit 1
 fi

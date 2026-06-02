@@ -12,20 +12,13 @@ export CUDA_VISIBLE_DEVICES=$gpu
 export CUDA_LAUNCH_BLOCKING=1
 export OMP_NUM_THREADS=1
 
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "${script_dir}/lib/s2s_backbone.sh"
+
 data_path=./data
 gpu_num=$(echo $gpu | awk -F, '{print NF}')
 per_device_batch_size=$(($batch_size / $gpu_num))
-backbone_arg=${backbone}
-
-if [ "${backbone}" = "Qwen3Session2" ]; then
-    backbone_arg=Qwen3Session
-elif [ "${backbone}" = "Llama" ]; then
-    backbone_arg=LlamaMulti
-elif [[ "${backbone}" == Qwen3Multi* ]]; then
-    backbone_arg=Qwen3Multi
-elif [[ "${backbone}" == Qwen3TemporalHierarchical* ]]; then
-    backbone_arg=Qwen3TemporalHierarchical
-fi
+backbone_arg=$(resolve_s2s_backbone_arg "${backbone}")
 
 task_dir=${tasks//,/-}
 task_dir=${dataset}/${task_dir}/${backbone}
