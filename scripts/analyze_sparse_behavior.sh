@@ -29,7 +29,7 @@ elif [ "${backbone}" = "Llama" ]; then
     backbone_arg=LlamaMulti
 elif [[ "${backbone}" == Qwen3Multi* ]]; then
     backbone_arg=Qwen3Multi
-elif [ "${backbone}" = "Qwen3TemporalHierarchical" ]; then
+elif [[ "${backbone}" == Qwen3TemporalHierarchical* ]]; then
     backbone_arg=Qwen3TemporalHierarchical
 fi
 
@@ -39,7 +39,7 @@ elif [ "${baseline_backbone}" = "Llama" ]; then
     baseline_backbone_arg=LlamaMulti
 elif [[ "${baseline_backbone}" == Qwen3Multi* ]]; then
     baseline_backbone_arg=Qwen3Multi
-elif [ "${baseline_backbone}" = "Qwen3TemporalHierarchical" ]; then
+elif [[ "${baseline_backbone}" == Qwen3TemporalHierarchical* ]]; then
     baseline_backbone_arg=Qwen3TemporalHierarchical
 fi
 
