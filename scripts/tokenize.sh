@@ -5,17 +5,14 @@
 : ${gpu:=0}
 : ${semantic_model:=llama-3.1}
 
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "${script_dir}/lib/args.sh"
+
 data_path="./data/${dataset}/${dataset}.emb-${semantic_model}-td.npy"
 output_dir="./data/${dataset}/"
 
 : ${extra_args:=}
-# transform the format of "X=a,Y=b" into "-X a -Y b"
-extra_args_out=$(echo "$extra_args" | awk -F, '{
-  for(i=1; i<=NF; i++) {
-    split($i, arr, "=")
-    printf "--%s %s ", arr[1], arr[2]
-  }
-}')
+extra_args_out=$(parse_extra_args "${extra_args}")
 echo "Extra arguments: ${extra_args_out}"
 
 if [ $rq_kmeans -eq 0 ]; then

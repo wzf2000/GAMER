@@ -25,6 +25,12 @@ from SeqRec.datasets.SMB_dataset import BaseSMBDataset
 from SeqRec.datasets.collator import DecoderOnlyTestCollator, EncoderDecoderTestCollator
 from SeqRec.generation.trie import Trie, prefix_allowed_tokens_fn, prefix_allowed_tokens_fn_by_last_token
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
+from SeqRec.models.generative.registry import (
+    backbone_uses_actions,
+    backbone_uses_sessions,
+    is_decoder_only_backbone,
+    load_model_and_tokenizer,
+)
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 from SeqRec.utils.pipe import get_tqdm
@@ -105,53 +111,8 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
     # ------------------------------------------------------------------
 
     def _load_model_and_tokenizer(self, backbone: str, ckpt_path: str):
-        if backbone == "TIGER":
-            from transformers import T5Tokenizer
-            from SeqRec.models.generative.TIGER import TIGER
-            self.tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
-            self.model = TIGER.from_pretrained(ckpt_path).to(self.device)
-        elif backbone == "PBATransformer":
-            from transformers import T5Tokenizer
-            from SeqRec.models.generative.PBATransformer import PBATransformerForConditionalGeneration
-            self.tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
-            self.model = PBATransformerForConditionalGeneration.from_pretrained(ckpt_path).to(self.device)
-        elif backbone == "Qwen3":
-            from transformers import Qwen2Tokenizer
-            from SeqRec.models.generative.Qwen3 import Qwen3WithTemperature
-            self.tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
-            self.model = Qwen3WithTemperature.from_pretrained(ckpt_path).to(self.device)
-        elif backbone == "Qwen3Session":
-            from transformers import Qwen2Tokenizer
-            from SeqRec.models.generative.Qwen3Session import Qwen3SessionWithTemperature
-            self.tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
-            self.model = Qwen3SessionWithTemperature.from_pretrained(ckpt_path).to(self.device)
-        elif backbone == "Qwen3Multi":
-            from transformers import Qwen2Tokenizer
-            from SeqRec.models.generative.Qwen3Multi import Qwen3MultiWithTemperature
-            self.tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
-            self.model = Qwen3MultiWithTemperature.from_pretrained(ckpt_path).to(self.device)
-        elif backbone == "Qwen3TemporalHierarchical":
-            from transformers import Qwen2Tokenizer
-            from SeqRec.models.generative.Qwen3TemporalHierarchical import Qwen3TemporalHierarchicalWithTemperature
-            self.tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
-            self.model = Qwen3TemporalHierarchicalWithTemperature.from_pretrained(ckpt_path).to(self.device)
-        elif backbone == "Qwen3SessionMulti":
-            from transformers import Qwen2Tokenizer
-            from SeqRec.models.generative.Qwen3SessionMulti import Qwen3SessionMultiWithTemperature
-            self.tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
-            self.model = Qwen3SessionMultiWithTemperature.from_pretrained(ckpt_path).to(self.device)
-        elif backbone == "LlamaMulti":
-            from transformers import Qwen2Tokenizer
-            from SeqRec.models.generative.LlamaMulti import LlamaMultiWithTemperature
-            self.tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
-            self.model = LlamaMultiWithTemperature.from_pretrained(ckpt_path).to(self.device)
-        else:
-            raise ValueError(f"Unsupported backbone: {backbone}")
-
-        if hasattr(self.model, "config") and self.model.config.pad_token_id is None:
-            self.model.config.pad_token_id = self.tokenizer.encode(
-                self.tokenizer.pad_token, add_special_tokens=False
-            )[0]
+        self.model, self.tokenizer = load_model_and_tokenizer(backbone, ckpt_path)
+        self.model = self.model.to(self.device)
         self.config = self.model.config
 
     # ------------------------------------------------------------------
@@ -160,7 +121,7 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
 
     @staticmethod
     def _is_decoder_only_backbone(backbone: str) -> bool:
-        return backbone in ("Qwen3", "Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "Qwen3TemporalHierarchical", "LlamaMulti")
+        return is_decoder_only_backbone(backbone)
 
     def _build_tries(self, base_dataset: BaseSMBDataset, is_decoder_only: bool):
         all_beh_items = base_dataset.get_all_items("all")
@@ -236,10 +197,10 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
             return_dict_in_generate=True,
             early_stopping=True,
         )
-        if backbone in ("Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "Qwen3TemporalHierarchical", "LlamaMulti"):
+        if backbone_uses_sessions(backbone):
             gen_kwargs["session_ids"] = inp.session_ids
             gen_kwargs["extended_session_ids"] = inp.extended_session_ids
-        if backbone in ("Qwen3Multi", "Qwen3SessionMulti", "Qwen3TemporalHierarchical", "LlamaMulti"):
+        if backbone_uses_actions(backbone):
             gen_kwargs["actions"] = inp.actions
         if not is_decoder_only:
             gen_kwargs["decoder_input_ids"] = torch.tensor([[self.config.decoder_start_token_id] + tokens for tokens in beh_ids], device=self.device)

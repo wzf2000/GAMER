@@ -13,10 +13,14 @@ export CUDA_VISIBLE_DEVICES=$gpu
 export CUDA_LAUNCH_BLOCKING=1
 export OMP_NUM_THREADS=1
 
-gpu_num=$(echo $gpu | awk -F, '{print NF}')
-per_device_batch_size=$(($batch_size / $gpu_num))
-task_dir=${tasks//,/-}
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "${script_dir}/lib/args.sh"
+source "${script_dir}/lib/tokenization.sh"
+source "${script_dir}/lib/paths.sh"
+source "${script_dir}/lib/runtime.sh"
 
+gpu_num=$(count_gpus "${gpu}")
+per_device_batch_size=$(compute_per_device_batch_size "${batch_size}" "${gpu_num}")
 if [ "${backbone}" = "TIGER" ]; then
     base_model=./config/s2s-models/TIGER
 elif [ "${backbone}" = "PBATransformer" ]; then
@@ -30,110 +34,27 @@ else
     exit 1
 fi
 
-task_dir=${dataset}/${task_dir}/${backbone}
+task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}")
 
-if [ $rq_kmeans -eq 0 ]; then
-    : ${cid:=0}
-    if [ $cid -eq 0 ]; then
-        : ${rid:=0}
-        if [ $rid -eq 0 ]; then
-            : ${original:=0}
-            if [ $original -eq 0 ]; then
-                : ${alpha:=0.02}
-                : ${beta:=0.0001}
-                : ${epoch:=20000}
-                output_dir=./checkpoint/MB-decoder/${task_dir}/alpha${alpha}-beta${beta}/
-                run_name=${task_dir}/alpha${alpha}-beta${beta}/
-                index_file=.index.epoch${epoch}.alpha${alpha}-beta${beta}.json
-                echo "Training MB Decoder on ${dataset} with alpha=${alpha}, beta=${beta}, epoch=${epoch} using GPUs ${gpu}."
-            else
-                output_dir=./checkpoint/MB-decoder/${task_dir}/original/
-                run_name=${task_dir}/original/
-                index_file=.index.json
-                echo "Training MB Decoder on ${dataset} using original index file from LETTER repository."
-            fi
-        else
-            output_dir=./checkpoint/MB-decoder/${task_dir}/rid/
-            run_name=${task_dir}/rid/
-            index_file=.index.rid.json
-            echo "Training MB Decoder on ${dataset} using random ID tokenization."
-        fi
-    else
-        : ${chunk_size:=64}
-        : ${shuffle:=0}
-        if [ $shuffle -eq 1 ]; then
-            output_dir=./checkpoint/MB-decoder/${task_dir}/cid-shuffle-${chunk_size}/
-            run_name=${task_dir}/cid-shuffle-${chunk_size}/
-            index_file=.index.cid.shuffle.chunk${chunk_size}.json
-            echo "Training MB Decoder on ${dataset} using chunked ID tokenization with chunk size ${chunk_size} and shuffling."
-        else
-            output_dir=./checkpoint/MB-decoder/${task_dir}/cid-${chunk_size}/
-            run_name=${task_dir}/cid-${chunk_size}/
-            index_file=.index.cid.chunk${chunk_size}.json
-            echo "Training MB Decoder on ${dataset} using chunked ID tokenization with chunk size ${chunk_size}."
-        fi
-    fi
-else
-    : ${cf_emb:=0}
-    if [ $cf_emb -eq 0 ]; then
-        output_dir=./checkpoint/MB-decoder/${task_dir}/rq-kmeans/
-        run_name=${task_dir}/rq-kmeans/
-        index_file=.index.rq-kmeans.json
-        echo "Training MB Decoder on ${dataset} using RQ-Kmeans without CF embeddings."
-    else
-        : ${reduce:=0}
-        if [ $reduce -eq 0 ]; then
-            output_dir=./checkpoint/MB-decoder/${task_dir}/rq-kmeans-cf/
-            run_name=${task_dir}/rq-kmeans-cf/
-            index_file=.index.rq-kmeans-cf.json
-            echo "Training MB Decoder on ${dataset} using RQ-Kmeans with CF embeddings."
-        else
-            output_dir=./checkpoint/MB-decoder/${task_dir}/rq-kmeans-cf-reduce/
-            run_name=${task_dir}/rq-kmeans-cf-reduce/
-            index_file=.index.rq-kmeans-cf-reduce.json
-            echo "Training MB Decoder on ${dataset} using RQ-Kmeans with CF embeddings and reduced semantic embeddings."
-        fi
-    fi
-fi
+resolve_tokenization
+output_dir=$(build_checkpoint_path "MB-decoder" "${task_dir}" "${token_tag}")
+run_name=${task_dir}/${token_tag}/
+echo "Training MB Decoder on ${dataset} using ${tokenization_desc} with GPUs ${gpu}."
 
 : ${extra_args:=}
-# transform the format of "X=a,Y=b" into "-X a -Y b"
-extra_args_out=$(echo "$extra_args" | awk -F, '{
-    for(i=1; i<=NF; i++) {
-        split($i, arr, "=")
-        printf "--%s %s ", arr[1], arr[2]
-    }
-}')
+extra_args_out=$(parse_extra_args "${extra_args}")
 echo "Extra arguments: ${extra_args_out}"
 
-if [ $gpu_num -eq 1 ]; then
-    echo "Using single GPU: ${gpu}"
-    python main.py train_MB_decoder \
-        --backbone ${backbone} \
-        --base_model ${base_model} \
-        --output_dir ${output_dir} \
-        --wandb_run_name ${run_name} \
-        --dataset ${dataset} \
-        --per_device_batch_size ${per_device_batch_size} \
-        --learning_rate ${learning_rate} \
-        --tasks ${tasks} \
-        --epochs ${epochs} \
-        --index_file ${index_file} \
-        --temperature 0.7 \
-        ${extra_args_out}
-else
-    echo "Using multiple GPUs: ${gpu}"
-    torchrun --nproc_per_node=${gpu_num} --master_port=${port} ./main.py train_MB_decoder \
-        --backbone ${backbone} \
-        --base_model ${base_model} \
-        --output_dir ${output_dir} \
-        --wandb_run_name ${run_name} \
-        --dataset ${dataset} \
-        --per_device_batch_size ${per_device_batch_size} \
-        --learning_rate ${learning_rate} \
-        --tasks ${tasks} \
-        --epochs ${epochs} \
-        --index_file ${index_file} \
-        --temperature 0.7 \
-        ${extra_args_out}
-fi
+run_main_distributed "${gpu_num}" "${port}" train_MB_decoder \
+    --backbone ${backbone} \
+    --base_model ${base_model} \
+    --output_dir ${output_dir} \
+    --wandb_run_name ${run_name} \
+    --dataset ${dataset} \
+    --per_device_batch_size ${per_device_batch_size} \
+    --learning_rate ${learning_rate} \
+    --tasks ${tasks} \
+    --epochs ${epochs} \
+    --index_file ${index_file} \
+    --temperature 0.7 \
+    ${extra_args_out}
