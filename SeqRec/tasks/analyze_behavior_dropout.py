@@ -121,6 +121,11 @@ class AnalyzeBehaviorDropout(MultiGPUTask):
             from SeqRec.models.generative.Qwen3Multi import Qwen3MultiWithTemperature
             self.tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3MultiWithTemperature.from_pretrained(ckpt_path).to(self.device)
+        elif backbone == "Qwen3TemporalHierarchical":
+            from transformers import Qwen2Tokenizer
+            from SeqRec.models.generative.Qwen3TemporalHierarchical import Qwen3TemporalHierarchicalWithTemperature
+            self.tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
+            self.model = Qwen3TemporalHierarchicalWithTemperature.from_pretrained(ckpt_path).to(self.device)
         elif backbone == "Qwen3SessionMulti":
             from transformers import Qwen2Tokenizer
             from SeqRec.models.generative.Qwen3SessionMulti import (
@@ -245,10 +250,10 @@ class AnalyzeBehaviorDropout(MultiGPUTask):
             return_dict_in_generate=True,
             early_stopping=True,
         )
-        if self.backbone in ("Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "LlamaMulti"):
+        if self.backbone in ("Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "Qwen3TemporalHierarchical", "LlamaMulti"):
             gen_kwargs["session_ids"] = inp.session_ids
             gen_kwargs["extended_session_ids"] = inp.extended_session_ids
-        if self.backbone in ("Qwen3Multi", "Qwen3SessionMulti", "LlamaMulti"):
+        if self.backbone in ("Qwen3Multi", "Qwen3SessionMulti", "Qwen3TemporalHierarchical", "LlamaMulti"):
             gen_kwargs["actions"] = inp.actions
 
         output: "GenerateBeamOutput" = gen_model.generate(**gen_kwargs)
@@ -380,7 +385,7 @@ class AnalyzeBehaviorDropout(MultiGPUTask):
     ):
         self.init(seed, False)
         self._is_decoder_only = backbone in (
-            "Qwen3", "Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "LlamaMulti"
+            "Qwen3", "Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "Qwen3TemporalHierarchical", "LlamaMulti"
         )
         self.backbone = backbone
 

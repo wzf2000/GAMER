@@ -23,6 +23,8 @@ elif [ "${backbone}" = "Llama" ]; then
     backbone_arg=LlamaMulti
 elif [[ "${backbone}" == Qwen3Multi* ]]; then
     backbone_arg=Qwen3Multi
+elif [ "${backbone}" = "Qwen3TemporalHierarchical" ]; then
+    backbone_arg=Qwen3TemporalHierarchical
 fi
 
 task_dir=${tasks//,/-}
