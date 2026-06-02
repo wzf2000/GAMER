@@ -11,17 +11,15 @@
 export CUDA_VISIBLE_DEVICES=$gpu
 export CUDA_LAUNCH_BLOCKING=1
 
-gpu_num=$(echo $gpu | awk -F, '{print NF}')
-per_device_batch_size=$(($batch_size / $gpu_num))
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "${script_dir}/lib/args.sh"
+source "${script_dir}/lib/runtime.sh"
+
+gpu_num=$(count_gpus "${gpu}")
+per_device_batch_size=$(compute_per_device_batch_size "${batch_size}" "${gpu_num}")
 
 : ${extra_args:=}
-# transform the format of "X=a,Y=b" into "-X a -Y b"
-extra_args_out=$(echo "$extra_args" | awk -F, '{
-  for(i=1; i<=NF; i++) {
-    split($i, arr, "=")
-    printf "--%s %s ", arr[1], arr[2]
-  }
-}')
+extra_args_out=$(parse_extra_args "${extra_args}")
 echo "Extra arguments: ${extra_args_out}"
 
 echo "Training RQ-VAE on ${dataset} with alpha=${alpha} and beta=${beta} using GPU ${gpu}, semantic model ${semantic_model}, and cf model ${cf_model}."

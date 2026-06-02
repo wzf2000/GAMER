@@ -10,33 +10,25 @@
 
 export CUDA_VISIBLE_DEVICES=$gpu
 
-base_model=./config/dis-models/${backbone}
-task_dir=${tasks//,/-}
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "${script_dir}/lib/args.sh"
+source "${script_dir}/lib/paths.sh"
 
-task_dir=${dataset}/${task_dir}/${backbone}
+base_model=./config/dis-models/${backbone}
 
 : ${suffix:=}
-if [ "${suffix}" != "" ]; then
-    task_dir=${task_dir}_${suffix}
-fi
+task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
 output_dir=./checkpoint/smb_dis/${task_dir}/
-result_dir=./results/${task_dir}/
+result_dir=$(build_result_path "${task_dir}" "")
 run_name=${task_dir}
 
 : ${extra_args:=}
-# transform the format of "X=a,Y=b" into "-X a -Y b"
-extra_args_out=$(echo "$extra_args" | awk -F, '{
-    for(i=1; i<=NF; i++) {
-        split($i, arr, "=")
-        printf "--%s %s ", arr[1], arr[2]
-    }
-}')
+extra_args_out=$(parse_extra_args "${extra_args}")
 echo "Extra arguments: ${extra_args_out}"
 
 : ${extra_flags:=}
-# transform the format of "X,Y" into "--X --Y"
-extra_flags_out=$(echo "$extra_flags" | awk -F, '{for(i=1; i<=NF; i++) printf "--%s ", $i}')
+extra_flags_out=$(parse_extra_flags "${extra_flags}")
 echo "Extra flags: ${extra_flags_out}"
 
 python main.py train_SMB_rec \
