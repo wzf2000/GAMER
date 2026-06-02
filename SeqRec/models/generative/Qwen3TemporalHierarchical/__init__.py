@@ -1,0 +1,1 @@
+from SeqRec.models.generative.Qwen3TemporalHierarchical.model import Qwen3TemporalHierarchicalWithTemperature

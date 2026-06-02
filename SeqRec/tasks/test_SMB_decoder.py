@@ -112,7 +112,7 @@ class TestSMBDecoder(MultiGPUTask):
             behavior_token_num = behavior_token_num[0]
             behavior_attention_mask = behavior_tokens["attention_mask"]
             behavior_tokens = behavior_tokens["input_ids"]
-            if self.backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'LlamaMulti']:
+            if self.backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'Qwen3TemporalHierarchical', 'LlamaMulti']:
                 inputs.input_ids = torch.cat([inputs.input_ids, torch.tensor(behavior_tokens, device=self.device)], dim=1)
                 inputs.attention_mask = torch.cat([inputs.attention_mask, torch.tensor(behavior_attention_mask, device=self.device)], dim=1)
                 action = [[dataset.behavior_level[u]] for u in behaviors]
@@ -157,7 +157,7 @@ class TestSMBDecoder(MultiGPUTask):
                     return_dict_in_generate=True,
                     early_stopping=True,
                 )
-            elif self.backbone in ['Qwen3Multi', 'Qwen3SessionMulti', 'LlamaMulti']:
+            elif self.backbone in ['Qwen3Multi', 'Qwen3SessionMulti', 'Qwen3TemporalHierarchical', 'LlamaMulti']:
                 output: "GenerateBeamOutput" = (
                     self.model
                     if isinstance(self.model, GenerationMixin)
@@ -198,11 +198,11 @@ class TestSMBDecoder(MultiGPUTask):
             output_ids = output.sequences
             scores = output.sequences_scores
 
-            if self.backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'LlamaMulti']:
+            if self.backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'Qwen3TemporalHierarchical', 'LlamaMulti']:
                 output_ids = output_ids[:, -self.item_len:]
 
             output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
-            if self.backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'LlamaMulti']:
+            if self.backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'Qwen3TemporalHierarchical', 'LlamaMulti']:
                 output_item_ids = output_ids[:, behavior_token_num:]  # Remove the behavior token if has
             else:
                 output_item_ids = output_ids[:, behavior_token_num + 1:]  # Remove the decoder start token and behavior token if has
@@ -427,6 +427,14 @@ class TestSMBDecoder(MultiGPUTask):
             if self.model.config.pad_token_id is None:
                 self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
             self.config: Qwen3MoeConfig = self.model.config
+        elif backbone == "Qwen3TemporalHierarchical":
+            from transformers import Qwen3MoeConfig, Qwen2Tokenizer
+            from SeqRec.models.generative.Qwen3TemporalHierarchical import Qwen3TemporalHierarchicalWithTemperature
+            self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
+            self.model = Qwen3TemporalHierarchicalWithTemperature.from_pretrained(ckpt_path).to(self.device)
+            if self.model.config.pad_token_id is None:
+                self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
+            self.config: Qwen3MoeConfig = self.model.config
         elif backbone == "Qwen3SessionMulti":
             from transformers import Qwen3MoeConfig, Qwen2Tokenizer
             from SeqRec.models.generative.Qwen3SessionMulti import Qwen3SessionMultiWithTemperature
@@ -499,12 +507,12 @@ class TestSMBDecoder(MultiGPUTask):
                 self.tokenizer.encode(b, add_special_tokens=False)[0]
                 for b in behavior_tokens
             ]
-            if backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'LlamaMulti']:
+            if backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'Qwen3TemporalHierarchical', 'LlamaMulti']:
                 collator = DecoderOnlyCollator(self.tokenizer, ignore_behavior_tokens=behavior_tokens)
             else:
                 collator = EncoderDecoderCollator(self.tokenizer)
         else:
-            if backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'LlamaMulti']:
+            if backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'Qwen3TemporalHierarchical', 'LlamaMulti']:
                 collator = DecoderOnlyTestCollator(self.tokenizer)
             else:
                 collator = EncoderDecoderTestCollator(self.tokenizer)
@@ -524,7 +532,7 @@ class TestSMBDecoder(MultiGPUTask):
             last_token_set.add(self.config.pad_token_id)  # Ensure pad token is included
             self.info("Complete get all behavior items last token set.")
 
-            if backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'LlamaMulti']:
+            if backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'Qwen3TemporalHierarchical', 'LlamaMulti']:
                 candidate_trie = Trie(items_tokens)
                 self.prefix_allowed_tokens = prefix_allowed_tokens_fn_by_last_token(candidate_trie, last_token_set)
             else:
@@ -538,7 +546,7 @@ class TestSMBDecoder(MultiGPUTask):
             self.prefix_allowed_tokens_by_behavior: dict[str, Callable[[int, torch.Tensor], list[int]]] = {}
             for behavior in self.behaviors:
                 all_items = self.datasets[0].get_all_items(behavior)
-                if backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'LlamaMulti']:
+                if backbone in ['Qwen3', 'Qwen3Session', 'Qwen3Multi', 'Qwen3SessionMulti', 'Qwen3TemporalHierarchical', 'LlamaMulti']:
                     candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items), add_special_tokens=False)["input_ids"]
                     behavior_trie = Trie(candidate_tokens)
                     self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn_by_last_token(behavior_trie, last_token_set)

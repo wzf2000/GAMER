@@ -130,6 +130,11 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
             from SeqRec.models.generative.Qwen3Multi import Qwen3MultiWithTemperature
             self.tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
             self.model = Qwen3MultiWithTemperature.from_pretrained(ckpt_path).to(self.device)
+        elif backbone == "Qwen3TemporalHierarchical":
+            from transformers import Qwen2Tokenizer
+            from SeqRec.models.generative.Qwen3TemporalHierarchical import Qwen3TemporalHierarchicalWithTemperature
+            self.tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
+            self.model = Qwen3TemporalHierarchicalWithTemperature.from_pretrained(ckpt_path).to(self.device)
         elif backbone == "Qwen3SessionMulti":
             from transformers import Qwen2Tokenizer
             from SeqRec.models.generative.Qwen3SessionMulti import Qwen3SessionMultiWithTemperature
@@ -155,7 +160,7 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
 
     @staticmethod
     def _is_decoder_only_backbone(backbone: str) -> bool:
-        return backbone in ("Qwen3", "Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "LlamaMulti")
+        return backbone in ("Qwen3", "Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "Qwen3TemporalHierarchical", "LlamaMulti")
 
     def _build_tries(self, base_dataset: BaseSMBDataset, is_decoder_only: bool):
         all_beh_items = base_dataset.get_all_items("all")
@@ -231,10 +236,10 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
             return_dict_in_generate=True,
             early_stopping=True,
         )
-        if backbone in ("Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "LlamaMulti"):
+        if backbone in ("Qwen3Session", "Qwen3Multi", "Qwen3SessionMulti", "Qwen3TemporalHierarchical", "LlamaMulti"):
             gen_kwargs["session_ids"] = inp.session_ids
             gen_kwargs["extended_session_ids"] = inp.extended_session_ids
-        if backbone in ("Qwen3Multi", "Qwen3SessionMulti", "LlamaMulti"):
+        if backbone in ("Qwen3Multi", "Qwen3SessionMulti", "Qwen3TemporalHierarchical", "LlamaMulti"):
             gen_kwargs["actions"] = inp.actions
         if not is_decoder_only:
             gen_kwargs["decoder_input_ids"] = torch.tensor([[self.config.decoder_start_token_id] + tokens for tokens in beh_ids], device=self.device)
