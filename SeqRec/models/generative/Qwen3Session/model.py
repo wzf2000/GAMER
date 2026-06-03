@@ -9,14 +9,9 @@ from transformers.models.qwen3.modeling_qwen3 import KwargsForCausalLM
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 
-from SeqRec.models.generative.mixins import ExtendedSessionPositionMixin, prepare_cache_position_and_position_ids
-from SeqRec.models.generative.session_masks import (
-    apply_attention_padding_mask,
-    build_mask_context,
-    build_incremental_causal_mask,
-    build_session_item_in_item_mask,
-    build_session_in_item_self_mask,
-)
+from SeqRec.models.generative.common.cache import prepare_cache_position_and_position_ids
+from SeqRec.models.generative.common.wrappers import ExtendedSessionPositionMixin
+from SeqRec.models.generative.common.session_masks import apply_attention_padding_mask, build_mask_context, build_incremental_causal_mask, build_session_item_in_item_mask, build_session_in_item_self_mask
 
 
 class Qwen3SessionModel(Qwen3Model):

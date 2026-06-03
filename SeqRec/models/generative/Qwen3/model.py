@@ -1,6 +1,6 @@
 from transformers.models.qwen3 import Qwen3ForCausalLM
 
-from SeqRec.models.generative.mixins import TemperatureCausalLMLossMixin
+from SeqRec.models.generative.common.temperature import TemperatureCausalLMLossMixin
 
 
 class Qwen3WithTemperature(TemperatureCausalLMLossMixin, Qwen3ForCausalLM):

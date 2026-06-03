@@ -19,23 +19,10 @@ from transformers.activations import ACT2FN
 
 from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
 from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
-from SeqRec.models.generative.mixins import (
-    ExtendedSessionPositionMixin,
-    init_cross_level_cache_state,
-    prepare_cache_position_and_position_ids,
-    prepare_decoder_forward_state,
-    reset_cross_level_cache_if_needed,
-    run_multi_cross_decoder_layers,
-)
-from SeqRec.models.generative.session_masks import (
-    apply_attention_padding_mask,
-    build_incremental_causal_mask,
-    build_mask_context,
-    build_session_item_in_item_mask,
-    build_session_in_item_self_mask,
-    build_session_action_cross_mask,
-    extend_cached_cross_mask,
-)
+from SeqRec.models.generative.common.cache import prepare_cache_position_and_position_ids
+from SeqRec.models.generative.common.decoder_loop import init_cross_level_cache_state, prepare_decoder_forward_state, reset_cross_level_cache_if_needed, run_multi_cross_decoder_layers
+from SeqRec.models.generative.common.wrappers import ExtendedSessionPositionMixin
+from SeqRec.models.generative.common.session_masks import apply_attention_padding_mask, build_incremental_causal_mask, build_mask_context, build_session_item_in_item_mask, build_session_in_item_self_mask, build_session_action_cross_mask, extend_cached_cross_mask
 
 
 class Qwen3SessionMultiAttention(nn.Module):

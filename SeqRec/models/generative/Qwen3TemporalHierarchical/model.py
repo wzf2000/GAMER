@@ -22,18 +22,10 @@ from transformers.utils import can_return_tuple
 from SeqRec.models.generative.Qwen3Moe.FFN import DenseMLP, MyQwen3SparseMLP, PBATransformerSparseMLP, RouterMoeBlock
 from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
 from SeqRec.models.generative.Qwen3Multi.model import Qwen3MultiModelBase
-from SeqRec.models.generative.mixins import (
-    CustomCausalLMWrapperMixin,
-    prepare_cache_position_and_position_ids,
-    prepare_decoder_forward_state,
-    run_temporal_hierarchical_decoder_layers,
-)
-from SeqRec.models.generative.session_masks import (
-    apply_attention_padding_mask,
-    build_mask_context,
-    build_in_item_self_mask,
-    build_incremental_causal_mask,
-)
+from SeqRec.models.generative.common.cache import prepare_cache_position_and_position_ids
+from SeqRec.models.generative.common.decoder_loop import prepare_decoder_forward_state, run_temporal_hierarchical_decoder_layers
+from SeqRec.models.generative.common.wrappers import CustomCausalLMWrapperMixin
+from SeqRec.models.generative.common.session_masks import apply_attention_padding_mask, build_mask_context, build_in_item_self_mask, build_incremental_causal_mask
 
 
 class Qwen3TemporalHierarchicalAttention(nn.Module):
