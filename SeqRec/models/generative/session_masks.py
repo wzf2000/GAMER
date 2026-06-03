@@ -1,4 +1,27 @@
 import torch
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class MaskContext:
+    past_seen_tokens: int
+    batch_size: int
+    sequence_length: int
+    dtype: torch.dtype
+    device: torch.device
+    min_dtype: float
+
+
+def build_mask_context(input_tensor: torch.FloatTensor, past_key_values) -> MaskContext:
+    dtype, device = input_tensor.dtype, input_tensor.device
+    return MaskContext(
+        past_seen_tokens=past_key_values.get_seq_length() if past_key_values is not None else 0,
+        batch_size=input_tensor.shape[0],
+        sequence_length=input_tensor.shape[1],
+        dtype=dtype,
+        device=device,
+        min_dtype=torch.finfo(dtype).min,
+    )
 
 
 def apply_attention_padding_mask(

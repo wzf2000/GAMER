@@ -26,6 +26,7 @@ from SeqRec.models.generative.Qwen3Multi.model import Qwen3MultiModelBase
 from SeqRec.models.generative.mixins import CustomCausalLMWrapperMixin, prepare_cache_position_and_position_ids
 from SeqRec.models.generative.session_masks import (
     apply_attention_padding_mask,
+    build_mask_context,
     build_in_item_self_mask,
     build_incremental_causal_mask,
 )
@@ -379,11 +380,12 @@ class Qwen3TemporalHierarchicalModel(Qwen3PreTrainedModel):
         session_ids: torch.LongTensor | None = None,
         actions: torch.LongTensor | None = None,
     ) -> torch.Tensor:
-        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-        batch_size = input_tensor.shape[0]
-        sequence_length = input_tensor.shape[1]
-        dtype, device = input_tensor.dtype, input_tensor.device
-        min_dtype = torch.finfo(dtype).min
+        mask_ctx = build_mask_context(input_tensor, past_key_values)
+        past_seen_tokens = mask_ctx.past_seen_tokens
+        batch_size = mask_ctx.batch_size
+        sequence_length = mask_ctx.sequence_length
+        dtype, device = mask_ctx.dtype, mask_ctx.device
+        min_dtype = mask_ctx.min_dtype
         if past_seen_tokens == 0:
             target_length = sequence_length
             causal_mask = build_in_item_self_mask(
