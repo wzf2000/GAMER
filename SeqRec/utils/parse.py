@@ -53,7 +53,7 @@ class ScriptTrainingArgs:
     fp16: bool = False
     bf16: bool = False
     deepspeed: str | None = None
-    temperature: float = 1.0
+    temperature: float = 0.7
     find_unused_parameters: bool = False
     wandb_run_name: str = "default"
     debug: bool = False

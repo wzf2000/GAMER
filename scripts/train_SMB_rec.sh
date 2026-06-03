@@ -1,11 +1,9 @@
 #!/bin/bash
 : ${dataset:=Retail}
 : ${batch_size:=4096}
-: ${learning_rate:=1e-3}
 : ${tasks:=smb_dis}
 : ${test_task:=smb_dis}
 : ${gpu:=0}
-: ${epochs:=200}
 : ${backbone:=GRU4Rec}
 
 export CUDA_VISIBLE_DEVICES=$gpu
@@ -34,8 +32,6 @@ python main.py train_SMB_rec \
     --wandb_run_name ${run_name} \
     --dataset ${dataset} \
     --batch_size ${batch_size} \
-    --learning_rate ${learning_rate} \
     --tasks ${tasks} \
     --test_task ${test_task} \
-    --epochs ${epochs} \
     "${EXTRA_CLI_ARGS[@]}"

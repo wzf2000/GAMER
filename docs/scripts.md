@@ -36,10 +36,9 @@ Some general arguments for the above scripts are as follows:
 - `tasks`: Training task for the recommender. You should specify only one task. Note tasks for different datasets or models may be different (e.g., `mb_*` for multi-behavior datasets, `smb_*` for session-wise multi-behavior datasets, `smb_dis_*` for discriminative models on session-wise multi-behavior datasets, etc.). Please refer to the corresponding script for the available tasks.
 - `test_task`: Test task for evaluation. You should specify only one test task. Note test tasks for different datasets or models may be different. Please refer to the corresponding script for the available test tasks.
 - `backbone`: Backbone model for the discriminative recommender (e.g., `SASRec`, `BERT4Rec`, `GRU4Rec`, etc.) or generative model backbone (e.g., `TIGER`, `PBATransformer`, `Qwen3`, etc.).
-- `batch_size`: Batch size for training. Note that the batch size is the total batch size for all GPUs. We will convert it to the per-GPU batch size automatically.
-- `learning_rate`: Learning rate for training.
-- `epochs`: Number of training epochs.
-- Extra task arguments: Pass additional task arguments after the script path using the same argparse form as `main.py`, for example `bash scripts/train_SMB_decoder.sh --max_his_len 100 --warmup_ratio 0.04 --debug`.
+- `batch_size`: Script-level total batch size. Training scripts convert it to the per-GPU batch size automatically. You can bypass this convenience layer by passing Hugging Face-style batch arguments after the script path, such as `--per_device_train_batch_size 64`.
+- Training arguments: Pass training hyperparameters after the script path using the same argparse form as `main.py`. Prefer Hugging Face-style names for generative training, for example `bash scripts/train_SMB_decoder.sh --num_train_epochs 20 --learning_rate 3e-4 --warmup_ratio 0.04 --eval_strategy steps --save_strategy steps`.
+- Model/task arguments: Pass additional task arguments after the script path, for example `bash scripts/train_SMB_decoder.sh --max_his_len 100 --debug`.
 - Legacy extra task arguments: `extra_args="arg1=val1,arg2=val2"` and `extra_flags="flag1,flag2"` are still supported for old commands, but the trailing CLI form is preferred for new usage.
 
 For other arguments, please refer to the corresponding script files in the `scripts/` directory and the corresponding task files in the `SeqRec/tasks/` directory.

@@ -57,7 +57,7 @@ class TrainSMBRec(Task):
         parser.add_argument(
             "--learning_rate",
             type=float,
-            default=5e-4,
+            default=1e-3,
             help="Learning rate for the optimizer",
         )
         parser.add_argument(

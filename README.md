@@ -63,6 +63,8 @@ Run the following command to train Qwen3Multi (GAMER architecture) on ShortVideo
 dataset=ShortVideoAD original=1 batch_size=1024 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3Multi bash ./scripts/train_SMB_decoder.sh --max_his_len 100 --gradient_accumulation_steps 4 --warmup_ratio 0.04 --patience 20
 ```
 
+Training hyperparameters can be overridden after the script path with argparse/Hugging Face-style names, for example `--num_train_epochs 20 --learning_rate 3e-4`.
+
 ### Evaluating Qwen3Multi
 
 Run the following command to evaluate Qwen3Multi trained above:
