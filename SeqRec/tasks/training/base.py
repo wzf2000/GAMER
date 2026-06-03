@@ -6,7 +6,7 @@ from SeqRec.models.generative.registry import (
     get_backbone_train_profile,
     load_config_and_tokenizer,
 )
-from SeqRec.tasks.generative_training import (
+from SeqRec.tasks.training.helpers import (
     build_hf_trainer,
     build_train_collator,
     build_training_arguments_from_script_args,

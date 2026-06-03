@@ -1,5 +1,5 @@
 from SeqRec.datasets.loaders.sequential import load_datasets
-from SeqRec.tasks.generative_train_base import BaseGenerativeTrainTask
+from SeqRec.tasks.training.base import BaseGenerativeTrainTask
 
 
 class TrainDecoder(BaseGenerativeTrainTask):

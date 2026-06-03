@@ -28,7 +28,7 @@ from SeqRec.models.generative.registry import (
     is_decoder_only_backbone,
     load_model_and_tokenizer,
 )
-from SeqRec.tasks.generative_eval import (
+from SeqRec.tasks.evaluation.helpers import (
     build_behavior_prefix_fns,
     build_generation_kwargs,
     get_generation_model,
