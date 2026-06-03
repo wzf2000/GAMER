@@ -15,7 +15,7 @@ from SeqRec.datasets.collator import EncoderDecoderTestCollator, DecoderOnlyTest
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.generation.trie import Trie, prefix_allowed_tokens_fn, prefix_allowed_tokens_fn_by_last_token
 from SeqRec.utils.futils import ensure_dir
-from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
+from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args, parse_generation_eval_args
 from SeqRec.utils.pipe import get_tqdm
 
 
@@ -41,26 +41,10 @@ class TestDecoder(MultiGPUTask):
         parser = sub_parsers.add_parser("test_decoder", help="Train a decoder for SeqRec.")
         parser = parse_global_args(parser)
         parser = parse_dataset_args(parser)
-        parser.add_argument("--ckpt_path", type=str, default="./checkpoint", help="The checkpoint path")
-        parser.add_argument(
-            "--results_file",
-            type=str,
-            default="./results/test.json",
-            help="result output path",
-        )
-        parser.add_argument("--test_batch_size", type=int, default=16)
-        parser.add_argument("--num_beams", type=int, default=20)
-        parser.add_argument(
-            "--metrics",
-            type=str,
-            default="hit@1,hit@5,hit@10,ndcg@5,ndcg@10",
-            help="test metrics, separate by comma",
-        )
-        parser.add_argument("--test_task", type=str, default="SeqRec")
-        parser.add_argument(
-            "--filter",
-            action="store_true",
-            help="Filter out the collision items from the test data",
+        parse_generation_eval_args(
+            parser,
+            metrics="hit@1,hit@5,hit@10,ndcg@5,ndcg@10",
+            include_filter=True,
         )
 
     def check_collision_items(self, filter: bool = False) -> dict[str, int | float]:

@@ -29,7 +29,7 @@ from SeqRec.tasks.generative_eval import (
     slice_decoder_only_output,
 )
 from SeqRec.utils.futils import ensure_dir
-from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
+from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args, parse_generation_eval_args
 from SeqRec.utils.pipe import get_tqdm
 
 
@@ -56,24 +56,12 @@ class TestSMBDecoder(MultiGPUTask):
         parser = sub_parsers.add_parser("test_SMB_decoder", help="Test a SMB decoder for SeqRec.")
         parser = parse_global_args(parser)
         parser = parse_dataset_args(parser)
-        parser.add_argument("--ckpt_path", type=str, default="./checkpoint", help="The checkpoint path")
-        parser.add_argument(
-            "--results_file",
-            type=str,
-            default="./results/test.json",
-            help="result output path",
+        parse_generation_eval_args(
+            parser,
+            metrics="hit@1,hit@5,hit@10,recall@1,recall@5,recall@10,ndcg@5,ndcg@10",
+            include_behaviors=True,
+            include_valid_loss=True,
         )
-        parser.add_argument("--test_batch_size", type=int, default=16)
-        parser.add_argument("--num_beams", type=int, default=20)
-        parser.add_argument(
-            "--metrics",
-            type=str,
-            default="hit@1,hit@5,hit@10,recall@1,recall@5,recall@10,ndcg@5,ndcg@10",
-            help="test metrics, separate by comma",
-        )
-        parser.add_argument("--test_task", type=str, default="SeqRec")
-        parser.add_argument("--behaviors", type=str, nargs="+", default=None, help="The behavior list.")
-        parser.add_argument("--valid_loss", action="store_true", help="Whether to calculate valid loss instead of testing.")
 
     def check_collision_items(self) -> list[dict[str, int | float]]:
         ret_list = []
