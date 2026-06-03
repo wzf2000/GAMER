@@ -6,7 +6,7 @@ from enum import Enum
 from loguru import logger
 from torch.utils.data import Dataset
 
-from SeqRec.utils.pipe import set_seed, get_tqdm
+from SeqRec.utils.runtime import set_seed, get_tqdm
 
 
 class EvaluationType(Enum):

@@ -8,9 +8,9 @@ from SeqRec.tasks.base import Task
 from SeqRec.datasets.loaders.multi_behavior import load_MB_test_dataset
 from SeqRec.datasets.multi_behavior import BaseMBDataset
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
-from SeqRec.utils.futils import ensure_dir
-from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
-from SeqRec.utils.pipe import get_tqdm
+from SeqRec.utils.fs import ensure_dir
+from SeqRec.utils.args import SubParsersAction, parse_global_args, parse_dataset_args
+from SeqRec.utils.runtime import get_tqdm
 
 
 class TestMBRule(Task):

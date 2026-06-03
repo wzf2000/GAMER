@@ -1,9 +1,6 @@
 import inspect
 from loguru import logger
-from typing import TypeVar
 from functools import wraps
-
-T = TypeVar("T")
 
 
 def log_arguments(func):
@@ -42,14 +39,3 @@ def create_meta_class(
             return super().__new__(cls, name, bases, attrs)
 
     return CustomMeta
-
-
-def subclasses_recursive(cls: type[T]) -> list[type[T]]:
-    """
-    Recursively find all subclasses of a given class.
-    """
-    subclasses: list[type[T]] = []
-    for subclass in cls.__subclasses__():
-        subclasses.append(subclass)
-        subclasses.extend(subclasses_recursive(subclass))
-    return subclasses

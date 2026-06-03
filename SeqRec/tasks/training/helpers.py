@@ -3,7 +3,7 @@ from typing import Any
 
 from SeqRec.datasets.collators.generative import DecoderOnlyCollator, EncoderDecoderCollator
 from SeqRec.models.generative.registry import instantiate_generative_model, is_decoder_only_backbone
-from SeqRec.utils.futils import ensure_dir
+from SeqRec.utils.fs import ensure_dir
 
 
 def prepare_tokenizer_and_config(

@@ -10,10 +10,10 @@ from torch.utils.data import DataLoader
 
 from SeqRec.tasks.base import SubParsersAction, Task
 from SeqRec.datasets.emb_dataset import EmbDataset
-from SeqRec.utils.futils import load_json
+from SeqRec.utils.fs import load_json
 from SeqRec.utils.indice import check_collision, get_collision_item, get_indices_count
 from SeqRec.utils.kmeans import constrained_km, center_distance_for_constraint
-from SeqRec.utils.pipe import set_seed
+from SeqRec.utils.runtime import set_seed
 
 
 class Tokenize(Task):

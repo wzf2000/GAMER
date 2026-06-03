@@ -3,7 +3,7 @@ import sys
 import argparse
 from loguru import logger
 
-from SeqRec.utils.futils import ensure_dir
+from SeqRec.utils.fs import ensure_dir
 from SeqRec.utils.logging import init_logger
 from SeqRec.tasks import task_list
 

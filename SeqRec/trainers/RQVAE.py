@@ -10,11 +10,11 @@ from argparse import Namespace
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from SeqRec.utils.futils import ensure_dir
+from SeqRec.utils.fs import ensure_dir
 from SeqRec.utils.kmeans import constrained_km
 from SeqRec.utils.logging import set_color
 from SeqRec.utils.time import get_local_time
-from SeqRec.utils.pipe import get_tqdm
+from SeqRec.utils.runtime import get_tqdm
 from SeqRec.datasets.emb_dataset import EmbDataset
 from SeqRec.models.tokenizer.RQVAE import RQVAE
 

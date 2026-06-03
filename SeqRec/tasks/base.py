@@ -1,8 +1,8 @@
 from typing import Any
 from loguru import logger
 
-from SeqRec.utils.parse import SubParsersAction
-from SeqRec.utils.func_util import log_arguments, create_meta_class
+from SeqRec.utils.args import SubParsersAction
+from SeqRec.utils.decorators import log_arguments, create_meta_class
 
 
 class Task(metaclass=create_meta_class("Task", ("invoke", ), log_arguments)):

@@ -15,9 +15,9 @@ from SeqRec.datasets.multi_behavior import BaseMBDataset, EvaluationType
 from SeqRec.datasets.collators.generative import EncoderDecoderTestCollator, DecoderOnlyTestCollator, EncoderDecoderCollator, DecoderOnlyCollator
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.generation.trie import Trie, prefix_allowed_tokens_fn, prefix_allowed_tokens_fn_by_last_token
-from SeqRec.utils.futils import ensure_dir
-from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args, parse_generation_eval_args
-from SeqRec.utils.pipe import get_tqdm
+from SeqRec.utils.fs import ensure_dir
+from SeqRec.utils.args import SubParsersAction, parse_global_args, parse_dataset_args, parse_generation_eval_args
+from SeqRec.utils.runtime import get_tqdm
 
 
 if TYPE_CHECKING:

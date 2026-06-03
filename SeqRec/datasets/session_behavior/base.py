@@ -7,7 +7,7 @@ import pandas as pd
 from loguru import logger
 from torch.utils.data import Dataset
 
-from SeqRec.utils.pipe import get_tqdm
+from SeqRec.utils.runtime import get_tqdm
 
 
 class BaseSMBDataset(Dataset):
