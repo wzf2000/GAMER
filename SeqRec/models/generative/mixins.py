@@ -1,5 +1,8 @@
 import torch
+from dataclasses import dataclass
+from loguru import logger
 from typing import Any
+from transformers.cache_utils import Cache, DynamicCache
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.loss.loss_utils import ForCausalLMLoss
 
@@ -21,6 +24,69 @@ def prepare_cache_position_and_position_ids(
     if position_ids is None:
         position_ids = cache_position.unsqueeze(0)
     return cache_position, position_ids
+
+
+@dataclass
+class DecoderForwardState:
+    inputs_embeds: torch.FloatTensor
+    past_key_values: Cache | None
+    cache_position: torch.LongTensor
+    position_ids: torch.LongTensor
+    use_cache: bool
+    output_attentions: bool
+    output_hidden_states: bool
+
+
+def prepare_decoder_forward_state(
+    model: torch.nn.Module,
+    *,
+    input_ids: torch.LongTensor | None,
+    inputs_embeds: torch.FloatTensor | None,
+    past_key_values: Cache | None,
+    cache_position: torch.LongTensor | None,
+    position_ids: torch.LongTensor | None,
+    use_cache: bool | None,
+    output_attentions: bool | None,
+    output_hidden_states: bool | None,
+) -> DecoderForwardState:
+    output_attentions = output_attentions if output_attentions is not None else model.config.output_attentions
+    output_hidden_states = (
+        output_hidden_states if output_hidden_states is not None else model.config.output_hidden_states
+    )
+    use_cache = use_cache if use_cache is not None else model.config.use_cache
+
+    if (input_ids is None) ^ (inputs_embeds is not None):
+        raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
+
+    if model.gradient_checkpointing and model.training and use_cache:
+        logger.warning("`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.")
+        use_cache = False
+
+    if not isinstance(past_key_values, (type(None), Cache)):
+        raise ValueError("The `past_key_values` should be either a `Cache` object or `None`.")
+
+    if inputs_embeds is None:
+        inputs_embeds = model.embed_tokens(input_ids)
+
+    if use_cache and past_key_values is None:
+        past_key_values = DynamicCache()
+
+    cache_position, position_ids = prepare_cache_position_and_position_ids(
+        past_key_values=past_key_values,
+        inputs_embeds=inputs_embeds,
+        cache_position=cache_position,
+        position_ids=position_ids,
+    )
+
+    return DecoderForwardState(
+        inputs_embeds=inputs_embeds,
+        past_key_values=past_key_values,
+        cache_position=cache_position,
+        position_ids=position_ids,
+        use_cache=use_cache,
+        output_attentions=output_attentions,
+        output_hidden_states=output_hidden_states,
+    )
 
 
 class TemperatureMixin:
