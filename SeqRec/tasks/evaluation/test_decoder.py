@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from SeqRec.tasks.evaluation.base import _BaseDecoderTestTask
 from SeqRec.datasets.loaders.sequential import load_test_dataset
 from SeqRec.datasets.collators.generative import EncoderDecoderTestCollator, DecoderOnlyTestCollator
+from SeqRec.models.generative.registry import is_decoder_only_backbone
 from SeqRec.tasks.evaluation.helpers import (
     build_candidate_prefix_fn,
     build_generation_kwargs,
@@ -82,7 +83,7 @@ class TestDecoder(_BaseDecoderTestTask):
             batch: tuple["BatchEncoding", list[str], torch.LongTensor]
             inputs = batch[0].to(self.device)
             targets = batch[1]
-            if self.backbone == 'Qwen3':
+            if is_decoder_only_backbone(self.backbone):
                 max_new_tokens = self.item_len
                 inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
                 inputs.attention_mask = inputs.attention_mask[:, :-max_new_tokens]
@@ -103,7 +104,7 @@ class TestDecoder(_BaseDecoderTestTask):
             output_ids = output.sequences
             scores = output.sequences_scores
 
-            if self.backbone == 'Qwen3':
+            if is_decoder_only_backbone(self.backbone):
                 output_ids = output_ids[:, -self.item_len:]
 
             output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
@@ -172,7 +173,7 @@ class TestDecoder(_BaseDecoderTestTask):
         )
         self.sampler = self._setup_ddp_for_datasets([self.dataset])[0]
 
-        if backbone == 'Qwen3':
+        if is_decoder_only_backbone(backbone):
             collator = DecoderOnlyTestCollator(self.tokenizer)
         else:
             collator = EncoderDecoderTestCollator(self.tokenizer)
