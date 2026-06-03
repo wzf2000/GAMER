@@ -11,7 +11,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.loaders.sequential import load_test_dataset
-from SeqRec.datasets.collator import EncoderDecoderTestCollator, DecoderOnlyTestCollator
+from SeqRec.datasets.collators.generative import EncoderDecoderTestCollator, DecoderOnlyTestCollator
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.generation.trie import Trie, prefix_allowed_tokens_fn, prefix_allowed_tokens_fn_by_last_token
 from SeqRec.utils.futils import ensure_dir

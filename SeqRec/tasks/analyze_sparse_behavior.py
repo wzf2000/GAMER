@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.loaders.session_behavior import load_SMB_test_dataset
 from SeqRec.datasets.session_behavior import BaseSMBDataset
-from SeqRec.datasets.collator import DecoderOnlyTestCollator, EncoderDecoderTestCollator
+from SeqRec.datasets.collators.generative import DecoderOnlyTestCollator, EncoderDecoderTestCollator
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.models.generative.registry import (
     is_decoder_only_backbone,
