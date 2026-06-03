@@ -24,7 +24,11 @@ from SeqRec.models.generative.Qwen3Moe.FFN import DenseMLP, MyQwen3SparseMLP, PB
 from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
 from SeqRec.models.generative.Qwen3Multi.model import Qwen3MultiModelBase
 from SeqRec.models.generative.mixins import CustomCausalLMWrapperMixin, prepare_cache_position_and_position_ids
-from SeqRec.models.generative.session_masks import apply_attention_padding_mask, build_incremental_causal_mask
+from SeqRec.models.generative.session_masks import (
+    apply_attention_padding_mask,
+    build_in_item_self_mask,
+    build_incremental_causal_mask,
+)
 
 
 class Qwen3TemporalHierarchicalAttention(nn.Module):
@@ -382,14 +386,14 @@ class Qwen3TemporalHierarchicalModel(Qwen3PreTrainedModel):
         min_dtype = torch.finfo(dtype).min
         if past_seen_tokens == 0:
             target_length = sequence_length
-            causal_mask = torch.full(
-                (sequence_length, sequence_length),
-                fill_value=min_dtype,
+            causal_mask = build_in_item_self_mask(
+                in_item_mask=self.in_item_mask,
+                sequence_length=sequence_length,
+                batch_size=batch_size,
                 dtype=dtype,
                 device=device,
+                min_dtype=min_dtype,
             )
-            causal_mask *= self.in_item_mask[:sequence_length, :sequence_length].to(device)
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1).clone()
         else:
             target_length = len(cache_position) + past_seen_tokens
             causal_mask = build_incremental_causal_mask(

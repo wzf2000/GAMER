@@ -47,6 +47,48 @@ def build_incremental_causal_mask(
     return causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
 
 
+def build_in_item_self_mask(
+    *,
+    in_item_mask: torch.Tensor,
+    sequence_length: int,
+    batch_size: int,
+    dtype: torch.dtype,
+    device: torch.device,
+    min_dtype: float,
+) -> torch.Tensor:
+    causal_mask = torch.full(
+        (sequence_length, sequence_length),
+        fill_value=min_dtype,
+        dtype=dtype,
+        device=device,
+    )
+    causal_mask *= in_item_mask[:sequence_length, :sequence_length].to(device)
+    return causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1).clone()
+
+
+def build_session_in_item_self_mask(
+    *,
+    in_item_mask: torch.Tensor,
+    session_ids: torch.LongTensor,
+    sequence_length: int,
+    batch_size: int,
+    dtype: torch.dtype,
+    device: torch.device,
+    min_dtype: float,
+) -> torch.Tensor:
+    causal_mask = build_in_item_self_mask(
+        in_item_mask=in_item_mask,
+        sequence_length=sequence_length,
+        batch_size=batch_size,
+        dtype=dtype,
+        device=device,
+        min_dtype=min_dtype,
+    )
+    session_mask = (session_ids[:, None] >= session_ids[..., None])[:, None]
+    causal_mask *= session_mask
+    return causal_mask
+
+
 def extend_cached_cross_mask(
     cached_mask: torch.Tensor,
     *,
