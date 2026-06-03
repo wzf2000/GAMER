@@ -22,6 +22,7 @@ from transformers.activations import ACT2FN
 from SeqRec.models.generative.mixins import CustomCausalLMWrapperMixin, prepare_cache_position_and_position_ids
 from SeqRec.models.generative.session_masks import (
     apply_attention_padding_mask,
+    build_action_level_cross_mask,
     build_in_item_self_mask,
     build_incremental_causal_mask,
     extend_cached_cross_mask,
@@ -329,6 +330,7 @@ class LlamaMultiModel(LlamaPreTrainedModel):
         self.cross_past_key_values = None
         self.multi_self_mask = None
         self.multi_cross_mask = None
+        logger.info(f"Using cross_mask_type: {getattr(config, 'cross_mask_type', 'level')} for LlamaMultiModel.")
 
     def get_input_embeddings(self):
         return self.embed_tokens
@@ -619,19 +621,18 @@ class LlamaMultiModel(LlamaPreTrainedModel):
         if past_seen_tokens == 0:
             # during training or the first time to generate, generate the complete causal mask
             target_length = sequence_length
-            causal_mask = torch.full(
-                (sequence_length, sequence_length),
-                fill_value=min_dtype,
+            causal_mask = build_action_level_cross_mask(
+                actions=actions,
+                in_item_mask=self.in_item_mask,
+                sequence_length=sequence_length,
+                batch_size=batch_size,
                 dtype=dtype,
-                device=device
+                device=device,
+                min_dtype=min_dtype,
+                mask_type=getattr(self.config, "cross_mask_type", "level"),
+                soft_scale=float(getattr(self.config, "cross_mask_soft_scale", 1.0)),
+                num_behavior=int(getattr(self.config, "num_behavior", 1)),
             )
-            mask = (self.in_item_mask[:sequence_length, :sequence_length].to(device) == 1)
-            mask = mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            action_mask = (actions[:, None] >= actions[..., None])[:, None]
-            mask = ~(~mask & ~action_mask)
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            causal_mask *= mask
             if past_key_values is not None:
                 self.multi_cross_mask = causal_mask[:, :, -1, :]
         else:

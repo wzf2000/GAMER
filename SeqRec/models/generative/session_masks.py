@@ -89,6 +89,91 @@ def build_session_in_item_self_mask(
     return causal_mask
 
 
+def build_action_level_cross_mask(
+    *,
+    actions: torch.LongTensor,
+    in_item_mask: torch.Tensor,
+    sequence_length: int,
+    batch_size: int,
+    dtype: torch.dtype,
+    device: torch.device,
+    min_dtype: float,
+    mask_type: str = "level",
+    soft_scale: float = 1.0,
+    num_behavior: int = 1,
+) -> torch.Tensor:
+    in_item_block = in_item_mask[:sequence_length, :sequence_length].to(device) == 1
+    in_item_block = in_item_block[None, None, :, :].expand(batch_size, 1, -1, -1)
+
+    if mask_type == "causal":
+        causal_mask = torch.zeros(
+            batch_size,
+            1,
+            sequence_length,
+            sequence_length,
+            dtype=dtype,
+            device=device,
+        )
+        causal_mask.masked_fill_(in_item_block, min_dtype)
+        return causal_mask
+
+    if mask_type == "soft":
+        num_behavior = max(1, num_behavior)
+        level_diff = (actions[..., None].float() - actions[:, None, :].float()).unsqueeze(1)
+        scale = abs(min_dtype) / float(num_behavior) * soft_scale
+        soft_bias = (level_diff.clamp(max=0.0) * scale).clamp(min=min_dtype).to(dtype)
+        soft_bias.masked_fill_(in_item_block, min_dtype)
+        return soft_bias
+
+    if mask_type == "level":
+        action_block = (actions[:, None] >= actions[..., None])[:, None]
+    elif mask_type == "reverse":
+        action_block = (actions[:, None] <= actions[..., None])[:, None]
+    elif mask_type == "geq":
+        action_block = (actions[:, None] > actions[..., None])[:, None]
+    else:
+        raise ValueError(
+            f"Unknown cross_mask_type '{mask_type}'. "
+            "Choose from: 'level', 'causal', 'reverse', 'geq', 'soft'."
+        )
+
+    block_condition = ~(~in_item_block & ~action_block)
+    causal_mask = torch.zeros(
+        batch_size,
+        1,
+        sequence_length,
+        sequence_length,
+        dtype=dtype,
+        device=device,
+    )
+    causal_mask.masked_fill_(block_condition, min_dtype)
+    return causal_mask
+
+
+def build_session_action_cross_mask(
+    *,
+    session_ids: torch.LongTensor,
+    actions: torch.LongTensor,
+    sequence_length: int,
+    batch_size: int,
+    dtype: torch.dtype,
+    device: torch.device,
+    min_dtype: float,
+) -> torch.Tensor:
+    causal_mask = torch.full(
+        (sequence_length, sequence_length),
+        fill_value=min_dtype,
+        dtype=dtype,
+        device=device,
+    )
+    causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1).clone()
+    session_mask = (session_ids[:, None] >= session_ids[..., None])[:, None]
+    action_mask = (actions[:, None] >= actions[..., None])[:, None]
+    mask = ~(~session_mask & ~action_mask)
+    causal_mask *= mask
+    return causal_mask
+
+
 def extend_cached_cross_mask(
     cached_mask: torch.Tensor,
     *,
