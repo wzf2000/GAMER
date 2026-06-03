@@ -1,7 +1,7 @@
 from SeqRec.datasets.multi_behavior import MBExplicitDatasetForDecoder
 from SeqRec.datasets.loaders.multi_behavior import load_MB_datasets
 from SeqRec.models.generative.registry import backbone_uses_actions
-from SeqRec.tasks.generative_train_base import BaseGenerativeTrainTask
+from SeqRec.tasks.training.base import BaseGenerativeTrainTask
 
 
 class TrainMBDecoder(BaseGenerativeTrainTask):
