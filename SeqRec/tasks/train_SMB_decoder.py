@@ -1,5 +1,5 @@
-from SeqRec.datasets.SMB_dataset import SMBExplicitDatasetForDecoder, SMBFixedRatioDatasetForDecoder
-from SeqRec.datasets.loading_SMB import load_SMB_datasets
+from SeqRec.datasets.session_behavior import SMBExplicitDatasetForDecoder, SMBFixedRatioDatasetForDecoder
+from SeqRec.datasets.loaders.session_behavior import load_SMB_datasets
 from SeqRec.models.generative.registry import backbone_uses_sessions
 from SeqRec.tasks.generative_train_base import BaseGenerativeTrainTask
 from SeqRec.tasks.generative_training import get_behavior_token_ids

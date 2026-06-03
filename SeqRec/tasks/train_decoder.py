@@ -1,4 +1,4 @@
-from SeqRec.datasets.loading import load_datasets
+from SeqRec.datasets.loaders.sequential import load_datasets
 from SeqRec.tasks.generative_train_base import BaseGenerativeTrainTask
 
 

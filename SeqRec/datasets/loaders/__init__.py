@@ -1,0 +1,4 @@
+from SeqRec.datasets.loaders.sequential import load_datasets, load_test_dataset
+from SeqRec.datasets.loaders.multi_behavior import load_MB_datasets, load_MB_test_dataset, load_MB_valid_dataset
+from SeqRec.datasets.loaders.session_behavior import load_SMB_datasets, load_SMB_test_dataset, load_SMB_valid_dataset
+from SeqRec.datasets.loaders.session_behavior_discriminative import load_SMBDis_datasets, load_SMBDis_test_dataset

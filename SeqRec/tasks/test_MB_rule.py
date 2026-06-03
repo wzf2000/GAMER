@@ -5,8 +5,8 @@ import numpy as np
 from loguru import logger
 
 from SeqRec.tasks.base import Task
-from SeqRec.datasets.loading_MB import load_MB_test_dataset
-from SeqRec.datasets.MB_dataset import BaseMBDataset
+from SeqRec.datasets.loaders.multi_behavior import load_MB_test_dataset
+from SeqRec.datasets.multi_behavior import BaseMBDataset
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
