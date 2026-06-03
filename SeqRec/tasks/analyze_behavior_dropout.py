@@ -21,12 +21,16 @@ from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.loading_SMB import load_SMB_test_dataset
 from SeqRec.datasets.SMB_dataset import BaseSMBDataset
 from SeqRec.datasets.collator import DecoderOnlyTestCollator, EncoderDecoderTestCollator
-from SeqRec.generation.trie import Trie, prefix_allowed_tokens_fn, prefix_allowed_tokens_fn_by_last_token
 from SeqRec.models.generative.registry import (
-    backbone_uses_actions,
-    backbone_uses_sessions,
     is_decoder_only_backbone,
     load_model_and_tokenizer,
+)
+from SeqRec.tasks.generative_eval import (
+    build_behavior_prefix_fns,
+    build_generation_kwargs,
+    get_generation_model,
+    get_item_token_info,
+    slice_decoder_only_output,
 )
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
@@ -112,36 +116,24 @@ class AnalyzeBehaviorDropout(MultiGPUTask):
         """Pre-build per-behavior candidate tries for prefix-constrained decoding."""
         all_behavior_items = base_dataset.get_all_items("all")
         item_reps = list(all_behavior_items)
-        items_tokens = self.tokenizer.batch_encode_plus(
-            item_reps, add_special_tokens=False
-        )["input_ids"]
-        self.item_len = len(items_tokens[0])
+        _, self.item_len, last_token_set = get_item_token_info(
+            self.tokenizer,
+            item_reps,
+            self.config.pad_token_id,
+        )
         self.sole_item_len = len(
             self.tokenizer.encode(
                 next(iter(base_dataset.get_all_items())), add_special_tokens=False
             )
         )
-        last_token_set = {tokens[-1] for tokens in items_tokens}
-        last_token_set.add(self.config.pad_token_id)
 
-        self.prefix_fn_by_behavior: dict[str, Callable] = {}
-        for beh in base_dataset.behaviors:
-            beh_items = list(base_dataset.get_all_items(beh))
-            if self._is_decoder_only:
-                cand_tokens = self.tokenizer.batch_encode_plus(
-                    beh_items, add_special_tokens=False
-                )["input_ids"]
-                trie = Trie(cand_tokens)
-                self.prefix_fn_by_behavior[beh] = prefix_allowed_tokens_fn_by_last_token(
-                    trie, last_token_set
-                )
-            else:
-                cand_tokens = self.tokenizer.batch_encode_plus(beh_items)["input_ids"]
-                cand_tokens = [
-                    [self.config.decoder_start_token_id] + t for t in cand_tokens
-                ]
-                trie = Trie(cand_tokens)
-                self.prefix_fn_by_behavior[beh] = prefix_allowed_tokens_fn(trie)
+        self.prefix_fn_by_behavior = build_behavior_prefix_fns(
+            backbone=self.backbone,
+            tokenizer=self.tokenizer,
+            config=self.config,
+            dataset=base_dataset,
+            last_token_set=last_token_set,
+        )
 
     # -----------------------------------------------------------------------
     # Single-batch beam-search inference
@@ -161,8 +153,6 @@ class AnalyzeBehaviorDropout(MultiGPUTask):
         output_str[i*num_beams + j] is the j-th candidate (full decoded string,
         including behavior token) for sample i.
         """
-        from transformers.generation import GenerationMixin
-
         # --- encode behavior token for each sample ---
         batch_size = inputs.input_ids.shape[0]
         beh_str = "".join(dataset.get_behavior_tokens(behavior))
@@ -176,9 +166,7 @@ class AnalyzeBehaviorDropout(MultiGPUTask):
         # --- work on a copy so the original tensor is not mutated ---
         inp = copy.copy(inputs)
 
-        gen_model = (
-            self.model if isinstance(self.model, GenerationMixin) else self.model.module
-        )
+        gen_model = get_generation_model(self.model)
 
         if self._is_decoder_only:
             inp.input_ids = torch.cat(
@@ -193,29 +181,24 @@ class AnalyzeBehaviorDropout(MultiGPUTask):
                 [inp.actions, torch.tensor(beh_action, device=self.device)], dim=1
             )
 
-        gen_kwargs: dict = dict(
-            input_ids=inp.input_ids,
-            attention_mask=inp.attention_mask,
+        decoder_input_ids = None
+        if not self._is_decoder_only:
+            decoder_input_ids = [[self.config.decoder_start_token_id] + tokens for tokens in beh_token_ids]
+        gen_kwargs = build_generation_kwargs(
+            backbone=self.backbone,
+            inputs=inp,
             max_new_tokens=self.sole_item_len,
             prefix_allowed_tokens_fn=self.prefix_fn_by_behavior[behavior],
             num_beams=num_beams,
-            num_return_sequences=num_beams,
-            output_scores=True,
-            return_dict_in_generate=True,
-            early_stopping=True,
+            device=self.device,
+            decoder_input_ids=decoder_input_ids,
         )
-        if backbone_uses_sessions(self.backbone):
-            gen_kwargs["session_ids"] = inp.session_ids
-            gen_kwargs["extended_session_ids"] = inp.extended_session_ids
-        if backbone_uses_actions(self.backbone):
-            gen_kwargs["actions"] = inp.actions
 
         output: "GenerateBeamOutput" = gen_model.generate(**gen_kwargs)
         output_ids = output.sequences
         scores = output.sequences_scores
 
-        if self._is_decoder_only:
-            output_ids = output_ids[:, -self.item_len:]
+        output_ids = slice_decoder_only_output(self.backbone, output_ids, self.item_len)
 
         output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
         return output_str, scores, beh_token_num

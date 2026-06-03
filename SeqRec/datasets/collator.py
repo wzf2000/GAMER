@@ -4,6 +4,91 @@ from transformers import BatchEncoding
 from transformers.tokenization_utils import PreTrainedTokenizer
 
 
+def _pad_sequence_field(
+    batch: list[dict],
+    field: str,
+    pad_value: int | float,
+    *,
+    dtype: torch.dtype,
+    padding_side: str = "right",
+) -> torch.Tensor:
+    values = [d[field] for d in batch]
+    max_length = max(len(sub) for sub in values)
+    if padding_side == "left":
+        padded = [[pad_value] * (max_length - len(sub)) + sub for sub in values]
+    else:
+        padded = [sub + [pad_value] * (max_length - len(sub)) for sub in values]
+    return torch.tensor(padded, dtype=dtype)
+
+
+def _copy_optional_list_fields(inputs: BatchEncoding, batch: list[dict], fields: tuple[str, ...]):
+    for field in fields:
+        if field in batch[0]:
+            inputs[field] = [d[field] for d in batch]
+
+
+def _add_common_optional_fields(inputs: BatchEncoding, batch: list[dict], *, include_uid: bool = False):
+    fields = ("behavior", "inters_item_list")
+    if include_uid:
+        fields = ("uid",) + fields
+    _copy_optional_list_fields(inputs, batch, fields)
+
+
+def _add_right_padded_sequence_fields(inputs: BatchEncoding, batch: list[dict]):
+    if "session_ids" in batch[0]:
+        inputs["session_ids"] = _pad_sequence_field(batch, "session_ids", 0, dtype=torch.long)
+    if "extended_session_ids" in batch[0]:
+        inputs["extended_session_ids"] = _pad_sequence_field(batch, "extended_session_ids", 0, dtype=torch.long)
+    if "actions" in batch[0]:
+        inputs["actions"] = _pad_sequence_field(batch, "actions", 100, dtype=torch.long)
+    if "time" in batch[0]:
+        inputs["time"] = _pad_sequence_field(batch, "time", -1, dtype=torch.float32)
+
+
+def _add_left_padded_decoder_test_fields(
+    inputs: BatchEncoding,
+    batch: list[dict],
+    *,
+    add_behavior_token: bool,
+):
+    if "session_ids" in batch[0]:
+        session_ids = [d["session_ids"] for d in batch]
+        max_length = max(len(sub) for sub in session_ids)
+        if add_behavior_token:
+            max_session_ids = [max(sub) for sub in session_ids]
+            session_ids = [[0] * (max_length - len(session)) + session for session in session_ids]
+            session_ids = [
+                session_id + [max_session_id + 1]
+                for session_id, max_session_id in zip(session_ids, max_session_ids)
+            ]
+        else:
+            session_ids = [[0] * (max_length - len(session)) + session for session in session_ids]
+        inputs["session_ids"] = torch.tensor(session_ids, dtype=torch.long)
+    if "extended_session_ids" in batch[0]:
+        extended_session_ids = [d["extended_session_ids"] for d in batch]
+        max_extended_session_ids = [max(sub) for sub in extended_session_ids]
+        max_length = max(len(sub) for sub in extended_session_ids)
+        if add_behavior_token:
+            extended_session_ids = [
+                [0] * (max_length - len(session)) + session + [max_extended_session_id + 1]
+                for session, max_extended_session_id in zip(extended_session_ids, max_extended_session_ids)
+            ]
+        else:
+            extended_session_ids = [
+                [0] * (max_length - len(session)) + session
+                for session in extended_session_ids
+            ]
+        inputs["extended_session_ids"] = torch.tensor(extended_session_ids, dtype=torch.long)
+    if "actions" in batch[0]:
+        inputs["actions"] = _pad_sequence_field(
+            batch,
+            "actions",
+            100,
+            dtype=torch.long,
+            padding_side="left",
+        )
+
+
 class EncoderDecoderCollator:
     def __init__(self, tokenizer: PreTrainedTokenizer):
         self.tokenizer = tokenizer
@@ -26,20 +111,8 @@ class EncoderDecoderCollator:
 
         inputs["labels"][inputs["labels"] == self.tokenizer.pad_token_id] = -100
         inputs["split"] = batch[0].get("split", "train")
-        if "behavior" in batch[0]:
-            # If the batch contains target behavior, add it to the inputs
-            inputs["behavior"] = [d["behavior"] for d in batch]
-        if "session_ids" in batch[0]:
-            # If the batch contains session IDs, add it to the inputs
-            session_ids = [d["session_ids"] for d in batch]
-            max_length = max([len(sub) for sub in session_ids])
-            session_ids = [session + [0] * (max_length - len(session)) for session in session_ids]
-            inputs["session_ids"] = torch.tensor(session_ids, dtype=torch.long)
-        if "time" in batch[0]:
-            time = [d["time"] for d in batch]
-            max_length = max([len(sub) for sub in time])
-            time = [t + [-1] * (max_length - len(t)) for t in time]
-            inputs["time"] = torch.tensor(time, dtype=torch.float32)
+        _add_common_optional_fields(inputs, batch)
+        _add_right_padded_sequence_fields(inputs, batch)
 
         return inputs
 
@@ -77,32 +150,8 @@ class DecoderOnlyCollator:
 
         inputs["labels"] = labels
         inputs["split"] = batch[0].get("split", "train")
-        if "behavior" in batch[0]:
-            # If the batch contains target behavior, add it to the inputs
-            inputs["behavior"] = [d["behavior"] for d in batch]
-        if "session_ids" in batch[0]:
-            # If the batch contains session IDs, add it to the inputs
-            session_ids = [d["session_ids"] for d in batch]
-            max_length = max([len(sub) for sub in session_ids])
-            session_ids = [session + [0] * (max_length - len(session)) for session in session_ids]
-            inputs["session_ids"] = torch.tensor(session_ids, dtype=torch.long)
-        if "extended_session_ids" in batch[0]:
-            # If the batch contains extended session IDs, add it to the inputs
-            extended_session_ids = [d["extended_session_ids"] for d in batch]
-            max_length = max([len(sub) for sub in extended_session_ids])
-            extended_session_ids = [session + [0] * (max_length - len(session)) for session in extended_session_ids]
-            inputs["extended_session_ids"] = torch.tensor(extended_session_ids, dtype=torch.long)
-        if "actions" in batch[0]:
-            # If the batch contains extended session IDs, add it to the inputs
-            actions = [d["actions"] for d in batch]
-            max_length = max([len(sub) for sub in actions])
-            extended_actions = [action + [100] * (max_length - len(action)) for action in actions]
-            inputs["actions"] = torch.tensor(extended_actions, dtype=torch.long)
-        if "time" in batch[0]:
-            time = [d["time"] for d in batch]
-            max_length = max([len(sub) for sub in time])
-            time = [t + [-1] * (max_length - len(t)) for t in time]
-            inputs["time"] = torch.tensor(time, dtype=torch.float32)
+        _add_common_optional_fields(inputs, batch)
+        _add_right_padded_sequence_fields(inputs, batch)
 
         return inputs
 
@@ -125,25 +174,8 @@ class EncoderDecoderTestCollator:
             return_attention_mask=True,
         )
 
-        if "uid" in batch[0]:
-            inputs["uid"] = [d["uid"] for d in batch]
-        if "behavior" in batch[0]:
-            # If the batch contains target behavior, add it to the inputs
-            inputs["behavior"] = [d["behavior"] for d in batch]
-        if "session_ids" in batch[0]:
-            # If the batch contains session IDs, add it to the inputs
-            session_ids = [d["session_ids"] for d in batch]
-            max_length = max([len(sub) for sub in session_ids])
-            session_ids = [session + [0] * (max_length - len(session)) for session in session_ids]
-            inputs["session_ids"] = torch.tensor(session_ids, dtype=torch.long)
-        if "time" in batch[0]:
-            time = [d["time"] for d in batch]
-            max_length = max([len(sub) for sub in time])
-            time = [t + [-1] * (max_length - len(t)) for t in time]
-            inputs["time"] = torch.tensor(time, dtype=torch.float32)
-        if "inters_item_list" in batch[0]:
-            # If the batch contains inters_item_list, add it to the inputs
-            inputs["inters_item_list"] = [d["inters_item_list"] for d in batch]
+        _add_common_optional_fields(inputs, batch, include_uid=True)
+        _add_right_padded_sequence_fields(inputs, batch)
 
         return (inputs, targets)
 
@@ -172,40 +204,11 @@ class DecoderOnlyTestCollator(object):
             truncation=True,
             return_attention_mask=True,
         )
-        if "uid" in batch[0]:
-            inputs["uid"] = [d["uid"] for d in batch]
-        if "behavior" in batch[0]:
-            # If the batch contains target behavior, add it to the inputs
-            inputs["behavior"] = [d["behavior"] for d in batch]
-        if "session_ids" in batch[0]:
-            # If the batch contains session IDs, add it to the inputs
-            session_ids = [d["session_ids"] for d in batch]
-            max_length = max([len(sub) for sub in session_ids])
-            if self.add_behavior_token:
-                max_session_ids = [max(sub) for sub in session_ids]
-                session_ids = [[0] * (max_length - len(session)) + session for session in session_ids]
-                session_ids = [session_id + [max_session_id + 1] for session_id, max_session_id in zip(session_ids, max_session_ids)]
-            else:
-                session_ids = [[0] * (max_length - len(session)) + session for session in session_ids]
-            inputs["session_ids"] = torch.tensor(session_ids, dtype=torch.long)
-        if "extended_session_ids" in batch[0]:
-            # If the batch contains extended session IDs, add it to the inputs
-            extended_session_ids = [d["extended_session_ids"] for d in batch]
-            max_extended_session_ids = [max(sub) for sub in extended_session_ids]
-            max_length = max([len(sub) for sub in extended_session_ids])
-            if self.add_behavior_token:
-                extended_session_ids = [[0] * (max_length - len(session)) + session + [max_extended_session_id + 1] for session, max_extended_session_id in zip(extended_session_ids, max_extended_session_ids)]
-            else:
-                extended_session_ids = [[0] * (max_length - len(session)) + session for session in extended_session_ids]
-            inputs["extended_session_ids"] = torch.tensor(extended_session_ids, dtype=torch.long)
-        if "actions" in batch[0]:
-            # If the batch contains extended session IDs, add it to the inputs
-            actions = [d["actions"] for d in batch]
-            max_length = max([len(sub) for sub in actions])
-            extended_actions = [[100] * (max_length - len(action)) + action for action in actions]
-            inputs["actions"] = torch.tensor(extended_actions, dtype=torch.long)
-        if "inters_item_list" in batch[0]:
-            # If the batch contains inters_item_list, add it to the inputs
-            inputs["inters_item_list"] = [d["inters_item_list"] for d in batch]
+        _add_common_optional_fields(inputs, batch, include_uid=True)
+        _add_left_padded_decoder_test_fields(
+            inputs,
+            batch,
+            add_behavior_token=self.add_behavior_token,
+        )
 
         return (inputs, targets)
