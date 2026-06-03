@@ -18,14 +18,14 @@ class GenerativeBackboneSpec:
 
 GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
     "TIGER": GenerativeBackboneSpec(
-        model_cls_path="SeqRec.models.generative.TIGER:TIGER",
+        model_cls_path="SeqRec.models.generative.tiger:TIGER",
         decoder_only=False,
         tokenizer_kind="t5",
         config_kind="t5",
         default_base_model="./config/s2s-models/TIGER",
     ),
     "PBATransformer": GenerativeBackboneSpec(
-        model_cls_path="SeqRec.models.generative.PBATransformer:PBATransformerForConditionalGeneration",
+        model_cls_path="SeqRec.models.generative.pba_transformer:PBATransformerForConditionalGeneration",
         decoder_only=False,
         tokenizer_kind="t5",
         config_kind="pba",
@@ -33,14 +33,14 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         default_base_model="./config/s2s-models/PBATransformer",
     ),
     "Qwen3": GenerativeBackboneSpec(
-        model_cls_path="SeqRec.models.generative.Qwen3:Qwen3WithTemperature",
+        model_cls_path="SeqRec.models.generative.qwen3:Qwen3WithTemperature",
         decoder_only=True,
         tokenizer_kind="qwen2",
         config_kind="qwen3",
         default_base_model="./config/s2s-models/Qwen3-Light",
     ),
     "Qwen3Moe": GenerativeBackboneSpec(
-        model_cls_path="SeqRec.models.generative.Qwen3Moe:Qwen3MoeWithTemperature",
+        model_cls_path="SeqRec.models.generative.qwen3:Qwen3MoeWithTemperature",
         decoder_only=True,
         tokenizer_kind="qwen2",
         config_kind="qwen3_moe",
@@ -48,7 +48,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         default_base_model="./config/s2s-models/Qwen3Moe",
     ),
     "Qwen3Session": GenerativeBackboneSpec(
-        model_cls_path="SeqRec.models.generative.Qwen3Session:Qwen3SessionWithTemperature",
+        model_cls_path="SeqRec.models.generative.qwen3:Qwen3SessionWithTemperature",
         decoder_only=True,
         uses_sessions=True,
         tokenizer_kind="qwen2",
@@ -57,7 +57,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         default_base_model="./config/s2s-models/Qwen3-Light",
     ),
     "Qwen3Multi": GenerativeBackboneSpec(
-        model_cls_path="SeqRec.models.generative.Qwen3Multi:Qwen3MultiWithTemperature",
+        model_cls_path="SeqRec.models.generative.qwen3:Qwen3MultiWithTemperature",
         decoder_only=True,
         uses_sessions=True,
         uses_actions=True,
@@ -67,7 +67,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         default_base_model="./config/s2s-models/Qwen3Multi",
     ),
     "Qwen3SessionMulti": GenerativeBackboneSpec(
-        model_cls_path="SeqRec.models.generative.Qwen3SessionMulti:Qwen3SessionMultiWithTemperature",
+        model_cls_path="SeqRec.models.generative.qwen3:Qwen3SessionMultiWithTemperature",
         decoder_only=True,
         uses_sessions=True,
         uses_actions=True,
@@ -77,7 +77,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         default_base_model="./config/s2s-models/Qwen3SessionMulti",
     ),
     "Qwen3TemporalHierarchical": GenerativeBackboneSpec(
-        model_cls_path="SeqRec.models.generative.Qwen3TemporalHierarchical:Qwen3TemporalHierarchicalWithTemperature",
+        model_cls_path="SeqRec.models.generative.qwen3:Qwen3TemporalHierarchicalWithTemperature",
         decoder_only=True,
         uses_sessions=True,
         uses_actions=True,
@@ -87,7 +87,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         default_base_model="./config/s2s-models/Qwen3TemporalHierarchical",
     ),
     "LlamaMulti": GenerativeBackboneSpec(
-        model_cls_path="SeqRec.models.generative.LlamaMulti:LlamaMultiWithTemperature",
+        model_cls_path="SeqRec.models.generative.llama:LlamaMultiWithTemperature",
         decoder_only=True,
         uses_sessions=True,
         uses_actions=True,
@@ -167,7 +167,7 @@ def load_config_and_tokenizer(backbone: str, model_path: str, model_max_length: 
         from transformers import T5Config
         config = T5Config.from_pretrained(model_path)
     elif spec.config_kind == "pba":
-        from SeqRec.models.generative.PBATransformer import PBATransformerConfig
+        from SeqRec.models.generative.pba_transformer import PBATransformerConfig
         config = PBATransformerConfig.from_pretrained(model_path)
     elif spec.config_kind == "qwen3":
         from transformers import Qwen3Config
@@ -176,7 +176,7 @@ def load_config_and_tokenizer(backbone: str, model_path: str, model_max_length: 
         from transformers import Qwen3MoeConfig
         config = Qwen3MoeConfig.from_pretrained(model_path)
     elif spec.config_kind == "llama":
-        from SeqRec.models.generative.LlamaMulti import LlamaConfig
+        from SeqRec.models.generative.llama import LlamaConfig
         config = LlamaConfig.from_pretrained(model_path)
     else:
         raise ValueError(f"Unsupported config kind: {spec.config_kind}")
