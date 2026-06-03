@@ -66,6 +66,15 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         train_profile="multi_behavior",
         default_base_model="./config/s2s-models/Qwen3Multi",
     ),
+    "Qwen3SessionMoe": GenerativeBackboneSpec(
+        model_cls_path="SeqRec.models.generative.qwen3:Qwen3SessionMoeWithTemperature",
+        decoder_only=True,
+        uses_sessions=True,
+        tokenizer_kind="qwen2",
+        config_kind="qwen3_moe",
+        train_profile="multi_behavior",
+        default_base_model="./config/s2s-models/Qwen3SessionMoe",
+    ),
     "Qwen3SessionMulti": GenerativeBackboneSpec(
         model_cls_path="SeqRec.models.generative.qwen3:Qwen3SessionMultiWithTemperature",
         decoder_only=True,
