@@ -30,17 +30,25 @@ class DatasetArgs:
 class ScriptTrainingArgs:
     optim: str = "adamw_torch"
     epochs: int = 200
+    num_train_epochs: int | None = None
     learning_rate: float = 5e-4
     per_device_batch_size: int = 256
+    per_device_train_batch_size: int | None = None
+    per_device_eval_batch_size: int | None = None
     gradient_accumulation_steps: int = 2
     logging_step: int = 30
+    logging_steps: int | None = None
     model_max_length: int = 512
     weight_decay: float = 0.01
     resume_from_checkpoint: str | None = None
     warmup_ratio: float = 0.1
     lr_scheduler_type: str = "cosine"
     save_and_eval_strategy: str = "epoch"
+    eval_strategy: str | None = None
+    save_strategy: str | None = None
     save_and_eval_steps: int = 1000
+    eval_steps: int | None = None
+    save_steps: int | None = None
     patience: int = 20
     fp16: bool = False
     bf16: bool = False
@@ -79,17 +87,25 @@ ARGUMENT_HELP = {
     "max_his_len": "the max number of items in history sequence, -1 means no limit",
     "optim": "The name of the optimizer",
     "epochs": "Number of training epochs",
+    "num_train_epochs": "HF Trainer-compatible number of training epochs. Overrides --epochs when set.",
     "learning_rate": "Learning rate for the optimizer",
     "per_device_batch_size": "Batch size per device during training",
+    "per_device_train_batch_size": "HF Trainer-compatible train batch size per device. Overrides --per_device_batch_size when set.",
+    "per_device_eval_batch_size": "HF Trainer-compatible eval batch size per device. Defaults to the train batch size or --per_device_batch_size when unset.",
     "gradient_accumulation_steps": "Number of steps to accumulate gradients before updating the model",
     "logging_step": "Logging frequency in steps",
+    "logging_steps": "HF Trainer-compatible logging frequency in steps. Overrides --logging_step when set.",
     "model_max_length": "Maximum sequence length for the model",
     "weight_decay": "Weight decay for regularization",
     "resume_from_checkpoint": "either training checkpoint or final adapter",
     "warmup_ratio": "Warmup ratio for learning rate scheduler",
     "lr_scheduler_type": "Type of learning rate scheduler to use",
     "save_and_eval_strategy": "Strategy for saving and evaluating the model (e.g., 'epoch', 'steps')",
+    "eval_strategy": "HF Trainer-compatible evaluation strategy. Overrides --save_and_eval_strategy for evaluation when set.",
+    "save_strategy": "HF Trainer-compatible save strategy. Overrides --save_and_eval_strategy for saving when set.",
     "save_and_eval_steps": "Steps at which to save and evaluate the model",
+    "eval_steps": "HF Trainer-compatible evaluation interval in steps. Overrides --save_and_eval_steps for evaluation when set.",
+    "save_steps": "HF Trainer-compatible save interval in steps. Overrides --save_and_eval_steps for saving when set.",
     "patience": "Number of evaluation steps to wait before stopping training if no improvement",
     "fp16": "Use mixed precision training (fp16)",
     "bf16": "Use bfloat16 precision training",

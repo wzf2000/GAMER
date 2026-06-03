@@ -276,31 +276,50 @@ def build_training_arguments_from_script_args(
     label_names: list[str] | None = None,
     ddp_find_unused_parameters: bool | None = None,
 ):
+    num_train_epochs = _resolve_script_or_hf_arg(script_args, "epochs", "num_train_epochs")
+    per_device_train_batch_size = _resolve_script_or_hf_arg(script_args, "per_device_batch_size", "per_device_train_batch_size")
+    if script_args.per_device_eval_batch_size is not None:
+        per_device_eval_batch_size = script_args.per_device_eval_batch_size
+    else:
+        per_device_eval_batch_size = per_device_train_batch_size
+    logging_steps = _resolve_script_or_hf_arg(script_args, "logging_step", "logging_steps")
+    eval_strategy = _resolve_script_or_hf_arg(script_args, "save_and_eval_strategy", "eval_strategy")
+    save_strategy = _resolve_script_or_hf_arg(script_args, "save_and_eval_strategy", "save_strategy")
+    eval_steps = _resolve_script_or_hf_arg(script_args, "save_and_eval_steps", "eval_steps")
+    save_steps = _resolve_script_or_hf_arg(script_args, "save_and_eval_steps", "save_steps")
+
     return build_training_arguments(
         output_dir=model_args.output_dir,
         seed=model_args.seed,
-        per_device_train_batch_size=script_args.per_device_batch_size,
-        per_device_eval_batch_size=script_args.per_device_batch_size,
+        per_device_train_batch_size=per_device_train_batch_size,
+        per_device_eval_batch_size=per_device_eval_batch_size,
         gradient_accumulation_steps=script_args.gradient_accumulation_steps,
         warmup_ratio=script_args.warmup_ratio,
-        num_train_epochs=script_args.epochs,
+        num_train_epochs=num_train_epochs,
         learning_rate=script_args.learning_rate,
         weight_decay=script_args.weight_decay,
         lr_scheduler_type=script_args.lr_scheduler_type,
         fp16=script_args.fp16,
         bf16=script_args.bf16,
-        logging_steps=script_args.logging_step,
+        logging_steps=logging_steps,
         optim=script_args.optim,
-        eval_strategy=script_args.save_and_eval_strategy,
-        save_strategy=script_args.save_and_eval_strategy,
-        eval_steps=script_args.save_and_eval_steps,
-        save_steps=script_args.save_and_eval_steps,
+        eval_strategy=eval_strategy,
+        save_strategy=save_strategy,
+        eval_steps=eval_steps,
+        save_steps=save_steps,
         deepspeed=None,
         ddp=ddp,
         ddp_find_unused_parameters=ddp_find_unused_parameters,
         run_name=run_name,
         label_names=label_names,
     )
+
+
+def _resolve_script_or_hf_arg(script_args: Any, legacy_name: str, hf_name: str):
+    hf_value = getattr(script_args, hf_name)
+    if hf_value is None:
+        return getattr(script_args, legacy_name)
+    return hf_value
 
 
 def build_hf_trainer(
