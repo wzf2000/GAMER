@@ -14,6 +14,7 @@ from SeqRec.models.generative.session_masks import (
     apply_attention_padding_mask,
     build_mask_context,
     build_incremental_causal_mask,
+    build_session_item_in_item_mask,
     build_session_in_item_self_mask,
 )
 
@@ -23,14 +24,10 @@ class Qwen3SessionModel(Qwen3Model):
         assert 'num_positions' in config and isinstance(config.num_positions, int), "Config must have 'num_positions' attribute for Qwen3SessionModel."
         assert 'model_max_length' in config and isinstance(config.model_max_length, int), "Config must have 'model_max_length' attribute for Qwen3SessionModel."
         super().__init__(config)
-        max_item_num = config.model_max_length // config.num_positions
-        self.in_item_mask = torch.eye(config.num_positions * max_item_num)
-        block_lower = torch.tril(torch.ones(config.num_positions, config.num_positions), diagonal=-1)
-        for i in range(max_item_num):
-            st = i * config.num_positions
-            ed = (i + 1) * config.num_positions
-            self.in_item_mask[st:ed, st:ed] += block_lower
-        self.in_item_mask = 1 - self.in_item_mask
+        self.in_item_mask = build_session_item_in_item_mask(
+            num_positions=config.num_positions,
+            model_max_length=config.model_max_length,
+        )
 
     def _update_session_wise_causal_mask(
         self,

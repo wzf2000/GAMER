@@ -21,13 +21,16 @@ from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransform
 from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
 from SeqRec.models.generative.mixins import (
     ExtendedSessionPositionMixin,
+    init_cross_level_cache_state,
     prepare_cache_position_and_position_ids,
     prepare_decoder_forward_state,
+    reset_cross_level_cache_if_needed,
 )
 from SeqRec.models.generative.session_masks import (
     apply_attention_padding_mask,
     build_incremental_causal_mask,
     build_mask_context,
+    build_session_item_in_item_mask,
     build_session_in_item_self_mask,
     build_session_action_cross_mask,
     extend_cached_cross_mask,
@@ -551,17 +554,11 @@ class Qwen3SessionMultiModel(Qwen3SessionMultiModelBase):
         assert 'model_max_length' in config and isinstance(config.model_max_length, int), "Config must have 'model_max_length' attribute for Qwen3SessionMultiModel."
         super().__init__(config)
         self.behavior_maps = config.behavior_maps
-        max_item_num = config.model_max_length // config.num_positions
-        self.in_item_mask = torch.eye(config.num_positions * max_item_num)
-        block_lower = torch.tril(torch.ones(config.num_positions, config.num_positions), diagonal=-1)
-        for i in range(max_item_num):
-            st = i * config.num_positions
-            ed = (i + 1) * config.num_positions
-            self.in_item_mask[st:ed, st:ed] += block_lower
-        self.in_item_mask = 1 - self.in_item_mask
-        self.cross_past_key_values = None
-        self.multi_self_mask = None
-        self.multi_cross_mask = None
+        self.in_item_mask = build_session_item_in_item_mask(
+            num_positions=config.num_positions,
+            model_max_length=config.model_max_length,
+        )
+        init_cross_level_cache_state(self)
 
     def _update_session_multi_cross_mask(
         self,
@@ -691,8 +688,7 @@ class Qwen3SessionMultiModel(Qwen3SessionMultiModelBase):
         output_attentions = state.output_attentions
         output_hidden_states = state.output_hidden_states
 
-        if use_cache and past_key_values.get_seq_length() == 0:
-            self.cross_past_key_values = DynamicCache()
+        reset_cross_level_cache_if_needed(self, use_cache=use_cache, past_key_values=past_key_values)
 
         position_indices, behavior_indices, action_indices = self.router(input_ids, cache_position=cache_position)
 

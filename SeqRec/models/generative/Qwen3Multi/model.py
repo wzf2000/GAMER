@@ -21,12 +21,15 @@ from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransform
 from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
 from SeqRec.models.generative.mixins import (
     CustomCausalLMWrapperMixin,
+    init_cross_level_cache_state,
     prepare_cache_position_and_position_ids,
     prepare_decoder_forward_state,
+    reset_cross_level_cache_if_needed,
 )
 from SeqRec.models.generative.session_masks import (
     apply_attention_padding_mask,
     build_action_level_cross_mask,
+    build_flattened_in_item_mask,
     build_in_item_self_mask,
     build_incremental_causal_mask,
     build_mask_context,
@@ -555,13 +558,11 @@ class Qwen3MultiModel(Qwen3MultiModelBase):
         assert 'model_max_length' in config and isinstance(config.model_max_length, int), "Config must have 'model_max_length' attribute for Qwen3MultiModel."
         super().__init__(config)
         self.behavior_maps = config.behavior_maps
-        max_item_num = config.model_max_length // config.num_positions
-        block_lower = torch.tril(torch.ones(config.num_positions * max_item_num, config.num_positions * max_item_num), diagonal=-1)
-        block_lower += torch.eye(config.num_positions * max_item_num)
-        self.in_item_mask = 1 - block_lower
-        self.cross_past_key_values = None
-        self.multi_self_mask = None
-        self.multi_cross_mask = None
+        self.in_item_mask = build_flattened_in_item_mask(
+            num_positions=config.num_positions,
+            model_max_length=config.model_max_length,
+        )
+        init_cross_level_cache_state(self)
         logger.info(f"Using cross_mask_type: {getattr(config, 'cross_mask_type', 'level')} for Qwen3MultiModel.")
 
     def _update_session_multi_cross_mask(
@@ -692,8 +693,7 @@ class Qwen3MultiModel(Qwen3MultiModelBase):
         output_attentions = state.output_attentions
         output_hidden_states = state.output_hidden_states
 
-        if use_cache and past_key_values.get_seq_length() == 0:
-            self.cross_past_key_values = DynamicCache()
+        reset_cross_level_cache_if_needed(self, use_cache=use_cache, past_key_values=past_key_values)
 
         position_indices, behavior_indices, action_indices = self.router(input_ids, cache_position=cache_position)
 
