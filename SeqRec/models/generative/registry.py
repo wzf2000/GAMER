@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from importlib import import_module
+from pathlib import Path
 from typing import Any
 
 
@@ -12,6 +13,7 @@ class GenerativeBackboneSpec:
     tokenizer_kind: str = "qwen2"
     config_kind: str = "qwen3"
     train_profile: str = "basic"
+    default_base_model: str | None = None
 
 
 GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
@@ -20,6 +22,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         decoder_only=False,
         tokenizer_kind="t5",
         config_kind="t5",
+        default_base_model="./config/s2s-models/TIGER",
     ),
     "PBATransformer": GenerativeBackboneSpec(
         model_cls_path="SeqRec.models.generative.PBATransformer:PBATransformerForConditionalGeneration",
@@ -27,12 +30,14 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         tokenizer_kind="t5",
         config_kind="pba",
         train_profile="pba",
+        default_base_model="./config/s2s-models/PBATransformer",
     ),
     "Qwen3": GenerativeBackboneSpec(
         model_cls_path="SeqRec.models.generative.Qwen3:Qwen3WithTemperature",
         decoder_only=True,
         tokenizer_kind="qwen2",
         config_kind="qwen3",
+        default_base_model="./config/s2s-models/Qwen3-Light",
     ),
     "Qwen3Moe": GenerativeBackboneSpec(
         model_cls_path="SeqRec.models.generative.Qwen3Moe:Qwen3MoeWithTemperature",
@@ -40,6 +45,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         tokenizer_kind="qwen2",
         config_kind="qwen3_moe",
         train_profile="multi_behavior",
+        default_base_model="./config/s2s-models/Qwen3Moe",
     ),
     "Qwen3Session": GenerativeBackboneSpec(
         model_cls_path="SeqRec.models.generative.Qwen3Session:Qwen3SessionWithTemperature",
@@ -48,6 +54,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         tokenizer_kind="qwen2",
         config_kind="qwen3",
         train_profile="session",
+        default_base_model="./config/s2s-models/Qwen3-Light",
     ),
     "Qwen3Multi": GenerativeBackboneSpec(
         model_cls_path="SeqRec.models.generative.Qwen3Multi:Qwen3MultiWithTemperature",
@@ -57,6 +64,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         tokenizer_kind="qwen2",
         config_kind="qwen3_moe",
         train_profile="multi_behavior",
+        default_base_model="./config/s2s-models/Qwen3Multi",
     ),
     "Qwen3SessionMulti": GenerativeBackboneSpec(
         model_cls_path="SeqRec.models.generative.Qwen3SessionMulti:Qwen3SessionMultiWithTemperature",
@@ -66,6 +74,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         tokenizer_kind="qwen2",
         config_kind="qwen3_moe",
         train_profile="multi_behavior",
+        default_base_model="./config/s2s-models/Qwen3SessionMulti",
     ),
     "Qwen3TemporalHierarchical": GenerativeBackboneSpec(
         model_cls_path="SeqRec.models.generative.Qwen3TemporalHierarchical:Qwen3TemporalHierarchicalWithTemperature",
@@ -75,6 +84,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         tokenizer_kind="qwen2",
         config_kind="qwen3_moe",
         train_profile="multi_behavior",
+        default_base_model="./config/s2s-models/Qwen3TemporalHierarchical",
     ),
     "LlamaMulti": GenerativeBackboneSpec(
         model_cls_path="SeqRec.models.generative.LlamaMulti:LlamaMultiWithTemperature",
@@ -84,7 +94,19 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         tokenizer_kind="qwen2",
         config_kind="llama",
         train_profile="multi_behavior",
+        default_base_model="./config/s2s-models/LlamaMulti",
     ),
+}
+
+
+S2S_BACKBONE_ALIASES: dict[str, str] = {
+    "Qwen3Session2": "Qwen3Session",
+    "Llama": "LlamaMulti",
+}
+
+S2S_BASE_MODEL_ALIASES: dict[str, str] = {
+    "Qwen3Session2": "./config/s2s-models/Qwen3-Light-2",
+    "Llama": "./config/s2s-models/Llama",
 }
 
 
@@ -109,6 +131,34 @@ def backbone_uses_actions(backbone: str) -> bool:
 
 def get_backbone_train_profile(backbone: str) -> str:
     return get_generative_backbone_spec(backbone).train_profile
+
+
+def resolve_s2s_backbone_name(backbone: str) -> str:
+    if backbone in S2S_BACKBONE_ALIASES:
+        return S2S_BACKBONE_ALIASES[backbone]
+    if backbone.startswith("Qwen3Multi"):
+        return "Qwen3Multi"
+    if backbone.startswith("Qwen3TemporalHierarchical"):
+        return "Qwen3TemporalHierarchical"
+    return backbone
+
+
+def resolve_s2s_base_model(backbone: str, *, config_root: str = "./config/s2s-models") -> str:
+    if backbone in S2S_BASE_MODEL_ALIASES:
+        return S2S_BASE_MODEL_ALIASES[backbone]
+    if backbone.startswith("Qwen3Multi") or backbone.startswith("Qwen3TemporalHierarchical"):
+        return f"{config_root}/{backbone}"
+
+    resolved_backbone = resolve_s2s_backbone_name(backbone)
+    if resolved_backbone in GENERATIVE_BACKBONES:
+        spec = get_generative_backbone_spec(resolved_backbone)
+        if spec.default_base_model is not None:
+            return spec.default_base_model
+
+    candidate = Path(config_root) / backbone
+    if candidate.is_dir():
+        return f"{config_root}/{backbone}"
+    raise ValueError(f"Unsupported backbone model: {backbone}.")
 
 
 def load_config_and_tokenizer(backbone: str, model_path: str, model_max_length: int | None = None) -> tuple[Any, Any]:
@@ -165,3 +215,27 @@ def load_model_and_tokenizer(backbone: str, ckpt_path: str):
     if hasattr(model, "config") and model.config.pad_token_id is None:
         model.config.pad_token_id = tokenizer.encode(tokenizer.pad_token, add_special_tokens=False)[0]
     return model, tokenizer
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Resolve generative backbone metadata.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    resolve_backbone_parser = subparsers.add_parser("resolve-backbone")
+    resolve_backbone_parser.add_argument("backbone")
+
+    resolve_base_model_parser = subparsers.add_parser("resolve-base-model")
+    resolve_base_model_parser.add_argument("backbone")
+    resolve_base_model_parser.add_argument("--config-root", default="./config/s2s-models")
+
+    args = parser.parse_args()
+    if args.command == "resolve-backbone":
+        print(resolve_s2s_backbone_name(args.backbone))
+    elif args.command == "resolve-base-model":
+        print(resolve_s2s_base_model(args.backbone, config_root=args.config_root))
+
+
+if __name__ == "__main__":
+    main()
