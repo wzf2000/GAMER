@@ -34,7 +34,7 @@ from SeqRec.tasks.generative_eval import (
     slice_decoder_only_output,
 )
 from SeqRec.utils.futils import ensure_dir
-from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
+from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args, parse_analysis_args
 from SeqRec.utils.pipe import get_tqdm
 
 if TYPE_CHECKING:
@@ -80,13 +80,7 @@ class AnalyzeBehaviorDropout(MultiGPUTask):
         )
         parser = parse_global_args(parser)
         parser = parse_dataset_args(parser)
-        parser.add_argument("--ckpt_path", type=str, default="./checkpoint")
-        parser.add_argument(
-            "--results_file", type=str, default="./results/behavior_dropout.json"
-        )
-        parser.add_argument("--test_task", type=str, default="smb_explicit")
-        parser.add_argument("--test_batch_size", type=int, default=16)
-        parser.add_argument("--num_beams", type=int, default=20)
+        parse_analysis_args(parser, results_file="./results/behavior_dropout.json")
         parser.add_argument(
             "--max_users",
             type=int,

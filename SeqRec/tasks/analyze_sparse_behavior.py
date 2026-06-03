@@ -37,7 +37,7 @@ from SeqRec.tasks.generative_eval import (
     slice_decoder_only_output,
 )
 from SeqRec.utils.futils import ensure_dir
-from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
+from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args, parse_analysis_args
 from SeqRec.utils.pipe import get_tqdm
 
 if TYPE_CHECKING:
@@ -79,9 +79,12 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
         )
         parser = parse_global_args(parser)
         parser = parse_dataset_args(parser)
-        # Our model
-        parser.add_argument("--ckpt_path", type=str, required=True,
-                            help="Checkpoint path for our model.")
+        parse_analysis_args(
+            parser,
+            ckpt_required=True,
+            ckpt_help="Checkpoint path for our model.",
+            results_file="./results/sparse_behavior_analysis.json",
+        )
         # Baseline
         parser.add_argument("--baseline_ckpt_path", type=str, required=True,
                             help="Checkpoint path for the baseline model.")
@@ -89,12 +92,8 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
                             help="Backbone type for baseline (default: same as --backbone).")
         parser.add_argument("--baseline_max_his_len", type=int, default=None, required=True,
                             help="the max number of items in history sequence for baseline, -1 means no limit, required if --baseline_backbone is not None")
-        # Dataset / inference
-        parser.add_argument("--test_task", type=str, default="smb_explicit")
         parser.add_argument("--target_behavior", type=str, default=None,
                             help="Behavior used for evaluation (default: dataset max-level behavior).")
-        parser.add_argument("--test_batch_size", type=int, default=16)
-        parser.add_argument("--num_beams", type=int, default=20)
         # Analysis parameters
         parser.add_argument("--metrics", type=str, default="hit@10,ndcg@10",
                             help="Metrics for bucketed statistics.")
@@ -107,9 +106,6 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
                             help="Max interesting-user examples to record in detail.")
         parser.add_argument("--interesting_top_k", type=int, default=10,
                             help="Our model must rank <= this AND baseline > this to be interesting.")
-        # Output
-        parser.add_argument("--results_file", type=str,
-                            default="./results/sparse_behavior_analysis.json")
 
     # ------------------------------------------------------------------
     # Model loading (same pattern as test_SMB_decoder)
