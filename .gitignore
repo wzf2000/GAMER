@@ -18,3 +18,4 @@ data/*/*
 scripts/test.sh
 *.pth
 *.ipynb
+CLAUDE.local.md
