@@ -37,11 +37,20 @@ def build_generation_kwargs(
         return_dict_in_generate=True,
         early_stopping=True,
     )
+    # Only pass session / action fields the backbone declares AND the collated
+    # inputs actually carry. MB datasets, for example, produce ``actions`` for
+    # Qwen3Multi but never produce ``session_ids``. ``getattr`` (not ``inputs.get``)
+    # is required because the test tasks sometimes reassign ``inputs.actions``
+    # via attribute set, which does not propagate to BatchEncoding's dict.
     if backbone_uses_sessions(backbone):
-        gen_kwargs["session_ids"] = inputs.session_ids
-        gen_kwargs["extended_session_ids"] = inputs.extended_session_ids
+        session_ids = getattr(inputs, "session_ids", None)
+        if session_ids is not None:
+            gen_kwargs["session_ids"] = session_ids
+            gen_kwargs["extended_session_ids"] = getattr(inputs, "extended_session_ids")
     if backbone_uses_actions(backbone):
-        gen_kwargs["actions"] = inputs.actions
+        actions = getattr(inputs, "actions", None)
+        if actions is not None:
+            gen_kwargs["actions"] = actions
     if not is_decoder_only_backbone(backbone):
         if decoder_input_ids is None:
             assert decoder_start_token_id is not None

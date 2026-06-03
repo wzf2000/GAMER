@@ -1,6 +1,5 @@
 import os
 import torch
-import torch.distributed as dist
 from loguru import logger
 from typing import TYPE_CHECKING
 from torch.utils.data import DataLoader
@@ -118,31 +117,14 @@ class TestMBDecoder(_BaseDecoderTestTask):
                 prefix_allowed_tokens_fn = self.prefix_allowed_tokens
             batch_size = len(targets)
 
-            if self.backbone == 'Qwen3':
+            if self.backbone in ['Qwen3', 'Qwen3Multi']:
                 gen_kwargs = build_generation_kwargs(
                     backbone=self.backbone,
                     inputs=inputs,
-                    max_new_tokens=max_new_tokens,
+                    max_new_tokens=self.sole_item_len if self.backbone == 'Qwen3Multi' else max_new_tokens,
                     prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
                     num_beams=num_beams,
                     device=self.device,
-                )
-                output: "GenerateBeamOutput" = get_generation_model(self.model).generate(**gen_kwargs)
-            elif self.backbone == 'Qwen3Multi':
-                # Inlined: build_generation_kwargs would access inputs.session_ids
-                # because Qwen3Multi.uses_sessions=True in the registry, but the MB
-                # dataset/collator does not produce session_ids.
-                output: "GenerateBeamOutput" = get_generation_model(self.model).generate(
-                    input_ids=inputs.input_ids,
-                    attention_mask=inputs.attention_mask,
-                    actions=inputs.actions,
-                    max_new_tokens=self.sole_item_len,
-                    prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
-                    num_beams=num_beams,
-                    num_return_sequences=num_beams,
-                    output_scores=True,
-                    return_dict_in_generate=True,
-                    early_stopping=True,
                 )
             else:
                 gen_kwargs = build_generation_kwargs(
@@ -155,7 +137,7 @@ class TestMBDecoder(_BaseDecoderTestTask):
                     decoder_input_ids=decoder_input_ids,
                     decoder_start_token_id=self.config.decoder_start_token_id,
                 )
-                output: "GenerateBeamOutput" = get_generation_model(self.model).generate(**gen_kwargs)
+            output: "GenerateBeamOutput" = get_generation_model(self.model).generate(**gen_kwargs)
             output_ids = output.sequences
             scores = output.sequences_scores
 
@@ -174,28 +156,18 @@ class TestMBDecoder(_BaseDecoderTestTask):
                 results=results,
                 user_metric_dict=user_metric_dict,
             )
-
-            if self.local_rank == 0:
-                show_metric_keys = self.metric_list[:2]  # Show only the first two metrics
-                show_metric_dict = {
-                    m: f"{results[m] / total:.4f}" for m in show_metric_keys if m in results
-                }
-                pbar.set_postfix(show_metric_dict)
-                pbar.update(1)
-            if self.ddp:
-                dist.barrier()
-
-        if self.ddp:
-            dist.barrier()
-        for m in results:
-            results[m] = results[m] / total
+            self._pbar_step(pbar, results=results, total=total)
 
         save_path = os.path.join(
             self.results_file.replace(".json", ""),
             f"user_level_metrics_[{eval_type.value}].json",
         )
-        self._save_user_metrics(user_metric_dict, len(loader.dataset), save_path, results)
-
+        self._finalize_loop_metrics(
+            results=results, total=total,
+            user_metric_dict=user_metric_dict,
+            dataset_len=len(loader.dataset),
+            save_path=save_path,
+        )
         return results
 
     def test(self, num_beams: int) -> list[dict[str, float]]:

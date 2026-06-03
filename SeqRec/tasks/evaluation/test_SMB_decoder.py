@@ -1,6 +1,5 @@
 import os
 import numpy as np
-import torch.distributed as dist
 from loguru import logger
 from typing import TYPE_CHECKING
 from torch.utils.data import DataLoader
@@ -155,31 +154,27 @@ class TestSMBDecoder(_BaseDecoderTestTask):
                 multi_target=True,
             )
             duplicate_ratios.extend(self._gather_concat(duplicate_ratio))
-
-            if self.local_rank == 0:
-                show_metric_keys = self.metric_list[:2]  # Show only the first two metrics
-                show_metric_dict = {
-                    m: f"{results[m] / total:.4f}" for m in show_metric_keys if m in results
-                }
-                show_metric_dict["Avg. Duplicate Ratio"] = f"{np.mean(duplicate_ratios):.4f}"
-                pbar.set_postfix(show_metric_dict)
-                pbar.update(1)
-            if self.ddp:
-                dist.barrier()
+            self._pbar_step(
+                pbar,
+                results=results,
+                total=total,
+                extras={"Avg. Duplicate Ratio": f"{np.mean(duplicate_ratios):.4f}"},
+            )
         if pbar:
             pbar.close()
 
         self.info(f"Finished testing behavior {behavior} with {total} samples.")
-        for m in results:
-            results[m] = results[m] / total
-        results["Avg. Duplicate Ratio"] = np.mean(duplicate_ratios)
-
         save_path = os.path.join(
             self.results_file.replace(".json", ""),
             f"user_level_metrics_{behavior}.json",
         )
-        self._save_user_metrics(user_metric_dict, len(loader.dataset), save_path, results)
-
+        self._finalize_loop_metrics(
+            results=results, total=total,
+            user_metric_dict=user_metric_dict,
+            dataset_len=len(loader.dataset),
+            save_path=save_path,
+        )
+        results["Avg. Duplicate Ratio"] = np.mean(duplicate_ratios)
         return results
 
     def test(self, num_beams: int) -> list[dict[str, float]]:
