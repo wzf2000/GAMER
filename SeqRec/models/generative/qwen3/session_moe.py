@@ -106,7 +106,6 @@ class Qwen3SessionMoeModelBase(Qwen3DecoderModelBase):
 
     decoder_layer_cls = Qwen3SessionMoeDecoderLayer
     router_cls = Qwen3MoeDecoderRouter
-    has_cross_injection = False
 
 
 class Qwen3SessionMoeModel(Qwen3SessionMoeModelBase):
