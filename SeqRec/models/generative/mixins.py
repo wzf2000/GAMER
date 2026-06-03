@@ -186,6 +186,73 @@ def run_multi_cross_decoder_layers(
     )
 
 
+def run_temporal_hierarchical_decoder_layers(
+    model: torch.nn.Module,
+    *,
+    hidden_states: torch.FloatTensor,
+    position_indices: torch.LongTensor,
+    behavior_indices: torch.LongTensor,
+    action_indices: torch.LongTensor,
+    key_action_indices: torch.LongTensor,
+    causal_mask: torch.Tensor | None,
+    position_ids: torch.LongTensor,
+    past_key_values: Cache | None,
+    output_attentions: bool,
+    output_hidden_states: bool,
+    use_cache: bool,
+    cache_position: torch.LongTensor,
+    position_embeddings: tuple[torch.Tensor, torch.Tensor],
+    flash_attn_kwargs: dict[str, Any],
+) -> DecoderLayerLoopOutput:
+    all_hidden_states = () if output_hidden_states else None
+    all_self_attns = () if output_attentions else None
+
+    for decoder_layer in model.layers[: model.config.num_hidden_layers]:
+        if output_hidden_states:
+            all_hidden_states += (hidden_states,)
+        if model.gradient_checkpointing and model.training:
+            layer_outputs = model._gradient_checkpointing_func(
+                partial(decoder_layer.__call__, **flash_attn_kwargs),
+                hidden_states,
+                position_indices,
+                behavior_indices,
+                action_indices,
+                key_action_indices,
+                causal_mask,
+                position_ids,
+                past_key_values,
+                output_attentions,
+                use_cache,
+                cache_position,
+                position_embeddings,
+            )
+        else:
+            layer_outputs = decoder_layer(
+                hidden_states,
+                position_indices,
+                behavior_indices,
+                action_indices,
+                key_action_indices,
+                attention_mask=causal_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_values,
+                output_attentions=output_attentions,
+                use_cache=use_cache,
+                cache_position=cache_position,
+                position_embeddings=position_embeddings,
+                **flash_attn_kwargs,
+            )
+        hidden_states = layer_outputs[0]
+        if output_attentions:
+            all_self_attns += (layer_outputs[1],)
+
+    return DecoderLayerLoopOutput(
+        hidden_states=hidden_states,
+        all_hidden_states=all_hidden_states,
+        all_self_attns=all_self_attns,
+    )
+
+
 class TemperatureMixin:
     def init_temperature(self):
         self.temperature = 1.0
