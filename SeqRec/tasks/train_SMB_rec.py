@@ -6,7 +6,7 @@ from loguru import logger
 from torch.utils.data import DataLoader, ConcatDataset
 
 from SeqRec.tasks.base import Task
-from SeqRec.datasets.session_behavior_discriminative import SMBDisDataset, SMBDisUserLevelDataset
+from SeqRec.datasets.discriminative.session_behavior import SMBDisDataset, SMBDisUserLevelDataset
 from SeqRec.datasets.loaders.session_behavior_discriminative import load_SMBDis_datasets, load_SMBDis_test_dataset
 from SeqRec.datasets.collators.traditional import TraditionalCollator, TraditionalTestCollator, TraditionalUserLevelCollator
 from SeqRec.modules.model_base.seq_model import SeqModel

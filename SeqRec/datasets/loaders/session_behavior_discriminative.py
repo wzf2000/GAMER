@@ -1,6 +1,6 @@
 from torch.utils.data import ConcatDataset
 
-from SeqRec.datasets.session_behavior_discriminative import SMBDisDataset, SMBDisTargetDataset, SMBDisUserLevelDataset, SMBDisNegSampleDataset, SMBDisNegSampleEvalDataset, SMBDisTargetNegSampleEvalDataset
+from SeqRec.datasets.discriminative.session_behavior import SMBDisDataset, SMBDisTargetDataset, SMBDisUserLevelDataset, SMBDisNegSampleDataset, SMBDisNegSampleEvalDataset, SMBDisTargetNegSampleEvalDataset
 
 
 def load_SMBDis_datasets(
