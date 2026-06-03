@@ -1,16 +1,21 @@
-import torch
 from loguru import logger
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.SMB_dataset import BaseSMBDataset, SMBExplicitDatasetForDecoder, SMBFixedRatioDatasetForDecoder
 from SeqRec.datasets.loading_SMB import load_SMB_datasets
-from SeqRec.datasets.collator import EncoderDecoderCollator, DecoderOnlyCollator
 from SeqRec.models.generative.registry import (
     backbone_uses_sessions,
     get_backbone_train_profile,
     instantiate_generative_model,
-    is_decoder_only_backbone,
     load_config_and_tokenizer,
+)
+from SeqRec.tasks.generative_training import (
+    build_hf_trainer,
+    build_train_collator,
+    build_training_arguments,
+    finalize_generative_model,
+    get_behavior_token_ids,
+    prepare_tokenizer_and_config,
 )
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
@@ -228,30 +233,25 @@ class TrainSMBDecoder(MultiGPUTask):
             tasks=tasks,
         )
         first_dataset: BaseSMBDataset = train_data.datasets[0]
-        add_num = tokenizer.add_tokens(first_dataset.get_new_tokens())
-        config.vocab_size = len(tokenizer)
-        self.info([
-            f"Added {add_num} new tokens.",
-            f"Training data size: {len(train_data)}",
-        ])
-        if self.local_rank == 0:
-            tokenizer.save_pretrained(output_dir)
-            config.save_pretrained(output_dir)
+        prepare_tokenizer_and_config(
+            tokenizer,
+            config,
+            first_dataset,
+            train_data,
+            output_dir,
+            self.local_rank,
+            self.info,
+        )
 
-        behavior_tokens = []
-        for behavior in first_dataset.behaviors:
-            behavior_tokens.extend(first_dataset.get_behavior_tokens(behavior))
-        behavior_tokens = [
-            tokenizer.encode(b, add_special_tokens=False)[0]
-            for b in behavior_tokens
-        ]
+        behavior_tokens = get_behavior_token_ids(first_dataset, tokenizer)
 
-        if is_decoder_only_backbone(backbone):
-            # default to ignore behavior tokens in Qwen3 models
-            _decoder_only_types = (SMBExplicitDatasetForDecoder, SMBFixedRatioDatasetForDecoder)
-            collator = DecoderOnlyCollator(tokenizer, only_train_response=not isinstance(first_dataset, _decoder_only_types), ignore_behavior_tokens=behavior_tokens)
-        else:
-            collator = EncoderDecoderCollator(tokenizer)
+        collator = build_train_collator(
+            backbone,
+            tokenizer,
+            first_dataset=first_dataset,
+            decoder_response_dataset_types=(SMBExplicitDatasetForDecoder, SMBFixedRatioDatasetForDecoder),
+            ignore_behavior_tokens=behavior_tokens,
+        )
 
         if train_profile == "basic":
             model = instantiate_generative_model(backbone, config)
@@ -299,10 +299,6 @@ class TrainSMBDecoder(MultiGPUTask):
             single_item = first_dataset.get_behavior_item(
                 single_item, first_dataset.target_behavior
             )
-            behavior_tokens = []
-            for behavior in first_dataset.behaviors:
-                behavior_tokens.extend(first_dataset.get_behavior_tokens(behavior))
-            behavior_tokens = [tokenizer.encode(b, add_special_tokens=False)[0] for b in behavior_tokens]
             behavior_maps = {
                 behavior_token: i
                 for i, behavior_token in enumerate(behavior_tokens)
@@ -348,20 +344,14 @@ class TrainSMBDecoder(MultiGPUTask):
             model.set_hyper(temperature)
         else:
             raise ValueError(f"Unsupported backbone model: {backbone}")
-        model.resize_token_embeddings(len(tokenizer))
-        model.to(self.device)
-        self.info(model)
-        if not self.ddp and torch.cuda.device_count() > 1:
-            model.is_parallelizable = True
-            model.model_parallel = True
+        model = finalize_generative_model(model, tokenizer, self.device, self.ddp, self.info)
 
         if backbone_uses_sessions(backbone):
             label_names = ['input_ids', 'labels', 'session_ids', 'extended_session_ids', 'split', 'actions']
         else:
             label_names = ['input_ids', 'labels', 'split']
 
-        from transformers.training_args import TrainingArguments
-        training_args = TrainingArguments(
+        training_args = build_training_arguments(
             output_dir=output_dir,
             seed=seed,
             per_device_train_batch_size=per_device_batch_size,
@@ -376,17 +366,13 @@ class TrainSMBDecoder(MultiGPUTask):
             bf16=bf16,
             logging_steps=logging_step,
             optim=optim,
-            # Set to True if you want to use gradient checkpointing
-            gradient_checkpointing=False,
             eval_strategy=save_and_eval_strategy,
             save_strategy=save_and_eval_strategy,
             eval_steps=save_and_eval_steps,
             save_steps=save_and_eval_steps,
-            save_total_limit=2,
-            load_best_model_at_end=True,
             deepspeed=deepspeed,
+            ddp=self.ddp,
             ddp_find_unused_parameters=find_unused_parameters if self.ddp else None,
-            eval_delay=1 if save_and_eval_strategy == "epoch" else 2000,
             run_name=(
                 wandb_run_name
                 if wandb_run_name != "default"
@@ -397,16 +383,14 @@ class TrainSMBDecoder(MultiGPUTask):
         if debug:
             training_args.report_to = "none"
 
-        from transformers import EarlyStoppingCallback
-        from transformers.trainer import Trainer
-        trainer = Trainer(
+        trainer = build_hf_trainer(
             model=model,
-            train_dataset=train_data,
-            eval_dataset=valid_data,
-            args=training_args,
-            processing_class=tokenizer,
-            data_collator=collator,
-            callbacks=[EarlyStoppingCallback(early_stopping_patience=patience)],
+            train_data=train_data,
+            valid_data=valid_data,
+            training_args=training_args,
+            tokenizer=tokenizer,
+            collator=collator,
+            patience=patience,
         )
         replace_progress_callback(trainer)
         model.config.use_cache = False

@@ -21,6 +21,12 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         train_profile="pba",
     ),
     "Qwen3": GenerativeBackboneSpec(decoder_only=True, tokenizer_kind="qwen2", config_kind="qwen3"),
+    "Qwen3Moe": GenerativeBackboneSpec(
+        decoder_only=True,
+        tokenizer_kind="qwen2",
+        config_kind="qwen3_moe",
+        train_profile="multi_behavior",
+    ),
     "Qwen3Session": GenerativeBackboneSpec(
         decoder_only=True,
         uses_sessions=True,
@@ -133,6 +139,9 @@ def get_generative_model_cls(backbone: str):
     if backbone == "Qwen3":
         from SeqRec.models.generative.Qwen3 import Qwen3WithTemperature
         return Qwen3WithTemperature
+    if backbone == "Qwen3Moe":
+        from SeqRec.models.generative.Qwen3Moe import Qwen3MoeWithTemperature
+        return Qwen3MoeWithTemperature
     if backbone == "Qwen3Session":
         from SeqRec.models.generative.Qwen3Session import Qwen3SessionWithTemperature
         return Qwen3SessionWithTemperature

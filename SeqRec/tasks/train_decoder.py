@@ -1,10 +1,20 @@
-import torch
 from loguru import logger
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.seq_dataset import BaseSeqDataset
 from SeqRec.datasets.loading import load_datasets
-from SeqRec.datasets.collator import EncoderDecoderCollator, DecoderOnlyCollator
+from SeqRec.models.generative.registry import (
+    get_backbone_train_profile,
+    instantiate_generative_model,
+    load_config_and_tokenizer,
+)
+from SeqRec.tasks.generative_training import (
+    build_hf_trainer,
+    build_train_collator,
+    build_training_arguments,
+    finalize_generative_model,
+    prepare_tokenizer_and_config,
+)
 from SeqRec.utils.futils import ensure_dir
 from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args
 
@@ -190,43 +200,12 @@ class TrainDecoder(MultiGPUTask):
         ensure_dir(output_dir)
         if len(args) > 0 or len(kwargs) > 0:
             logger.warning("Unused parameters:", args, kwargs)
-        if backbone == "TIGER":
-            from transformers import T5Config, T5Tokenizer
-            config: T5Config = T5Config.from_pretrained(base_model)
-            tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
-                base_model,
-                model_max_length=model_max_length,
-                legacy=True,
-            )
-            assert isinstance(
-                tokenizer, T5Tokenizer
-            ), "Expected T5Tokenizer for TIGER backbone"
-        elif backbone == "PBATransformer":
-            from transformers import T5Tokenizer
-            from SeqRec.models.generative.PBATransformer import PBATransformerConfig
-            config: PBATransformerConfig = PBATransformerConfig.from_pretrained(
-                base_model
-            )
-            tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
-                base_model,
-                model_max_length=model_max_length,
-                legacy=True,
-            )
-            assert isinstance(
-                tokenizer, T5Tokenizer
-            ), "Expected T5Tokenizer for PBATransformer backbone"
-        elif backbone == "Qwen3":
-            from transformers import Qwen3Config, Qwen2Tokenizer
-            config: Qwen3Config = Qwen3Config.from_pretrained(base_model)
-            tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(
-                base_model,
-                model_max_length=model_max_length,
-            )
-            assert isinstance(
-                tokenizer, Qwen2Tokenizer
-            ), "Expected Qwen2Tokenizer for Qwen3 backbone"
-        else:
-            raise ValueError(f"Unsupported backbone model: {backbone}")
+        config, tokenizer = load_config_and_tokenizer(
+            backbone,
+            base_model,
+            model_max_length=model_max_length,
+        )
+        train_profile = get_backbone_train_profile(backbone)
         deepspeed = None
 
         train_data, valid_data = load_datasets(
@@ -237,27 +216,26 @@ class TrainDecoder(MultiGPUTask):
             tasks=tasks,
         )
         first_dataset: BaseSeqDataset = train_data.datasets[0]
-        add_num = tokenizer.add_tokens(first_dataset.get_new_tokens())
-        config.vocab_size = len(tokenizer)
-        self.info([
-            f"Added {add_num} new tokens.",
-            f"Training data size: {len(train_data)}",
-        ])
-        if self.local_rank == 0:
-            tokenizer.save_pretrained(output_dir)
-            config.save_pretrained(output_dir)
+        prepare_tokenizer_and_config(
+            tokenizer,
+            config,
+            first_dataset,
+            train_data,
+            output_dir,
+            self.local_rank,
+            self.info,
+        )
 
-        if backbone == "Qwen3":
-            collator = DecoderOnlyCollator(tokenizer, only_train_response=True)
-        else:
-            collator = EncoderDecoderCollator(tokenizer)
+        collator = build_train_collator(
+            backbone,
+            tokenizer,
+            first_dataset=first_dataset,
+        )
 
-        if backbone == "TIGER":
-            from SeqRec.models.generative.TIGER import TIGER
-            model = TIGER(config)
+        if train_profile == "basic":
+            model = instantiate_generative_model(backbone, config)
             model.set_hyper(temperature)
-        elif backbone == "PBATransformer":
-            from SeqRec.models.generative.PBATransformer import PBATransformerForConditionalGeneration
+        elif train_profile == "pba":
             all_items = first_dataset.get_all_items()
             single_item = list(all_items)[0]
             config.num_behavior = 0
@@ -278,22 +256,12 @@ class TrainDecoder(MultiGPUTask):
             config.n_positions = max_his_len
             config.use_user_token = False
             self.info(f"PBATransformer Model Config: {config}")
-            model = PBATransformerForConditionalGeneration(config)
-        elif backbone == "Qwen3":
-            from SeqRec.models.generative.Qwen3 import Qwen3WithTemperature
-            model = Qwen3WithTemperature(config)
-            model.set_hyper(temperature)
+            model = instantiate_generative_model(backbone, config)
         else:
             raise ValueError(f"Unsupported backbone model: {backbone}")
-        model.resize_token_embeddings(len(tokenizer))
-        model.to(self.device)
-        self.info(model)
-        if not self.ddp and torch.cuda.device_count() > 1:
-            model.is_parallelizable = True
-            model.model_parallel = True
+        model = finalize_generative_model(model, tokenizer, self.device, self.ddp, self.info)
 
-        from transformers.training_args import TrainingArguments
-        training_args = TrainingArguments(
+        training_args = build_training_arguments(
             output_dir=output_dir,
             seed=seed,
             per_device_train_batch_size=per_device_batch_size,
@@ -308,17 +276,12 @@ class TrainDecoder(MultiGPUTask):
             bf16=bf16,
             logging_steps=logging_step,
             optim=optim,
-            # Set to True if you want to use gradient checkpointing
-            gradient_checkpointing=False,
             eval_strategy=save_and_eval_strategy,
             save_strategy=save_and_eval_strategy,
             eval_steps=save_and_eval_steps,
             save_steps=save_and_eval_steps,
-            save_total_limit=2,
-            load_best_model_at_end=True,
             deepspeed=deepspeed,
-            ddp_find_unused_parameters=False if self.ddp else None,
-            eval_delay=1 if save_and_eval_strategy == "epoch" else 2000,
+            ddp=self.ddp,
             run_name=(
                 wandb_run_name
                 if wandb_run_name != "default"
@@ -326,16 +289,14 @@ class TrainDecoder(MultiGPUTask):
             ),
         )
 
-        from transformers import EarlyStoppingCallback
-        from transformers.trainer import Trainer
-        trainer = Trainer(
+        trainer = build_hf_trainer(
             model=model,
-            train_dataset=train_data,
-            eval_dataset=valid_data,
-            args=training_args,
-            processing_class=tokenizer,
-            data_collator=collator,
-            callbacks=[EarlyStoppingCallback(early_stopping_patience=patience)],
+            train_data=train_data,
+            valid_data=valid_data,
+            training_args=training_args,
+            tokenizer=tokenizer,
+            collator=collator,
+            patience=patience,
         )
         model.config.use_cache = False
 
