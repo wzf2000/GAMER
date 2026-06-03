@@ -13,7 +13,7 @@ from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.loaders.session_behavior import load_SMB_test_dataset, load_SMB_valid_dataset
 from SeqRec.datasets.multi_behavior import EvaluationType
 from SeqRec.datasets.session_behavior import BaseSMBDataset
-from SeqRec.datasets.collator import EncoderDecoderTestCollator, DecoderOnlyTestCollator, EncoderDecoderCollator, DecoderOnlyCollator
+from SeqRec.datasets.collators.generative import EncoderDecoderTestCollator, DecoderOnlyTestCollator, EncoderDecoderCollator, DecoderOnlyCollator
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.models.generative.registry import (
     is_decoder_only_backbone,
