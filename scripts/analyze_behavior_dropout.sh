@@ -42,13 +42,8 @@ fi
 
 : ${target_behavior:=}
 
-: ${extra_args:=}
-extra_args_out=$(parse_extra_args "${extra_args}")
-echo "Extra arguments: ${extra_args_out}"
-
-: ${extra_flags:=}
-extra_flags_out=$(parse_extra_flags "${extra_flags}")
-echo "Extra flags: ${extra_flags_out}"
+build_extra_cli_args "$@"
+print_extra_cli_args
 
 target_behavior_arg=""
 if [ "${target_behavior}" != "" ]; then
@@ -69,5 +64,4 @@ python main.py analyze_behavior_dropout \
     --index_file ${index_file} \
     --test_task ${test_task} \
     ${target_behavior_arg} \
-    ${extra_args_out} \
-    ${extra_flags_out}
+    "${EXTRA_CLI_ARGS[@]}"

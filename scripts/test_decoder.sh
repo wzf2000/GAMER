@@ -45,9 +45,8 @@ else
     filter_flag="--filter"
 fi
 
-: ${extra_args:=}
-extra_args_out=$(parse_extra_args "${extra_args}")
-echo "Extra arguments: ${extra_args_out}"
+build_extra_cli_args "$@"
+print_extra_cli_args
 
 run_main_distributed "${gpu_num}" "${port}" test_decoder \
     --backbone ${backbone} \
@@ -60,4 +59,4 @@ run_main_distributed "${gpu_num}" "${port}" test_decoder \
     --index_file ${index_file} \
     --test_task ${test_task} \
     ${filter_flag} \
-    ${extra_args_out}
+    "${EXTRA_CLI_ARGS[@]}"

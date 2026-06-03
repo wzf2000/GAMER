@@ -1,31 +1,46 @@
 #!/bin/bash
 
-parse_extra_args() {
-    local extra_args="${1:-}"
-    if [ "${extra_args}" = "" ]; then
-        return 0
+build_extra_cli_args() {
+    EXTRA_CLI_ARGS=()
+
+    local legacy_extra_args="${extra_args:-}"
+    if [ "${legacy_extra_args}" != "" ]; then
+        local pair key value
+        IFS=',' read -ra extra_arg_pairs <<< "${legacy_extra_args}"
+        for pair in "${extra_arg_pairs[@]}"; do
+            if [[ "${pair}" == *=* ]]; then
+                key="${pair%%=*}"
+                value="${pair#*=}"
+                if [ "${key}" != "" ]; then
+                    EXTRA_CLI_ARGS+=("--${key}" "${value}")
+                fi
+            elif [ "${pair}" != "" ]; then
+                key="${pair}"
+                EXTRA_CLI_ARGS+=("--${key}")
+            fi
+        done
     fi
-    echo "${extra_args}" | awk -F, '{
-        for (i = 1; i <= NF; i++) {
-            split($i, arr, "=")
-            if (arr[1] != "") {
-                printf "--%s %s ", arr[1], arr[2]
-            }
-        }
-    }'
+
+    local legacy_extra_flags="${extra_flags:-}"
+    if [ "${legacy_extra_flags}" != "" ]; then
+        local flag
+        IFS=',' read -ra extra_flag_names <<< "${legacy_extra_flags}"
+        for flag in "${extra_flag_names[@]}"; do
+            if [ "${flag}" != "" ]; then
+                EXTRA_CLI_ARGS+=("--${flag}")
+            fi
+        done
+    fi
+
+    EXTRA_CLI_ARGS+=("$@")
 }
 
-parse_extra_flags() {
-    local extra_flags="${1:-}"
-    if [ "${extra_flags}" = "" ]; then
-        return 0
+print_extra_cli_args() {
+    if [ "${#EXTRA_CLI_ARGS[@]}" -eq 0 ]; then
+        echo "Extra CLI arguments: "
+    else
+        printf "Extra CLI arguments:"
+        printf " %q" "${EXTRA_CLI_ARGS[@]}"
+        printf "\n"
     fi
-    echo "${extra_flags}" | awk -F, '{
-        for (i = 1; i <= NF; i++) {
-            if ($i != "") {
-                printf "--%s ", $i
-            }
-        }
-    }'
 }
-

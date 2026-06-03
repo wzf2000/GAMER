@@ -39,7 +39,7 @@ Some general arguments for the above scripts are as follows:
 - `batch_size`: Batch size for training. Note that the batch size is the total batch size for all GPUs. We will convert it to the per-GPU batch size automatically.
 - `learning_rate`: Learning rate for training.
 - `epochs`: Number of training epochs.
-- `extra_args`: Extra arguments for the task. You can specify multiple extra arguments by separating them with commas (e.g., `extra_args="arg1=val1,arg2=val2"`, etc.). Note that the equal sign (`=`) should be used to separate the argument name and value, and there should be no spaces around the equal sign or commas.
-- `extra_flags`: Extra flags for the task (only used for some evaluation tasks). You can specify multiple extra flags by separating them with commas (e.g., `extra_flags="flag1,flag2"`, etc.). Note that there should be no spaces around the commas.
+- Extra task arguments: Pass additional task arguments after the script path using the same argparse form as `main.py`, for example `bash scripts/train_SMB_decoder.sh --max_his_len 100 --warmup_ratio 0.04 --debug`.
+- Legacy extra task arguments: `extra_args="arg1=val1,arg2=val2"` and `extra_flags="flag1,flag2"` are still supported for old commands, but the trailing CLI form is preferred for new usage.
 
 For other arguments, please refer to the corresponding script files in the `scripts/` directory and the corresponding task files in the `SeqRec/tasks/` directory.

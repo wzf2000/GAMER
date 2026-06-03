@@ -11,9 +11,8 @@ source "${script_dir}/lib/args.sh"
 data_path="./data/${dataset}/${dataset}.emb-${semantic_model}-td.npy"
 output_dir="./data/${dataset}/"
 
-: ${extra_args:=}
-extra_args_out=$(parse_extra_args "${extra_args}")
-echo "Extra arguments: ${extra_args_out}"
+build_extra_cli_args "$@"
+print_extra_cli_args
 
 if [ $rq_kmeans -eq 0 ]; then
   : ${cid:=0}
@@ -35,7 +34,7 @@ if [ $rq_kmeans -eq 0 ]; then
         --beta ${beta} \
         --epoch ${epoch} \
         --checkpoint ${checkpoint} \
-        ${extra_args_out}
+        "${EXTRA_CLI_ARGS[@]}"
     else
       echo "Using Random ID tokenization for index generation."
       echo "Generating indices for ${dataset} with random ID tokenization."
@@ -44,7 +43,7 @@ if [ $rq_kmeans -eq 0 ]; then
         --data_path ${data_path} \
         --output_dir ${output_dir} \
         --rid \
-        ${extra_args_out}
+        "${EXTRA_CLI_ARGS[@]}"
     fi
   else
     echo "Using Chunked ID tokenization for index generation."
@@ -64,7 +63,7 @@ if [ $rq_kmeans -eq 0 ]; then
       --cid \
       --chunk_size ${chunk_size} \
       ${shuffle_option} \
-      ${extra_args_out}
+      "${EXTRA_CLI_ARGS[@]}"
   fi
 else
   echo "Using RQ-Kmeans for index generation."
@@ -77,7 +76,7 @@ else
       --data_path ${data_path} \
       --output_dir ${output_dir} \
       --rq_kmeans \
-      ${extra_args_out}
+      "${EXTRA_CLI_ARGS[@]}"
   else
       : ${reduce:=0}
       if [ $reduce -eq 0 ]; then
@@ -89,7 +88,7 @@ else
           --output_dir ${output_dir} \
           --rq_kmeans \
           --cf_emb ${cf_emb} \
-          ${extra_args_out}
+          "${EXTRA_CLI_ARGS[@]}"
       else
         echo "Generating indices for ${dataset} using RQ-Kmeans with CF embeddings and reduced semantic embeddings."
         python main.py tokenize \
@@ -100,7 +99,7 @@ else
           --rq_kmeans \
           --cf_emb ${cf_emb} \
           --reduce \
-          ${extra_args_out}
+          "${EXTRA_CLI_ARGS[@]}"
       fi
   fi
 fi

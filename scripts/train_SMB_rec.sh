@@ -23,13 +23,8 @@ output_dir=./checkpoint/smb_dis/${task_dir}/
 result_dir=$(build_result_path "${task_dir}" "")
 run_name=${task_dir}
 
-: ${extra_args:=}
-extra_args_out=$(parse_extra_args "${extra_args}")
-echo "Extra arguments: ${extra_args_out}"
-
-: ${extra_flags:=}
-extra_flags_out=$(parse_extra_flags "${extra_flags}")
-echo "Extra flags: ${extra_flags_out}"
+build_extra_cli_args "$@"
+print_extra_cli_args
 
 python main.py train_SMB_rec \
     --backbone ${backbone} \
@@ -43,5 +38,4 @@ python main.py train_SMB_rec \
     --tasks ${tasks} \
     --test_task ${test_task} \
     --epochs ${epochs} \
-    ${extra_args_out} \
-    ${extra_flags_out}
+    "${EXTRA_CLI_ARGS[@]}"
