@@ -18,7 +18,7 @@ from SeqRec.tasks.generative_training import (
     prepare_tokenizer_and_config,
 )
 from SeqRec.utils.futils import ensure_dir
-from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args, parse_training_args
+from SeqRec.utils.parse import SubParsersAction, build_generative_training_args, parse_global_args, parse_dataset_args, parse_training_args
 from SeqRec.utils.logging import replace_progress_callback
 
 
@@ -48,77 +48,45 @@ class TrainSMBDecoder(MultiGPUTask):
             include_debug=True,
         )
 
-    def invoke(
-        self,
-        # global arguments
-        seed: int,
-        backbone: str,
-        base_model: str,
-        output_dir: str,
-        # dataset arguments
-        data_path: str,
-        tasks: str,
-        dataset: str,
-        index_file: str,
-        max_his_len: int,
-        # training arguments
-        optim: str,
-        epochs: int,
-        learning_rate: float,
-        per_device_batch_size: int,
-        gradient_accumulation_steps: int,
-        logging_step: int,
-        model_max_length: int,
-        weight_decay: float,
-        resume_from_checkpoint: str | None,
-        warmup_ratio: float,
-        lr_scheduler_type: str,
-        save_and_eval_strategy: str,
-        save_and_eval_steps: int,
-        patience: int,
-        fp16: bool,
-        bf16: bool,
-        deepspeed: str | None,
-        temperature: float,
-        find_unused_parameters: bool,
-        wandb_run_name: str,
-        debug: bool,
-        *args,
-        **kwargs,
-    ):
+    def invoke(self, **raw_args):
         """
         Train the SMB decoder using the provided arguments.
         """
+        parsed_args = build_generative_training_args(raw_args)
+        self.param_dict = parsed_args.as_log_dict()
+        model_args = parsed_args.model
+        data_args = parsed_args.dataset
+        script_args = parsed_args.training
         # Implementation of the training logic goes here.
         self.init(
-            seed,
-            not debug,
+            model_args.seed,
+            not script_args.debug,
             (
-                wandb_run_name
-                if wandb_run_name != "default"
-                else output_dir.split("checkpoint/SMB-decoder/")[-1]
+                script_args.wandb_run_name
+                if script_args.wandb_run_name != "default"
+                else model_args.output_dir.split("checkpoint/SMB-decoder/")[-1]
             ),
             "train",
-            f"Training SMB decoder on {data_path} with base model {base_model}",
+            f"Training SMB decoder on {data_args.data_path} with base model {model_args.base_model}",
             self.param_dict,
         )
-        ensure_dir(output_dir)
-        if len(args) > 0 or len(kwargs) > 0:
-            logger.warning("Unused parameters:", args, kwargs)
+        ensure_dir(model_args.output_dir)
+        if parsed_args.unused:
+            logger.warning(f"Unused parameters: {parsed_args.unused}")
         config, tokenizer = load_config_and_tokenizer(
-            backbone,
-            base_model,
-            model_max_length=model_max_length,
+            model_args.backbone,
+            model_args.base_model,
+            model_max_length=script_args.model_max_length,
         )
-        train_profile = get_backbone_train_profile(backbone)
+        train_profile = get_backbone_train_profile(model_args.backbone)
         deepspeed = None
 
         train_data, valid_data = load_SMB_datasets(
-            dataset=dataset,
-            data_path=data_path,
-            max_his_len=max_his_len,
-            index_file=index_file,
-            tasks=tasks,
+            dataset=data_args.dataset,
+            data_path=data_args.data_path,
+            max_his_len=data_args.max_his_len,
+            index_file=data_args.index_file,
+            tasks=data_args.tasks,
         )
         first_dataset: BaseSMBDataset = train_data.datasets[0]
         prepare_tokenizer_and_config(
@@ -126,7 +94,7 @@ class TrainSMBDecoder(MultiGPUTask):
             config,
             first_dataset,
             train_data,
-            output_dir,
+            model_args.output_dir,
             self.local_rank,
             self.info,
         )
@@ -134,7 +102,7 @@ class TrainSMBDecoder(MultiGPUTask):
         behavior_tokens = get_behavior_token_ids(first_dataset, tokenizer)
 
         collator = build_train_collator(
-            backbone,
+            model_args.backbone,
             tokenizer,
             first_dataset=first_dataset,
             decoder_response_dataset_types=(SMBExplicitDatasetForDecoder, SMBFixedRatioDatasetForDecoder),
@@ -142,72 +110,72 @@ class TrainSMBDecoder(MultiGPUTask):
         )
 
         model = prepare_generative_model_for_training(
-            backbone=backbone,
+            backbone=model_args.backbone,
             train_profile=train_profile,
             config=config,
             tokenizer=tokenizer,
             first_dataset=first_dataset,
-            max_his_len=max_his_len,
-            model_max_length=model_max_length,
-            temperature=temperature,
+            max_his_len=data_args.max_his_len,
+            model_max_length=script_args.model_max_length,
+            temperature=script_args.temperature,
             info=self.info,
             behavior_token_ids=behavior_tokens,
             pba_uses_temperature=True,
         )
         model = finalize_generative_model(model, tokenizer, self.device, self.ddp, self.info)
 
-        if backbone_uses_sessions(backbone):
+        if backbone_uses_sessions(model_args.backbone):
             label_names = ['input_ids', 'labels', 'session_ids', 'extended_session_ids', 'split', 'actions']
         else:
             label_names = ['input_ids', 'labels', 'split']
 
-        training_args = build_training_arguments(
-            output_dir=output_dir,
-            seed=seed,
-            per_device_train_batch_size=per_device_batch_size,
-            per_device_eval_batch_size=per_device_batch_size,
-            gradient_accumulation_steps=gradient_accumulation_steps,
-            warmup_ratio=warmup_ratio,
-            num_train_epochs=epochs,
-            learning_rate=learning_rate,
-            weight_decay=weight_decay,
-            lr_scheduler_type=lr_scheduler_type,
-            fp16=fp16,
-            bf16=bf16,
-            logging_steps=logging_step,
-            optim=optim,
-            eval_strategy=save_and_eval_strategy,
-            save_strategy=save_and_eval_strategy,
-            eval_steps=save_and_eval_steps,
-            save_steps=save_and_eval_steps,
+        hf_training_args = build_training_arguments(
+            output_dir=model_args.output_dir,
+            seed=model_args.seed,
+            per_device_train_batch_size=script_args.per_device_batch_size,
+            per_device_eval_batch_size=script_args.per_device_batch_size,
+            gradient_accumulation_steps=script_args.gradient_accumulation_steps,
+            warmup_ratio=script_args.warmup_ratio,
+            num_train_epochs=script_args.epochs,
+            learning_rate=script_args.learning_rate,
+            weight_decay=script_args.weight_decay,
+            lr_scheduler_type=script_args.lr_scheduler_type,
+            fp16=script_args.fp16,
+            bf16=script_args.bf16,
+            logging_steps=script_args.logging_step,
+            optim=script_args.optim,
+            eval_strategy=script_args.save_and_eval_strategy,
+            save_strategy=script_args.save_and_eval_strategy,
+            eval_steps=script_args.save_and_eval_steps,
+            save_steps=script_args.save_and_eval_steps,
             deepspeed=deepspeed,
             ddp=self.ddp,
-            ddp_find_unused_parameters=find_unused_parameters if self.ddp else None,
+            ddp_find_unused_parameters=script_args.find_unused_parameters if self.ddp else None,
             run_name=(
-                wandb_run_name
-                if wandb_run_name != "default"
-                else output_dir.split("checkpoint/SMB-decoder/")[-1]
+                script_args.wandb_run_name
+                if script_args.wandb_run_name != "default"
+                else model_args.output_dir.split("checkpoint/SMB-decoder/")[-1]
             ),
             label_names=label_names,
         )
-        if debug:
-            training_args.report_to = "none"
+        if script_args.debug:
+            hf_training_args.report_to = "none"
 
         trainer = build_hf_trainer(
             model=model,
             train_data=train_data,
             valid_data=valid_data,
-            training_args=training_args,
+            training_args=hf_training_args,
             tokenizer=tokenizer,
             collator=collator,
-            patience=patience,
+            patience=script_args.patience,
         )
         replace_progress_callback(trainer)
         model.config.use_cache = False
 
-        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+        trainer.train(resume_from_checkpoint=script_args.resume_from_checkpoint)
 
         trainer.save_state()
-        trainer.save_model(output_dir=output_dir)
+        trainer.save_model(output_dir=model_args.output_dir)
         self.info("Training completed successfully.")
-        self.finish(not debug)
+        self.finish(not script_args.debug)
