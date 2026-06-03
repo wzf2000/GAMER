@@ -20,8 +20,8 @@ from typing import Callable, TYPE_CHECKING
 from torch.utils.data import DataLoader
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
-from SeqRec.datasets.loading_SMB import load_SMB_test_dataset
-from SeqRec.datasets.SMB_dataset import BaseSMBDataset
+from SeqRec.datasets.loaders.session_behavior import load_SMB_test_dataset
+from SeqRec.datasets.session_behavior import BaseSMBDataset
 from SeqRec.datasets.collator import DecoderOnlyTestCollator, EncoderDecoderTestCollator
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.models.generative.registry import (
