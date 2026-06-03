@@ -10,7 +10,7 @@ from transformers.modeling_outputs import (
 )
 from typing import Any
 
-from SeqRec.models.generative.mixins import TemperatureMixin
+from SeqRec.models.generative.common.temperature import TemperatureMixin
 
 
 class TIGER(TemperatureMixin, T5ForConditionalGeneration):

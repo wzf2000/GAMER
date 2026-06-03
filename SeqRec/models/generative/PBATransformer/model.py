@@ -33,7 +33,7 @@ from SeqRec.models.generative.PBATransformer.FFN import (
     PBATransformerSparseMLP,
 )
 from SeqRec.models.generative.PBATransformer.block import PBATransformerBlock
-from SeqRec.models.generative.mixins import TemperatureMixin
+from SeqRec.models.generative.common.temperature import TemperatureMixin
 
 
 if is_torch_flex_attn_available():

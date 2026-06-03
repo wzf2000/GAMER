@@ -18,28 +18,11 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from SeqRec.models.generative.LlamaMulti.router import LlamaMultiDecoderRouter
 from transformers.activations import ACT2FN
-from SeqRec.models.generative.components import (
-    CrossBehaviorAttentionMixin,
-    run_multi_level_cross_attention_block,
-    run_multi_level_self_attention_block,
-)
-from SeqRec.models.generative.mixins import (
-    CustomCausalLMWrapperMixin,
-    init_cross_level_cache_state,
-    prepare_cache_position_and_position_ids,
-    prepare_decoder_forward_state,
-    reset_cross_level_cache_if_needed,
-    run_multi_cross_decoder_layers,
-)
-from SeqRec.models.generative.session_masks import (
-    apply_attention_padding_mask,
-    build_action_level_cross_mask,
-    build_flattened_in_item_mask,
-    build_in_item_self_mask,
-    build_incremental_causal_mask,
-    build_mask_context,
-    extend_cached_cross_mask,
-)
+from SeqRec.models.generative.common.attention import CrossBehaviorAttentionMixin, run_multi_level_cross_attention_block, run_multi_level_self_attention_block
+from SeqRec.models.generative.common.cache import prepare_cache_position_and_position_ids
+from SeqRec.models.generative.common.decoder_loop import init_cross_level_cache_state, prepare_decoder_forward_state, reset_cross_level_cache_if_needed, run_multi_cross_decoder_layers
+from SeqRec.models.generative.common.wrappers import CustomCausalLMWrapperMixin
+from SeqRec.models.generative.common.session_masks import apply_attention_padding_mask, build_action_level_cross_mask, build_flattened_in_item_mask, build_in_item_self_mask, build_incremental_causal_mask, build_mask_context, extend_cached_cross_mask
 
 
 class MyLlamaMLP(nn.Module):

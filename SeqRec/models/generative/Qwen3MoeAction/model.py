@@ -32,7 +32,8 @@ from transformers.models.qwen3_moe import Qwen3MoeConfig
 from SeqRec.models.generative.Qwen3Moe.FFN import PBATransformerSparseMLP
 from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
 from SeqRec.models.generative.Qwen3MoeAction.FFN import MyQwen3ActionMoeSparseMLP
-from SeqRec.models.generative.mixins import TemperatureCausalLMLossMixin, prepare_cache_position_and_position_ids
+from SeqRec.models.generative.common.cache import prepare_cache_position_and_position_ids
+from SeqRec.models.generative.common.temperature import TemperatureCausalLMLossMixin
 
 _CONFIG_FOR_DOC = "Qwen3MoeConfig"
 
