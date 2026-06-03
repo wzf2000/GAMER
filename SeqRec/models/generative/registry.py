@@ -1,9 +1,11 @@
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any
 
 
 @dataclass(frozen=True)
 class GenerativeBackboneSpec:
+    model_cls_path: str
     decoder_only: bool
     uses_sessions: bool = False
     uses_actions: bool = False
@@ -13,21 +15,34 @@ class GenerativeBackboneSpec:
 
 
 GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
-    "TIGER": GenerativeBackboneSpec(decoder_only=False, tokenizer_kind="t5", config_kind="t5"),
+    "TIGER": GenerativeBackboneSpec(
+        model_cls_path="SeqRec.models.generative.TIGER:TIGER",
+        decoder_only=False,
+        tokenizer_kind="t5",
+        config_kind="t5",
+    ),
     "PBATransformer": GenerativeBackboneSpec(
+        model_cls_path="SeqRec.models.generative.PBATransformer:PBATransformerForConditionalGeneration",
         decoder_only=False,
         tokenizer_kind="t5",
         config_kind="pba",
         train_profile="pba",
     ),
-    "Qwen3": GenerativeBackboneSpec(decoder_only=True, tokenizer_kind="qwen2", config_kind="qwen3"),
+    "Qwen3": GenerativeBackboneSpec(
+        model_cls_path="SeqRec.models.generative.Qwen3:Qwen3WithTemperature",
+        decoder_only=True,
+        tokenizer_kind="qwen2",
+        config_kind="qwen3",
+    ),
     "Qwen3Moe": GenerativeBackboneSpec(
+        model_cls_path="SeqRec.models.generative.Qwen3Moe:Qwen3MoeWithTemperature",
         decoder_only=True,
         tokenizer_kind="qwen2",
         config_kind="qwen3_moe",
         train_profile="multi_behavior",
     ),
     "Qwen3Session": GenerativeBackboneSpec(
+        model_cls_path="SeqRec.models.generative.Qwen3Session:Qwen3SessionWithTemperature",
         decoder_only=True,
         uses_sessions=True,
         tokenizer_kind="qwen2",
@@ -35,6 +50,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         train_profile="session",
     ),
     "Qwen3Multi": GenerativeBackboneSpec(
+        model_cls_path="SeqRec.models.generative.Qwen3Multi:Qwen3MultiWithTemperature",
         decoder_only=True,
         uses_sessions=True,
         uses_actions=True,
@@ -43,6 +59,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         train_profile="multi_behavior",
     ),
     "Qwen3SessionMulti": GenerativeBackboneSpec(
+        model_cls_path="SeqRec.models.generative.Qwen3SessionMulti:Qwen3SessionMultiWithTemperature",
         decoder_only=True,
         uses_sessions=True,
         uses_actions=True,
@@ -51,6 +68,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         train_profile="multi_behavior",
     ),
     "Qwen3TemporalHierarchical": GenerativeBackboneSpec(
+        model_cls_path="SeqRec.models.generative.Qwen3TemporalHierarchical:Qwen3TemporalHierarchicalWithTemperature",
         decoder_only=True,
         uses_sessions=True,
         uses_actions=True,
@@ -59,6 +77,7 @@ GENERATIVE_BACKBONES: dict[str, GenerativeBackboneSpec] = {
         train_profile="multi_behavior",
     ),
     "LlamaMulti": GenerativeBackboneSpec(
+        model_cls_path="SeqRec.models.generative.LlamaMulti:LlamaMultiWithTemperature",
         decoder_only=True,
         uses_sessions=True,
         uses_actions=True,
@@ -130,34 +149,10 @@ def load_config_and_tokenizer(backbone: str, model_path: str, model_max_length: 
 
 
 def get_generative_model_cls(backbone: str):
-    if backbone == "TIGER":
-        from SeqRec.models.generative.TIGER import TIGER
-        return TIGER
-    if backbone == "PBATransformer":
-        from SeqRec.models.generative.PBATransformer import PBATransformerForConditionalGeneration
-        return PBATransformerForConditionalGeneration
-    if backbone == "Qwen3":
-        from SeqRec.models.generative.Qwen3 import Qwen3WithTemperature
-        return Qwen3WithTemperature
-    if backbone == "Qwen3Moe":
-        from SeqRec.models.generative.Qwen3Moe import Qwen3MoeWithTemperature
-        return Qwen3MoeWithTemperature
-    if backbone == "Qwen3Session":
-        from SeqRec.models.generative.Qwen3Session import Qwen3SessionWithTemperature
-        return Qwen3SessionWithTemperature
-    if backbone == "Qwen3Multi":
-        from SeqRec.models.generative.Qwen3Multi import Qwen3MultiWithTemperature
-        return Qwen3MultiWithTemperature
-    if backbone == "Qwen3SessionMulti":
-        from SeqRec.models.generative.Qwen3SessionMulti import Qwen3SessionMultiWithTemperature
-        return Qwen3SessionMultiWithTemperature
-    if backbone == "Qwen3TemporalHierarchical":
-        from SeqRec.models.generative.Qwen3TemporalHierarchical import Qwen3TemporalHierarchicalWithTemperature
-        return Qwen3TemporalHierarchicalWithTemperature
-    if backbone == "LlamaMulti":
-        from SeqRec.models.generative.LlamaMulti import LlamaMultiWithTemperature
-        return LlamaMultiWithTemperature
-    raise ValueError(f"Unsupported backbone: {backbone}")
+    spec = get_generative_backbone_spec(backbone)
+    module_path, class_name = spec.model_cls_path.split(":", maxsplit=1)
+    module = import_module(module_path)
+    return getattr(module, class_name)
 
 
 def instantiate_generative_model(backbone: str, config: Any):
