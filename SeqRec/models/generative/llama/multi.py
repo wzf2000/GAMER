@@ -5,7 +5,7 @@ from typing import Unpack, Callable, Optional, Tuple
 from transformers.utils import can_return_tuple
 from transformers.cache_utils import Cache
 from transformers.models.llama import LlamaForCausalLM, LlamaPreTrainedModel
-from .configuration_llama import LlamaConfig
+from .configuration import LlamaConfig
 from transformers.models.llama.modeling_llama import LlamaRMSNorm, LlamaRotaryEmbedding
 from transformers.models.llama.modeling_llama import LLAMA_INPUTS_DOCSTRING, make_flex_block_causal_mask, BlockMask
 from transformers.models.llama.modeling_llama import KwargsForCausalLM
@@ -16,7 +16,7 @@ from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, eager_attention_forward
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
-from SeqRec.models.generative.LlamaMulti.router import LlamaMultiDecoderRouter
+from SeqRec.models.generative.llama.multi_router import LlamaMultiDecoderRouter
 from transformers.activations import ACT2FN
 from SeqRec.models.generative.common.attention import CrossBehaviorAttentionMixin, run_multi_level_cross_attention_block, run_multi_level_self_attention_block
 from SeqRec.models.generative.common.cache import prepare_cache_position_and_position_ids

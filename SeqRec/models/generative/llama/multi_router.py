@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .configuration_llama import LlamaConfig
+from .configuration import LlamaConfig
 
 
 class LlamaMultiDecoderRouter(nn.Module):

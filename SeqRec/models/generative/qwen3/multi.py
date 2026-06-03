@@ -16,8 +16,8 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeRMSNorm, ap
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 
-from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP, DenseMLP, RouterMoeBlock
-from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
+from SeqRec.models.generative.qwen3.moe_ffn import MyQwen3SparseMLP, PBATransformerSparseMLP, DenseMLP, RouterMoeBlock
+from SeqRec.models.generative.qwen3.multi_router import Qwen3MultiDecoderRouter
 from SeqRec.models.generative.common.attention import CrossBehaviorAttentionMixin, run_multi_level_cross_attention_block, run_multi_level_self_attention_block
 from SeqRec.models.generative.common.cache import prepare_cache_position_and_position_ids
 from SeqRec.models.generative.common.decoder_loop import init_cross_level_cache_state, prepare_decoder_forward_state, reset_cross_level_cache_if_needed, run_multi_cross_decoder_layers

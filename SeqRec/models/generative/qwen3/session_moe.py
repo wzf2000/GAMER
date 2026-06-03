@@ -15,8 +15,8 @@ from transformers.cache_utils import SlidingWindowCache, StaticCache
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeAttention
 
-from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
-from SeqRec.models.generative.Qwen3Moe.router import Qwen3MoeDecoderRouter
+from SeqRec.models.generative.qwen3.moe_ffn import MyQwen3SparseMLP, PBATransformerSparseMLP
+from SeqRec.models.generative.qwen3.moe_router import Qwen3MoeDecoderRouter
 from SeqRec.models.generative.common.cache import prepare_cache_position_and_position_ids
 from SeqRec.models.generative.common.wrappers import ExtendedSessionPositionMixin
 from SeqRec.models.generative.common.session_masks import apply_attention_padding_mask, build_mask_context, build_incremental_causal_mask, build_session_in_item_self_mask

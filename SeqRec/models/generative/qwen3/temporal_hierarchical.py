@@ -19,9 +19,9 @@ from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.utils import can_return_tuple
 
-from SeqRec.models.generative.Qwen3Moe.FFN import DenseMLP, MyQwen3SparseMLP, PBATransformerSparseMLP, RouterMoeBlock
-from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
-from SeqRec.models.generative.Qwen3Multi.model import Qwen3MultiModelBase
+from SeqRec.models.generative.qwen3.moe_ffn import DenseMLP, MyQwen3SparseMLP, PBATransformerSparseMLP, RouterMoeBlock
+from SeqRec.models.generative.qwen3.multi_router import Qwen3MultiDecoderRouter
+from SeqRec.models.generative.qwen3.multi import Qwen3MultiModelBase
 from SeqRec.models.generative.common.cache import prepare_cache_position_and_position_ids
 from SeqRec.models.generative.common.decoder_loop import prepare_decoder_forward_state, run_temporal_hierarchical_decoder_layers
 from SeqRec.models.generative.common.wrappers import CustomCausalLMWrapperMixin
