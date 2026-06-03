@@ -6,10 +6,8 @@ import torch.distributed as dist
 from loguru import logger
 from typing import TYPE_CHECKING
 from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
-from torch.nn.parallel import DistributedDataParallel as DDP
 
-from SeqRec.tasks.multi_gpu import MultiGPUTask
+from SeqRec.tasks.evaluation.base import _BaseDecoderTestTask
 from SeqRec.datasets.loaders.sequential import load_test_dataset
 from SeqRec.datasets.collators.generative import EncoderDecoderTestCollator, DecoderOnlyTestCollator
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
@@ -24,7 +22,7 @@ if TYPE_CHECKING:
     from transformers.generation.utils import GenerateBeamOutput
 
 
-class TestDecoder(MultiGPUTask):
+class TestDecoder(_BaseDecoderTestTask):
     """
     Test a decoder for the SeqRec model.
     """
@@ -144,30 +142,10 @@ class TestDecoder(MultiGPUTask):
                 num_beams,
             )
 
-            if self.ddp:
-                batch_size_gather_list = [None for _ in range(self.world_size)]
-                dist.all_gather_object(obj=batch_size, object_list=batch_size_gather_list)
-                total += sum(batch_size_gather_list)
-                res_gather_list = [None for _ in range(self.world_size)]
-                dist.all_gather_object(obj=topk_res, object_list=res_gather_list)
-
-                all_device_topk_res = []
-                for ga_res in res_gather_list:
-                    all_device_topk_res += ga_res
-                topk_res = all_device_topk_res
-
-                if 'uid' in inputs:
-                    uid = inputs['uid']
-                    uid_gather_list = [None for _ in range(self.world_size)]
-                    dist.all_gather_object(obj=uid, object_list=uid_gather_list)
-                    all_device_uids = []
-                    for ga_uids in uid_gather_list:
-                        all_device_uids += ga_uids
-                    uid = all_device_uids
-            else:
-                total += batch_size
-                if 'uid' in inputs:
-                    uid = inputs['uid']
+            total += self._gather_sum(batch_size)
+            topk_res = self._gather_concat(topk_res)
+            if 'uid' in inputs:
+                uid = self._gather_concat(inputs['uid'])
 
             if 'uid' in inputs:
                 batch_metrics_res = get_metrics_results(topk_res, self.metric_list, list_output=True)
@@ -200,24 +178,8 @@ class TestDecoder(MultiGPUTask):
         for m in results:
             results[m] = results[m] / total
 
-        if len(user_metric_dict[self.metric_list[0]]) > 0:
-            # Save user-level metrics
-            save_path = os.path.join(
-                self.results_file.replace(".json", ""),
-                "user_level_metrics.json",
-            )
-            ensure_dir(os.path.dirname(save_path))
-            # sort the metric with uid and transform to list[float]
-            user_metric_list = {}
-            for m in user_metric_dict:
-                sorted_uids = sorted(user_metric_dict[m].keys())
-                user_metric_list[m] = [user_metric_dict[m][uid] for uid in sorted_uids]
-                assert len(user_metric_list[m]) == len(loader.dataset), "User-level metric length should match dataset length."
-                results[m] = np.mean(user_metric_list[m])  # Prevent duplicate user metric calculation by DistributedSampler
-            if self.local_rank == 0:
-                with open(save_path, 'w', encoding='utf-8') as f:
-                    json.dump(user_metric_list, f, indent=4)
-            self.info(f"Saved user-level metrics to {save_path}.")
+        save_path = os.path.join(self.results_file.replace(".json", ""), "user_level_metrics.json")
+        self._save_user_metrics(user_metric_dict, len(loader.dataset), save_path, results)
 
         return results
 
@@ -254,31 +216,7 @@ class TestDecoder(MultiGPUTask):
         Test the decoder using the provided arguments.
         """
         self.init(seed, False)
-        if backbone == 'TIGER':
-            from transformers import T5Config, T5Tokenizer
-            from SeqRec.models.generative.tiger import TIGER
-            self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
-            self.model = TIGER.from_pretrained(ckpt_path).to(self.device)
-            self.config: T5Config = self.model.config
-        elif backbone == 'PBATransformer':
-            from transformers import T5Tokenizer
-            from SeqRec.models.generative.pba_transformer import PBATransformerConfig, PBATransformerForConditionalGeneration
-            self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(ckpt_path, legacy=True)
-            self.model = PBATransformerForConditionalGeneration.from_pretrained(ckpt_path).to(self.device)
-            self.config: PBATransformerConfig = self.model.config
-        elif backbone == 'Qwen3':
-            from transformers import Qwen3Config, Qwen2Tokenizer
-            from SeqRec.models.generative.qwen3 import Qwen3WithTemperature
-            self.tokenizer: Qwen2Tokenizer = Qwen2Tokenizer.from_pretrained(ckpt_path)
-            self.model = Qwen3WithTemperature.from_pretrained(ckpt_path).to(self.device)
-            if self.model.config.pad_token_id is None:
-                self.model.config.pad_token_id = self.tokenizer.encode(self.tokenizer.pad_token, add_special_tokens=False)[0]
-            self.config: Qwen3Config = self.model.config
-        else:
-            raise ValueError(f"Unsupported backbone: {backbone}")
-
-        from transformers.generation import GenerationMixin
-        assert isinstance(self.model, GenerationMixin), "Model must be a generation model."
+        self._load_model_via_registry(backbone, ckpt_path)
         self.dataset = load_test_dataset(
             dataset,
             data_path,
@@ -286,17 +224,7 @@ class TestDecoder(MultiGPUTask):
             index_file,
             test_task,
         )
-        if self.ddp:
-            self.sampler = DistributedSampler(
-                self.dataset,
-                num_replicas=self.world_size,
-                rank=self.local_rank,
-                shuffle=False,
-            )
-            self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model).to(self.device)
-            self.model = DDP(self.model, device_ids=[self.local_rank])
-        else:
-            self.sampler = None
+        self.sampler = self._setup_ddp_for_datasets([self.dataset])[0]
 
         if backbone == 'Qwen3':
             collator = DecoderOnlyTestCollator(self.tokenizer)
@@ -341,15 +269,6 @@ class TestDecoder(MultiGPUTask):
         self.results_file = results_file
 
         results = self.test(num_beams)
-        logger.success("======================================================")
-        logger.success("Results:")
-        for m in results:
-            logger.success(f"\t{m} = {results[m]:.4f}")
-        logger.success("======================================================")
-        if self.local_rank == 0:
-            ensure_dir(os.path.dirname(self.results_file))
-            with open(self.results_file, "w") as f:
-                json.dump(results, f, indent=4)
-        logger.success(f"Results saved to {self.results_file}.")
+        self._save_results_and_log(results, self.results_file, multiple=False)
 
         self.finish(False)
