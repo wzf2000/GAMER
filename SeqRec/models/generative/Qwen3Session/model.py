@@ -10,7 +10,7 @@ from transformers.models.qwen3.modeling_qwen3 import KwargsForCausalLM
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 
-from SeqRec.models.generative.mixins import TemperatureMixin
+from SeqRec.models.generative.mixins import TemperatureMixin, prepare_cache_position_and_position_ids
 
 
 class Qwen3SessionModel(Qwen3Model):
@@ -121,14 +121,12 @@ class Qwen3SessionModel(Qwen3Model):
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache()
 
-        if cache_position is None:
-            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            cache_position = torch.arange(
-                past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
-            )
-
-        if position_ids is None:
-            position_ids = cache_position.unsqueeze(0)
+        cache_position, position_ids = prepare_cache_position_and_position_ids(
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            cache_position=cache_position,
+            position_ids=position_ids,
+        )
 
         causal_mask = self._update_session_wise_causal_mask(
             attention_mask=attention_mask,

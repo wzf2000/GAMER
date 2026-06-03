@@ -33,6 +33,7 @@ from SeqRec.tasks.generative_eval import (
     build_generation_kwargs,
     get_generation_model,
     get_item_token_info,
+    prepare_behavior_generation_prompt,
     slice_decoder_only_output,
 )
 from SeqRec.utils.futils import ensure_dir
@@ -162,31 +163,18 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
     ) -> tuple[list[str], torch.Tensor]:
         """Append behavior token, run beam search; return (output_str, scores)."""
         batch_size = inputs.input_ids.shape[0]
-        beh_str = "".join(dataset.get_behavior_tokens(behavior))
-        beh_enc = self.tokenizer.batch_encode_plus(
-            [beh_str] * batch_size, add_special_tokens=False
-        )
-        beh_ids = beh_enc["input_ids"]
-        beh_mask = beh_enc["attention_mask"]
 
         inp = copy.copy(inputs)
         gen_model = get_generation_model(self.model)
-
-        if is_decoder_only:
-            inp.input_ids = torch.cat(
-                [inp.input_ids, torch.tensor(beh_ids, device=self.device)], dim=1
-            )
-            inp.attention_mask = torch.cat(
-                [inp.attention_mask, torch.tensor(beh_mask, device=self.device)], dim=1
-            )
-            beh_action = [[dataset.behavior_level[behavior]]] * batch_size
-            inp.actions = torch.cat(
-                [inp.actions, torch.tensor(beh_action, device=self.device)], dim=1
-            )
-
-        decoder_input_ids = None
-        if not is_decoder_only:
-            decoder_input_ids = [[self.config.decoder_start_token_id] + tokens for tokens in beh_ids]
+        decoder_input_ids, _ = prepare_behavior_generation_prompt(
+            inputs=inp,
+            tokenizer=self.tokenizer,
+            dataset=dataset,
+            behaviors=[behavior] * batch_size,
+            device=self.device,
+            is_decoder_only=is_decoder_only,
+            decoder_start_token_id=self.config.decoder_start_token_id,
+        )
         gen_kwargs = build_generation_kwargs(
             backbone=backbone,
             inputs=inp,

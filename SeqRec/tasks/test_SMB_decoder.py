@@ -25,6 +25,7 @@ from SeqRec.tasks.generative_eval import (
     build_generation_kwargs,
     get_generation_model,
     get_item_token_info,
+    prepare_behavior_generation_prompt,
     slice_decoder_only_output,
 )
 from SeqRec.utils.futils import ensure_dir
@@ -114,21 +115,15 @@ class TestSMBDecoder(MultiGPUTask):
             batch_size = len(targets)
             behaviors: list[str] = [behavior for _ in range(batch_size)]
             dataset: BaseSMBDataset = loader.dataset
-            behavior_tokens = [''.join(dataset.get_behavior_tokens(b)) for b in behaviors]
-            behavior_tokens = self.tokenizer.batch_encode_plus(behavior_tokens, add_special_tokens=False)
-            behavior_token_num = [len(tokens) for tokens in behavior_tokens["input_ids"]]
-            # Check if all the behavior tokens are of the same length
-            assert len(set(behavior_token_num)) == 1, "All behavior tokens should be of the same length."
-            behavior_token_num = behavior_token_num[0]
-            behavior_attention_mask = behavior_tokens["attention_mask"]
-            behavior_tokens = behavior_tokens["input_ids"]
-            if is_decoder_only_backbone(self.backbone):
-                inputs.input_ids = torch.cat([inputs.input_ids, torch.tensor(behavior_tokens, device=self.device)], dim=1)
-                inputs.attention_mask = torch.cat([inputs.attention_mask, torch.tensor(behavior_attention_mask, device=self.device)], dim=1)
-                action = [[dataset.behavior_level[u]] for u in behaviors]
-                inputs.actions = torch.cat([inputs.actions, torch.tensor(action, device=self.device)], dim=1)
-            else:
-                decoder_input_ids = [[self.config.decoder_start_token_id] + tokens for tokens in behavior_tokens]
+            decoder_input_ids, behavior_token_num = prepare_behavior_generation_prompt(
+                inputs=inputs,
+                tokenizer=self.tokenizer,
+                dataset=dataset,
+                behaviors=behaviors,
+                device=self.device,
+                is_decoder_only=is_decoder_only_backbone(self.backbone),
+                decoder_start_token_id=self.config.decoder_start_token_id,
+            )
             prefix_allowed_tokens_fn = self.prefix_allowed_tokens_by_behavior[behavior]
 
             gen_model = get_generation_model(self.model)
