@@ -24,6 +24,7 @@ from SeqRec.models.generative.session_masks import (
     apply_attention_padding_mask,
     build_incremental_causal_mask,
     build_session_in_item_self_mask,
+    build_session_action_cross_mask,
     extend_cached_cross_mask,
 )
 
@@ -575,18 +576,15 @@ class Qwen3SessionMultiModel(Qwen3SessionMultiModelBase):
             assert session_ids is not None, "Session IDs must be provided to generate session-wise causal mask."
             # during training or the first time to generate, generate the complete causal mask
             target_length = sequence_length
-            causal_mask = torch.full(
-                (sequence_length, sequence_length),
-                fill_value=min_dtype,
+            causal_mask = build_session_action_cross_mask(
+                session_ids=session_ids,
+                actions=actions,
+                sequence_length=sequence_length,
+                batch_size=batch_size,
                 dtype=dtype,
-                device=device
+                device=device,
+                min_dtype=min_dtype,
             )
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            session_mask = (session_ids[:, None] >= session_ids[..., None])[:, None]  # [B, 1, S, S]
-            action_mask = (actions[:, None] >= actions[..., None])[:, None]
-            mask = ~(~session_mask & ~action_mask)
-            causal_mask *= mask
             if past_key_values is not None:
                 self.multi_cross_mask = causal_mask[:, :, -1, :]
         else:
