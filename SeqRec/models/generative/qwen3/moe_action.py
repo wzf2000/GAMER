@@ -29,9 +29,9 @@ from transformers.utils import (
 from transformers.utils.deprecation import deprecate_kwarg
 from transformers.models.qwen3_moe import Qwen3MoeConfig
 
-from SeqRec.models.generative.Qwen3Moe.FFN import PBATransformerSparseMLP
-from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
-from SeqRec.models.generative.Qwen3MoeAction.FFN import MyQwen3ActionMoeSparseMLP
+from SeqRec.models.generative.qwen3.moe_ffn import PBATransformerSparseMLP
+from SeqRec.models.generative.qwen3.multi_router import Qwen3MultiDecoderRouter
+from SeqRec.models.generative.qwen3.moe_action_ffn import MyQwen3ActionMoeSparseMLP
 from SeqRec.models.generative.common.cache import prepare_cache_position_and_position_ids
 from SeqRec.models.generative.common.temperature import TemperatureCausalLMLossMixin
 

@@ -26,13 +26,13 @@ from transformers.models.switch_transformers.modeling_switch_transformers import
     SwitchTransformersAttention,
 )
 
-from SeqRec.models.generative.PBATransformer.configuration import PBATransformerConfig
-from SeqRec.models.generative.PBATransformer.router import PBAEncoderRouter, PBADecoderRouter
-from SeqRec.models.generative.PBATransformer.FFN import (
+from SeqRec.models.generative.pba_transformer.configuration import PBATransformerConfig
+from SeqRec.models.generative.pba_transformer.router import PBAEncoderRouter, PBADecoderRouter
+from SeqRec.models.generative.pba_transformer.ffn import (
     PBATransformerDenseActDense,
     PBATransformerSparseMLP,
 )
-from SeqRec.models.generative.PBATransformer.block import PBATransformerBlock
+from SeqRec.models.generative.pba_transformer.block import PBATransformerBlock
 from SeqRec.models.generative.common.temperature import TemperatureMixin
 
 

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
 
-from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3MoeMLP
+from SeqRec.models.generative.qwen3.moe_ffn import MyQwen3MoeMLP
 
 
 class MyQwen3ActionMoeSparseMLP(nn.Module):

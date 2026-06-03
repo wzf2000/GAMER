@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from SeqRec.models.generative.PBATransformer.configuration import PBATransformerConfig
+from SeqRec.models.generative.pba_transformer.configuration import PBATransformerConfig
 
 
 class PBAEncoderRouter(nn.Module):
