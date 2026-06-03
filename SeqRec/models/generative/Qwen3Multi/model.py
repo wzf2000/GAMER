@@ -20,6 +20,11 @@ from transformers.activations import ACT2FN
 from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP, DenseMLP, RouterMoeBlock
 from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
 from SeqRec.models.generative.mixins import CustomCausalLMWrapperMixin, prepare_cache_position_and_position_ids
+from SeqRec.models.generative.session_masks import (
+    apply_attention_padding_mask,
+    build_incremental_causal_mask,
+    extend_cached_cross_mask,
+)
 
 
 class Qwen3MultiAttention(nn.Module):
@@ -699,29 +704,18 @@ class Qwen3MultiModel(Qwen3MultiModelBase):
         else:
             # not the first time to generate, generate the causal mask for the new tokens
             target_length = len(cache_position) + past_seen_tokens
-            b, h, _ = self.multi_cross_mask.shape
-            tmp = torch.full(
-                (b, h, 1),
-                fill_value=min_dtype,
+            self.multi_cross_mask, causal_mask = extend_cached_cross_mask(
+                self.multi_cross_mask,
                 dtype=dtype,
                 device=device,
+                min_dtype=min_dtype,
             )
-            causal_mask = torch.cat([self.multi_cross_mask, tmp], dim=-1)
-            self.multi_cross_mask = causal_mask
-            causal_mask = causal_mask[:, :, None, :]
-        if attention_mask is not None:
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            if attention_mask.shape[-1] > target_length:
-                attention_mask = attention_mask[:, :target_length]
-            mask_length = attention_mask.shape[-1]
-            padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :].to(
-                causal_mask.device
-            )
-            padding_mask = padding_mask == 0
-            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
-                padding_mask, min_dtype
-            )
-        return causal_mask
+        return apply_attention_padding_mask(
+            causal_mask,
+            attention_mask,
+            target_length=target_length,
+            min_dtype=min_dtype,
+        )
 
     def _update_session_wise_causal_mask(
         self,
@@ -752,28 +746,21 @@ class Qwen3MultiModel(Qwen3MultiModelBase):
         else:
             # not the first time to generate, generate the causal mask for the new tokens
             target_length = len(cache_position) + past_seen_tokens
-            causal_mask = torch.full(
-                (sequence_length, target_length),
-                fill_value=min_dtype,
+            causal_mask = build_incremental_causal_mask(
+                sequence_length=sequence_length,
+                target_length=target_length,
+                cache_position=cache_position,
+                batch_size=batch_size,
                 dtype=dtype,
                 device=device,
+                min_dtype=min_dtype,
             )
-            diagonal_attend_mask = torch.arange(target_length, device=device) > cache_position.reshape(-1, 1)
-            causal_mask *= diagonal_attend_mask
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-        if attention_mask is not None:
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            if attention_mask.shape[-1] > target_length:
-                attention_mask = attention_mask[:, :target_length]
-            mask_length = attention_mask.shape[-1]
-            padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :].to(
-                causal_mask.device
-            )
-            padding_mask = padding_mask == 0
-            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
-                padding_mask, min_dtype
-            )
-        return causal_mask
+        return apply_attention_padding_mask(
+            causal_mask,
+            attention_mask,
+            target_length=target_length,
+            min_dtype=min_dtype,
+        )
 
     @can_return_tuple
     def forward(
