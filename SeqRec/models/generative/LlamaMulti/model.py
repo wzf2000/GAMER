@@ -2,7 +2,6 @@ import torch
 from torch import nn
 from loguru import logger
 from typing import Unpack, Callable, Optional, Tuple
-from functools import partial
 from transformers.utils import can_return_tuple
 from transformers.cache_utils import Cache
 from transformers.models.llama import LlamaForCausalLM, LlamaPreTrainedModel
@@ -25,6 +24,7 @@ from SeqRec.models.generative.mixins import (
     prepare_cache_position_and_position_ids,
     prepare_decoder_forward_state,
     reset_cross_level_cache_if_needed,
+    run_multi_cross_decoder_layers,
 )
 from SeqRec.models.generative.session_masks import (
     apply_attention_padding_mask,
@@ -407,53 +407,27 @@ class LlamaMultiModel(LlamaPreTrainedModel):
         # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
-        # decoder layers
-        all_hidden_states = () if output_hidden_states else None
-        all_self_attns = () if output_attentions else None
-
-        for decoder_layer in self.layers[: self.config.num_hidden_layers]:
-            if output_hidden_states:
-                all_hidden_states += (hidden_states,)
-
-            if self.gradient_checkpointing and self.training:
-                layer_outputs = self._gradient_checkpointing_func(
-                    partial(decoder_layer.__call__, **flash_attn_kwargs),
-                    hidden_states,
-                    position_indices,
-                    behavior_indices,
-                    action_indices,
-                    multi_self_mask,
-                    multi_cross_mask,
-                    position_ids,
-                    past_key_values,
-                    output_attentions,
-                    use_cache,
-                    cache_position,
-                    position_embeddings,
-                    self.cross_past_key_values,
-                )
-            else:
-                layer_outputs = decoder_layer(
-                    hidden_states,
-                    position_indices,
-                    behavior_indices,
-                    action_indices,
-                    multi_self_mask=multi_self_mask,
-                    multi_cross_mask=multi_cross_mask,
-                    position_ids=position_ids,
-                    past_key_value=past_key_values,
-                    output_attentions=output_attentions,
-                    use_cache=use_cache,
-                    cache_position=cache_position,
-                    position_embeddings=position_embeddings,
-                    cross_past_key_value=self.cross_past_key_values,
-                    **flash_attn_kwargs,
-                )
-
-            hidden_states = layer_outputs[0]
-
-            if output_attentions:
-                all_self_attns += (layer_outputs[1],)
+        loop_outputs = run_multi_cross_decoder_layers(
+            self,
+            hidden_states=hidden_states,
+            position_indices=position_indices,
+            behavior_indices=behavior_indices,
+            action_indices=action_indices,
+            multi_self_mask=multi_self_mask,
+            multi_cross_mask=multi_cross_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            cross_past_key_values=self.cross_past_key_values,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            use_cache=use_cache,
+            cache_position=cache_position,
+            position_embeddings=position_embeddings,
+            flash_attn_kwargs=flash_attn_kwargs,
+        )
+        hidden_states = loop_outputs.hidden_states
+        all_hidden_states = loop_outputs.all_hidden_states
+        all_self_attns = loop_outputs.all_self_attns
 
         hidden_states = self.norm(hidden_states)
 
