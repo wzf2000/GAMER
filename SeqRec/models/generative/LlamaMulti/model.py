@@ -19,7 +19,11 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from SeqRec.models.generative.LlamaMulti.router import LlamaMultiDecoderRouter
 from transformers.activations import ACT2FN
-from SeqRec.models.generative.mixins import CustomCausalLMWrapperMixin, prepare_cache_position_and_position_ids
+from SeqRec.models.generative.mixins import (
+    CustomCausalLMWrapperMixin,
+    prepare_cache_position_and_position_ids,
+    prepare_decoder_forward_state,
+)
 from SeqRec.models.generative.session_masks import (
     apply_attention_padding_mask,
     build_action_level_cross_mask,
@@ -356,40 +360,27 @@ class LlamaMultiModel(LlamaPreTrainedModel):
         actions: torch.LongTensor | None = None,
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ) -> BaseModelOutputWithPast:
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        state = prepare_decoder_forward_state(
+            self,
+            input_ids=input_ids,
+            inputs_embeds=inputs_embeds,
+            past_key_values=past_key_values,
+            cache_position=cache_position,
+            position_ids=position_ids,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
         )
-        use_cache = use_cache if use_cache is not None else self.config.use_cache
-
-        if (input_ids is None) ^ (inputs_embeds is not None):
-            raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
-
-        if self.gradient_checkpointing and self.training and use_cache:
-            logger.warning(
-                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`."
-            )
-            use_cache = False
-
-        # TODO (joao): remove this exception in v4.56 -- it exists for users that try to pass a legacy cache
-        if not isinstance(past_key_values, (type(None), Cache)):
-            raise ValueError("The `past_key_values` should be either a `Cache` object or `None`.")
-
-        if inputs_embeds is None:
-            inputs_embeds = self.embed_tokens(input_ids)
-
-        if use_cache and past_key_values is None:
-            past_key_values = DynamicCache()
+        inputs_embeds = state.inputs_embeds
+        past_key_values = state.past_key_values
+        cache_position = state.cache_position
+        position_ids = state.position_ids
+        use_cache = state.use_cache
+        output_attentions = state.output_attentions
+        output_hidden_states = state.output_hidden_states
 
         if use_cache and past_key_values.get_seq_length() == 0:
             self.cross_past_key_values = DynamicCache()
-
-        cache_position, position_ids = prepare_cache_position_and_position_ids(
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            cache_position=cache_position,
-            position_ids=position_ids,
-        )
 
         position_indices, behavior_indices, action_indices = self.router(input_ids, cache_position=cache_position)
 
