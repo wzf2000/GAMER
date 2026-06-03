@@ -22,6 +22,7 @@ from transformers.activations import ACT2FN
 from SeqRec.models.generative.mixins import CustomCausalLMWrapperMixin, prepare_cache_position_and_position_ids
 from SeqRec.models.generative.session_masks import (
     apply_attention_padding_mask,
+    build_in_item_self_mask,
     build_incremental_causal_mask,
     extend_cached_cross_mask,
 )
@@ -666,15 +667,14 @@ class LlamaMultiModel(LlamaPreTrainedModel):
         if past_seen_tokens == 0:
             # during training or the first time to generate, generate the complete causal mask
             target_length = sequence_length
-            causal_mask = torch.full(
-                (sequence_length, sequence_length),
-                fill_value=min_dtype,
+            causal_mask = build_in_item_self_mask(
+                in_item_mask=self.in_item_mask,
+                sequence_length=sequence_length,
+                batch_size=batch_size,
                 dtype=dtype,
-                device=device
+                device=device,
+                min_dtype=min_dtype,
             )
-            causal_mask *= self.in_item_mask[:sequence_length, :sequence_length].to(device)
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
         else:
             # not the first time to generate, generate the causal mask for the new tokens
             target_length = len(cache_position) + past_seen_tokens

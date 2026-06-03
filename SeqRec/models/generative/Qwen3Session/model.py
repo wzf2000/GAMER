@@ -10,7 +10,11 @@ from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 
 from SeqRec.models.generative.mixins import ExtendedSessionPositionMixin, prepare_cache_position_and_position_ids
-from SeqRec.models.generative.session_masks import apply_attention_padding_mask, build_incremental_causal_mask
+from SeqRec.models.generative.session_masks import (
+    apply_attention_padding_mask,
+    build_incremental_causal_mask,
+    build_session_in_item_self_mask,
+)
 
 
 class Qwen3SessionModel(Qwen3Model):
@@ -44,17 +48,15 @@ class Qwen3SessionModel(Qwen3Model):
             assert session_ids is not None, "Session IDs must be provided to generate session-wise causal mask."
             # during training or the first time to generate, generate the complete causal mask
             target_length = sequence_length
-            causal_mask = torch.full(
-                (sequence_length, sequence_length),
-                fill_value=min_dtype,
+            causal_mask = build_session_in_item_self_mask(
+                in_item_mask=self.in_item_mask,
+                session_ids=session_ids,
+                sequence_length=sequence_length,
+                batch_size=batch_size,
                 dtype=dtype,
-                device=device
+                device=device,
+                min_dtype=min_dtype,
             )
-            causal_mask *= self.in_item_mask[:sequence_length, :sequence_length].to(device)
-            causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            session_mask = (session_ids[:, None] >= session_ids[..., None])[:, None]  # [B, 1, S, S]
-            causal_mask *= session_mask
         else:
             # not the first time to generate, generate the causal mask for the new tokens
             target_length = len(cache_position) + past_seen_tokens
