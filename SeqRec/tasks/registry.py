@@ -14,8 +14,8 @@ TASK_SPECS: dict[str, str] = {
     "test_decoder": "SeqRec.tasks.evaluation.test_decoder:TestDecoder",
     "test_MB_decoder": "SeqRec.tasks.evaluation.test_MB_decoder:TestMBDecoder",
     "test_SMB_decoder": "SeqRec.tasks.evaluation.test_SMB_decoder:TestSMBDecoder",
-    "test_MB_rule": "SeqRec.tasks.evaluation.test_MB_rule:TestMBRule",
-    "test_SMB_rule": "SeqRec.tasks.evaluation.test_SMB_rule:TestSMBRule",
+    "test_MB_rule": "SeqRec.tasks.evaluation.rule:TestMBRule",
+    "test_SMB_rule": "SeqRec.tasks.evaluation.rule:TestSMBRule",
     "analyze_behavior_dropout": "SeqRec.tasks.analysis.behavior_dropout:AnalyzeBehaviorDropout",
     "analyze_sparse_behavior": "SeqRec.tasks.analysis.sparse_behavior:AnalyzeSparseTargetBehavior",
 }
