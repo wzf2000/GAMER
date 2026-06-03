@@ -1,6 +1,5 @@
 import os
 import torch
-import torch.distributed as dist
 from typing import TYPE_CHECKING
 from torch.utils.data import DataLoader
 
@@ -119,25 +118,15 @@ class TestDecoder(_BaseDecoderTestTask):
                 results=results,
                 user_metric_dict=user_metric_dict,
             )
-
-            if self.local_rank == 0:
-                show_metric_keys = self.metric_list[:2]  # Show only the first two metrics
-                show_metric_dict = {
-                    m: f"{results[m] / total:.4f}" for m in show_metric_keys if m in results
-                }
-                pbar.set_postfix(show_metric_dict)
-                pbar.update(1)
-            if self.ddp:
-                dist.barrier()
-
-        if self.ddp:
-            dist.barrier()
-        for m in results:
-            results[m] = results[m] / total
+            self._pbar_step(pbar, results=results, total=total)
 
         save_path = os.path.join(self.results_file.replace(".json", ""), "user_level_metrics.json")
-        self._save_user_metrics(user_metric_dict, len(loader.dataset), save_path, results)
-
+        self._finalize_loop_metrics(
+            results=results, total=total,
+            user_metric_dict=user_metric_dict,
+            dataset_len=len(loader.dataset),
+            save_path=save_path,
+        )
         return results
 
     def test(self, num_beams: int) -> dict[str, float]:

@@ -94,6 +94,41 @@ class _BaseDecoderTestTask(MultiGPUTask):
                 pbar.close()
             self.info(f"Validation loss: {np.mean(losses):.4f} for dataset {i}.")
 
+    def _pbar_step(self, pbar, *, results: dict[str, float], total: int, extras: dict[str, str] | None = None):
+        """Update the progress bar with the first two running metrics (rank 0
+        only) and synchronize ranks afterwards. ``extras`` lets a subclass
+        append task-specific postfix fields (e.g. SMB's duplicate ratio)."""
+        if self.local_rank == 0:
+            show_metric_dict = {
+                m: f"{results[m] / total:.4f}"
+                for m in self.metric_list[:2]
+                if m in results
+            }
+            if extras:
+                show_metric_dict.update(extras)
+            pbar.set_postfix(show_metric_dict)
+            pbar.update(1)
+        if self.ddp:
+            dist.barrier()
+
+    def _finalize_loop_metrics(
+        self,
+        *,
+        results: dict[str, float],
+        total: int,
+        user_metric_dict: dict[str, dict[int, float]],
+        dataset_len: int,
+        save_path: str,
+    ):
+        """End-of-loop wrap-up: divide accumulated metrics by total, then save
+        per-uid metrics. ``results`` is mutated in place."""
+        if self.ddp:
+            dist.barrier()
+        for m in results:
+            if isinstance(results[m], (int, float)):
+                results[m] = results[m] / total
+        self._save_user_metrics(user_metric_dict, dataset_len, save_path, results)
+
     def _accumulate_batch_metrics(
         self,
         *,
