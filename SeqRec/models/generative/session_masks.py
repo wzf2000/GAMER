@@ -24,6 +24,26 @@ def build_mask_context(input_tensor: torch.FloatTensor, past_key_values) -> Mask
     )
 
 
+def build_flattened_in_item_mask(*, num_positions: int, model_max_length: int) -> torch.Tensor:
+    max_item_num = model_max_length // num_positions
+    mask_size = num_positions * max_item_num
+    block_lower = torch.tril(torch.ones(mask_size, mask_size), diagonal=-1)
+    block_lower += torch.eye(mask_size)
+    return 1 - block_lower
+
+
+def build_session_item_in_item_mask(*, num_positions: int, model_max_length: int) -> torch.Tensor:
+    max_item_num = model_max_length // num_positions
+    mask_size = num_positions * max_item_num
+    in_item_mask = torch.eye(mask_size)
+    block_lower = torch.tril(torch.ones(num_positions, num_positions), diagonal=-1)
+    for i in range(max_item_num):
+        st = i * num_positions
+        ed = (i + 1) * num_positions
+        in_item_mask[st:ed, st:ed] += block_lower
+    return 1 - in_item_mask
+
+
 def apply_attention_padding_mask(
     causal_mask: torch.Tensor,
     attention_mask: torch.Tensor | None,

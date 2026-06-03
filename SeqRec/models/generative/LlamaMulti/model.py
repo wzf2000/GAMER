@@ -4,7 +4,7 @@ from loguru import logger
 from typing import Unpack, Callable, Optional, Tuple
 from functools import partial
 from transformers.utils import can_return_tuple
-from transformers.cache_utils import Cache, DynamicCache
+from transformers.cache_utils import Cache
 from transformers.models.llama import LlamaForCausalLM, LlamaPreTrainedModel
 from .configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import LlamaRMSNorm, LlamaRotaryEmbedding
@@ -21,12 +21,15 @@ from SeqRec.models.generative.LlamaMulti.router import LlamaMultiDecoderRouter
 from transformers.activations import ACT2FN
 from SeqRec.models.generative.mixins import (
     CustomCausalLMWrapperMixin,
+    init_cross_level_cache_state,
     prepare_cache_position_and_position_ids,
     prepare_decoder_forward_state,
+    reset_cross_level_cache_if_needed,
 )
 from SeqRec.models.generative.session_masks import (
     apply_attention_padding_mask,
     build_action_level_cross_mask,
+    build_flattened_in_item_mask,
     build_in_item_self_mask,
     build_incremental_causal_mask,
     build_mask_context,
@@ -328,13 +331,11 @@ class LlamaMultiModel(LlamaPreTrainedModel):
         assert 'num_positions' in config and isinstance(config.num_positions, int), "Config must have 'num_positions' attribute for LlamaMultiModel."
         assert 'model_max_length' in config and isinstance(config.model_max_length, int), "Config must have 'model_max_length' attribute for LlamaMultiModel."
         self.behavior_maps = config.behavior_maps
-        max_item_num = config.model_max_length // config.num_positions
-        block_lower = torch.tril(torch.ones(config.num_positions * max_item_num, config.num_positions * max_item_num), diagonal=-1)
-        block_lower += torch.eye(config.num_positions * max_item_num)
-        self.in_item_mask = 1 - block_lower
-        self.cross_past_key_values = None
-        self.multi_self_mask = None
-        self.multi_cross_mask = None
+        self.in_item_mask = build_flattened_in_item_mask(
+            num_positions=config.num_positions,
+            model_max_length=config.model_max_length,
+        )
+        init_cross_level_cache_state(self)
         logger.info(f"Using cross_mask_type: {getattr(config, 'cross_mask_type', 'level')} for LlamaMultiModel.")
 
     def get_input_embeddings(self):
@@ -379,8 +380,7 @@ class LlamaMultiModel(LlamaPreTrainedModel):
         output_attentions = state.output_attentions
         output_hidden_states = state.output_hidden_states
 
-        if use_cache and past_key_values.get_seq_length() == 0:
-            self.cross_past_key_values = DynamicCache()
+        reset_cross_level_cache_if_needed(self, use_cache=use_cache, past_key_values=past_key_values)
 
         position_indices, behavior_indices, action_indices = self.router(input_ids, cache_position=cache_position)
 

@@ -89,6 +89,22 @@ def prepare_decoder_forward_state(
     )
 
 
+def init_cross_level_cache_state(model: torch.nn.Module):
+    model.cross_past_key_values = None
+    model.multi_self_mask = None
+    model.multi_cross_mask = None
+
+
+def reset_cross_level_cache_if_needed(
+    model: torch.nn.Module,
+    *,
+    use_cache: bool,
+    past_key_values: Cache | None,
+):
+    if use_cache and past_key_values is not None and past_key_values.get_seq_length() == 0:
+        model.cross_past_key_values = DynamicCache()
+
+
 class TemperatureMixin:
     def init_temperature(self):
         self.temperature = 1.0
