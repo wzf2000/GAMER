@@ -2,7 +2,7 @@ import torch
 from typing import Any
 
 from SeqRec.datasets.collator import DecoderOnlyCollator, EncoderDecoderCollator
-from SeqRec.models.generative.registry import is_decoder_only_backbone
+from SeqRec.models.generative.registry import instantiate_generative_model, is_decoder_only_backbone
 from SeqRec.utils.futils import ensure_dir
 
 
@@ -35,6 +35,116 @@ def get_behavior_token_ids(dataset: Any, tokenizer: Any) -> list[int]:
         tokenizer.encode(token, add_special_tokens=False)[0]
         for token in behavior_tokens
     ]
+
+
+def _get_single_item(first_dataset: Any, target_behavior_item: bool) -> str:
+    all_items = first_dataset.get_all_items()
+    single_item = list(all_items)[0]
+    if target_behavior_item:
+        single_item = first_dataset.get_behavior_item(single_item, first_dataset.target_behavior)
+    return single_item
+
+
+def _disable_behavior_injection(config: Any):
+    config.behavior_injection = False
+    config.behavior_injection_encoder = []
+    config.behavior_injection_decoder = []
+
+
+def _configure_behavior_tokens(
+    config: Any,
+    first_dataset: Any,
+    tokenizer: Any,
+    behavior_token_ids: list[int] | None,
+):
+    if behavior_token_ids is None:
+        behavior_token_ids = get_behavior_token_ids(first_dataset, tokenizer)
+
+    behavior_maps = {
+        behavior_token: i
+        for i, behavior_token in enumerate(behavior_token_ids)
+    }
+    config.num_behavior = len(behavior_maps)
+    config.behavior_maps = behavior_maps
+    config.use_behavior_token = (
+        len(first_dataset.get_behavior_tokens(first_dataset.target_behavior)) > 0
+    )
+    if not config.use_behavior_token:
+        _disable_behavior_injection(config)
+
+
+def _configure_position_experts(config: Any, tokenizer: Any, single_item: str):
+    single_item_ids = tokenizer.encode(single_item, add_special_tokens=False)
+    config.num_positions = len(single_item_ids)
+    if not config.Moe_behavior_only:
+        config.num_experts = config.num_positions + 1
+    else:
+        config.num_experts = 2
+
+
+def prepare_generative_model_for_training(
+    *,
+    backbone: str,
+    train_profile: str,
+    config: Any,
+    tokenizer: Any,
+    first_dataset: Any,
+    max_his_len: int,
+    model_max_length: int,
+    temperature: float,
+    info,
+    behavior_token_ids: list[int] | None = None,
+    pba_uses_temperature: bool = False,
+):
+    if train_profile == "basic":
+        model = instantiate_generative_model(backbone, config)
+        model.set_hyper(temperature)
+        return model
+
+    target_behavior_item = hasattr(first_dataset, "target_behavior") and hasattr(first_dataset, "get_behavior_item")
+    single_item = _get_single_item(first_dataset, target_behavior_item)
+
+    if train_profile == "pba":
+        if target_behavior_item:
+            _configure_behavior_tokens(config, first_dataset, tokenizer, behavior_token_ids)
+        else:
+            config.num_behavior = 0
+            config.use_behavior_token = False
+            _disable_behavior_injection(config)
+        _configure_position_experts(config, tokenizer, single_item)
+        config.n_positions = max_his_len
+        config.use_user_token = False
+        info(f"PBATransformer Model Config: {config}")
+        model = instantiate_generative_model(backbone, config)
+        if pba_uses_temperature:
+            model.set_hyper(temperature)
+        return model
+
+    if train_profile == "multi_behavior":
+        if target_behavior_item:
+            _configure_behavior_tokens(config, first_dataset, tokenizer, behavior_token_ids)
+        else:
+            config.num_behavior = 0
+            config.use_behavior_token = False
+            _disable_behavior_injection(config)
+        _configure_position_experts(config, tokenizer, single_item)
+        config.n_positions = max_his_len + 1
+        config.use_user_token = False
+        config.model_max_length = model_max_length
+        info(f"Model Config: {config}")
+        model = instantiate_generative_model(backbone, config)
+        model.set_hyper(temperature)
+        return model
+
+    if train_profile == "session":
+        single_item_ids = tokenizer.encode(single_item, add_special_tokens=False)
+        config.num_positions = len(single_item_ids)
+        config.model_max_length = model_max_length
+        model = instantiate_generative_model(backbone, config)
+        model.set_hyper(temperature)
+        return model
+
+    raise ValueError(f"Unsupported backbone model: {backbone}")
 
 
 def build_train_collator(
