@@ -1,18 +1,21 @@
 import os
 import torch
-import numpy as np
 import torch.distributed as dist
 from loguru import logger
-from typing import Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from torch.utils.data import DataLoader
 
 from SeqRec.tasks.evaluation.base import _BaseDecoderTestTask
 from SeqRec.datasets.loaders.multi_behavior import load_MB_test_dataset, load_MB_valid_dataset
 from SeqRec.datasets.multi_behavior import BaseMBDataset, EvaluationType
 from SeqRec.datasets.collators.generative import EncoderDecoderTestCollator, DecoderOnlyTestCollator, EncoderDecoderCollator, DecoderOnlyCollator
-from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
-from SeqRec.generation.trie import Trie, prefix_allowed_tokens_fn, prefix_allowed_tokens_fn_by_last_token
-from SeqRec.utils.fs import ensure_dir
+from SeqRec.tasks.evaluation.helpers import (
+    build_behavior_prefix_fns,
+    build_candidate_prefix_fn,
+    build_generation_kwargs,
+    get_generation_model,
+    get_item_token_info,
+)
 from SeqRec.utils.args import SubParsersAction, parse_global_args, parse_dataset_args, parse_generation_eval_args
 from SeqRec.utils.runtime import get_tqdm
 
@@ -78,7 +81,6 @@ class TestMBDecoder(_BaseDecoderTestTask):
         return ret_list
 
     def test_single_type(self, loader: DataLoader, num_beams: int, eval_type: EvaluationType | None = None) -> dict[str, float]:
-        from transformers.generation import GenerationMixin
         results: dict[str, float] = {}
         total = 0
         pbar = get_tqdm(desc="Testing" if eval_type is None else f"Testing ({eval_type.value})", total=len(loader))
@@ -117,29 +119,20 @@ class TestMBDecoder(_BaseDecoderTestTask):
             batch_size = len(targets)
 
             if self.backbone == 'Qwen3':
-                output: "GenerateBeamOutput" = (
-                    self.model
-                    if isinstance(self.model, GenerationMixin)
-                    else
-                    self.model.module
-                ).generate(
-                    input_ids=inputs.input_ids,
-                    attention_mask=inputs.attention_mask,
+                gen_kwargs = build_generation_kwargs(
+                    backbone=self.backbone,
+                    inputs=inputs,
                     max_new_tokens=max_new_tokens,
                     prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
                     num_beams=num_beams,
-                    num_return_sequences=num_beams,
-                    output_scores=True,
-                    return_dict_in_generate=True,
-                    early_stopping=True,
+                    device=self.device,
                 )
+                output: "GenerateBeamOutput" = get_generation_model(self.model).generate(**gen_kwargs)
             elif self.backbone == 'Qwen3Multi':
-                output: "GenerateBeamOutput" = (
-                    self.model
-                    if isinstance(self.model, GenerationMixin)
-                    else
-                    self.model.module
-                ).generate(
+                # Inlined: build_generation_kwargs would access inputs.session_ids
+                # because Qwen3Multi.uses_sessions=True in the registry, but the MB
+                # dataset/collator does not produce session_ids.
+                output: "GenerateBeamOutput" = get_generation_model(self.model).generate(
                     input_ids=inputs.input_ids,
                     attention_mask=inputs.attention_mask,
                     actions=inputs.actions,
@@ -152,23 +145,17 @@ class TestMBDecoder(_BaseDecoderTestTask):
                     early_stopping=True,
                 )
             else:
-                output: "GenerateBeamOutput" = (
-                    self.model
-                    if isinstance(self.model, GenerationMixin)
-                    else
-                    self.model.module
-                ).generate(
-                    input_ids=inputs.input_ids,
-                    attention_mask=inputs.attention_mask,
-                    decoder_input_ids=torch.tensor(decoder_input_ids, device=self.device),
+                gen_kwargs = build_generation_kwargs(
+                    backbone=self.backbone,
+                    inputs=inputs,
                     max_new_tokens=10,
                     prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
                     num_beams=num_beams,
-                    num_return_sequences=num_beams,
-                    output_scores=True,
-                    return_dict_in_generate=True,
-                    early_stopping=True,
+                    device=self.device,
+                    decoder_input_ids=decoder_input_ids,
+                    decoder_start_token_id=self.config.decoder_start_token_id,
                 )
+                output: "GenerateBeamOutput" = get_generation_model(self.model).generate(**gen_kwargs)
             output_ids = output.sequences
             scores = output.sequences_scores
 
@@ -177,33 +164,16 @@ class TestMBDecoder(_BaseDecoderTestTask):
 
             output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
 
-            topk_res = get_topk_results(
-                output_str,
-                scores,
-                targets,
-                num_beams,
+            total += self._accumulate_batch_metrics(
+                output_str=output_str,
+                scores=scores,
+                targets=targets,
+                inputs=inputs,
+                batch_size=batch_size,
+                num_beams=num_beams,
+                results=results,
+                user_metric_dict=user_metric_dict,
             )
-
-            total += self._gather_sum(batch_size)
-            topk_res = self._gather_concat(topk_res)
-            if 'uid' in inputs:
-                uid = self._gather_concat(inputs['uid'])
-
-            if 'uid' in inputs:
-                batch_metrics_res = get_metrics_results(topk_res, self.metric_list, list_output=True)
-                for m in batch_metrics_res:
-                    for i in range(len(uid)):
-                        user_metric_dict[m][uid[i]] = batch_metrics_res[m][i]
-                batch_metrics_res = {
-                    m: sum(batch_metrics_res[m]) for m in batch_metrics_res
-                }
-            else:
-                batch_metrics_res = get_metrics_results(topk_res, self.metric_list, list_output=False)
-            for m, res in batch_metrics_res.items():
-                if m not in results:
-                    results[m] = res
-                else:
-                    results[m] += res
 
             if self.local_rank == 0:
                 show_metric_keys = self.metric_list[:2]  # Show only the first two metrics
@@ -312,36 +282,29 @@ class TestMBDecoder(_BaseDecoderTestTask):
 
             self.all_behavior_items = self.datasets[0].get_all_items("all")
             item_reps = list(self.all_behavior_items)
-            items_tokens = self.tokenizer.batch_encode_plus(item_reps, add_special_tokens=False)["input_ids"]
-            self.item_len = len(items_tokens[0])
+            _, self.item_len, last_token_set = get_item_token_info(
+                self.tokenizer, item_reps, self.config.pad_token_id,
+            )
             self.sole_item_len = len(self.tokenizer.encode(next(iter(self.all_items)), add_special_tokens=False))
-            last_token_set: set[int] = set([tokens[-1] for tokens in items_tokens])
-            last_token_set.add(self.config.pad_token_id)  # Ensure pad token is included
             self.info("Complete get all behavior items last token set.")
-            if backbone in ['Qwen3', 'Qwen3Multi']:
-                candidate_trie = Trie(items_tokens)
-                self.prefix_allowed_tokens = prefix_allowed_tokens_fn_by_last_token(candidate_trie, last_token_set)
-            else:
-                candidate_tokens = self.tokenizer.batch_encode_plus(list(self.all_behavior_items))["input_ids"]
-                # Add decoder start token id to each candidate
-                candidate_tokens = [[self.config.decoder_start_token_id] + tokens for tokens in candidate_tokens]
-                candidate_trie = Trie(candidate_tokens)
-                self.prefix_allowed_tokens = prefix_allowed_tokens_fn(candidate_trie)
+
+            self.prefix_allowed_tokens = build_candidate_prefix_fn(
+                backbone=backbone,
+                tokenizer=self.tokenizer,
+                config=self.config,
+                items=item_reps,
+                last_token_set=last_token_set,
+            )
             self.info("Complete building all behavior candidate trie for prefix allowed tokens function.")
-            self.prefix_allowed_tokens_by_behavior: dict[str, Callable[[int, torch.Tensor], list[int]]] = {}
-            behaviors = self.datasets[0].behaviors
-            for behavior in behaviors:
-                all_items = self.datasets[0].get_all_items(behavior)
-                if backbone in ['Qwen3', 'Qwen3Multi']:
-                    candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items), add_special_tokens=False)["input_ids"]
-                    behavior_trie = Trie(candidate_tokens)
-                    self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn_by_last_token(behavior_trie, last_token_set)
-                else:
-                    candidate_tokens = self.tokenizer.batch_encode_plus(list(all_items))["input_ids"]
-                    # Add decoder start token id to each candidate
-                    candidate_tokens = [[self.config.decoder_start_token_id] + tokens for tokens in candidate_tokens]
-                    behavior_trie = Trie(candidate_tokens)
-                    self.prefix_allowed_tokens_by_behavior[behavior] = prefix_allowed_tokens_fn(behavior_trie)
+
+            self.prefix_allowed_tokens_by_behavior = build_behavior_prefix_fns(
+                backbone=backbone,
+                tokenizer=self.tokenizer,
+                config=self.config,
+                dataset=self.datasets[0],
+                last_token_set=last_token_set,
+            )
+            for behavior in self.datasets[0].behaviors:
                 self.info(f"Complete building candidate trie for behavior {behavior} prefix allowed tokens function.")
             self.info("Complete building candidate trie for prefix allowed tokens function.")
 

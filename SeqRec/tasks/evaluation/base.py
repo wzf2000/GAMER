@@ -24,6 +24,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
+from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.models.generative.registry import load_model_and_tokenizer
 from SeqRec.utils.fs import ensure_dir
 from SeqRec.utils.runtime import get_tqdm
@@ -92,6 +93,57 @@ class _BaseDecoderTestTask(MultiGPUTask):
             if pbar:
                 pbar.close()
             self.info(f"Validation loss: {np.mean(losses):.4f} for dataset {i}.")
+
+    def _accumulate_batch_metrics(
+        self,
+        *,
+        output_str: list[str],
+        scores: torch.Tensor,
+        targets,
+        inputs,
+        batch_size: int,
+        num_beams: int,
+        results: dict[str, float],
+        user_metric_dict: dict[str, dict[int, float]],
+        multi_target: bool = False,
+    ) -> int:
+        """Run the shared loop tail used by every ``test_single_*`` method.
+
+        Steps (equivalent to the previous inlined code):
+          1. ``get_topk_results`` from local outputs.
+          2. ``_gather_sum`` the batch size and ``_gather_concat`` the topk list
+             (and the targets list, only when ``multi_target=True``).
+          3. ``_gather_concat`` ``inputs['uid']`` if present, and track per-uid
+             metric values in ``user_metric_dict``.
+          4. Sum the per-batch metric values into ``results`` (mutated in place).
+
+        Returns the delta to add to the caller's running ``total`` count.
+        ``multi_target=True`` is for SMB where ``get_metrics_results`` needs the
+        gathered targets list (multi-label targets).
+        """
+        topk_res = get_topk_results(output_str, scores, targets, num_beams)
+        delta_total = self._gather_sum(batch_size)
+        topk_res = self._gather_concat(topk_res)
+        if multi_target:
+            targets = self._gather_concat(targets)
+        uid = self._gather_concat(inputs["uid"]) if "uid" in inputs else None
+
+        metric_args = (topk_res, self.metric_list) + ((targets,) if multi_target else ())
+        if uid is not None:
+            batch_metrics_res = get_metrics_results(*metric_args, list_output=True)
+            for m in batch_metrics_res:
+                for i in range(len(uid)):
+                    user_metric_dict[m][uid[i]] = batch_metrics_res[m][i]
+            batch_metrics_res = {m: sum(v) for m, v in batch_metrics_res.items()}
+        else:
+            batch_metrics_res = get_metrics_results(*metric_args, list_output=False)
+
+        for m, res in batch_metrics_res.items():
+            if m not in results:
+                results[m] = res
+            else:
+                results[m] += res
+        return delta_total
 
     def _save_user_metrics(
         self,

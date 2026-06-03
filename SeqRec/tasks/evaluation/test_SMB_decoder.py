@@ -10,7 +10,6 @@ from SeqRec.datasets.loaders.session_behavior import load_SMB_test_dataset, load
 from SeqRec.datasets.multi_behavior import EvaluationType
 from SeqRec.datasets.session_behavior import BaseSMBDataset
 from SeqRec.datasets.collators.generative import EncoderDecoderTestCollator, DecoderOnlyTestCollator, EncoderDecoderCollator, DecoderOnlyCollator
-from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
 from SeqRec.models.generative.registry import is_decoder_only_backbone
 from SeqRec.tasks.evaluation.helpers import (
     build_behavior_prefix_fns,
@@ -144,36 +143,18 @@ class TestSMBDecoder(_BaseDecoderTestTask):
                 intersection = output_item_set.intersection(history_item_set)
                 duplicate_ratio.append(len(intersection) / len(output_item_set) if len(output_item_set) > 0 else 0)
 
-            topk_res = get_topk_results(
-                output_str,
-                scores,
-                targets,
-                num_beams,
+            total += self._accumulate_batch_metrics(
+                output_str=output_str,
+                scores=scores,
+                targets=targets,
+                inputs=inputs,
+                batch_size=batch_size,
+                num_beams=num_beams,
+                results=results,
+                user_metric_dict=user_metric_dict,
+                multi_target=True,
             )
-
-            total += self._gather_sum(batch_size)
-            topk_res = self._gather_concat(topk_res)
-            targets = self._gather_concat(targets)
-            duplicate_ratio = self._gather_concat(duplicate_ratio)
-            if 'uid' in inputs:
-                uid = self._gather_concat(inputs['uid'])
-
-            if 'uid' in inputs:
-                batch_metrics_res = get_metrics_results(topk_res, self.metric_list, targets, list_output=True)
-                for m in batch_metrics_res:
-                    for i in range(len(uid)):
-                        user_metric_dict[m][uid[i]] = batch_metrics_res[m][i]
-                batch_metrics_res = {
-                    m: sum(batch_metrics_res[m]) for m in batch_metrics_res
-                }
-            else:
-                batch_metrics_res = get_metrics_results(topk_res, self.metric_list, targets, list_output=False)
-            for m, res in batch_metrics_res.items():
-                if m not in results:
-                    results[m] = res
-                else:
-                    results[m] += res
-            duplicate_ratios.extend(duplicate_ratio)
+            duplicate_ratios.extend(self._gather_concat(duplicate_ratio))
 
             if self.local_rank == 0:
                 show_metric_keys = self.metric_list[:2]  # Show only the first two metrics
