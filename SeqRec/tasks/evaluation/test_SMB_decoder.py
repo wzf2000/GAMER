@@ -1,24 +1,17 @@
 import os
-import json
-import torch
 import numpy as np
 import torch.distributed as dist
 from loguru import logger
-from typing import Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
-from torch.nn.parallel import DistributedDataParallel as DDP
 
-from SeqRec.tasks.multi_gpu import MultiGPUTask
+from SeqRec.tasks.evaluation.base import _BaseDecoderTestTask
 from SeqRec.datasets.loaders.session_behavior import load_SMB_test_dataset, load_SMB_valid_dataset
 from SeqRec.datasets.multi_behavior import EvaluationType
 from SeqRec.datasets.session_behavior import BaseSMBDataset
 from SeqRec.datasets.collators.generative import EncoderDecoderTestCollator, DecoderOnlyTestCollator, EncoderDecoderCollator, DecoderOnlyCollator
 from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
-from SeqRec.models.generative.registry import (
-    is_decoder_only_backbone,
-    load_model_and_tokenizer,
-)
+from SeqRec.models.generative.registry import is_decoder_only_backbone
 from SeqRec.tasks.evaluation.helpers import (
     build_behavior_prefix_fns,
     build_candidate_prefix_fn,
@@ -28,7 +21,6 @@ from SeqRec.tasks.evaluation.helpers import (
     prepare_behavior_generation_prompt,
     slice_decoder_only_output,
 )
-from SeqRec.utils.fs import ensure_dir
 from SeqRec.utils.args import SubParsersAction, parse_global_args, parse_dataset_args, parse_generation_eval_args
 from SeqRec.utils.runtime import get_tqdm
 
@@ -36,10 +28,9 @@ from SeqRec.utils.runtime import get_tqdm
 if TYPE_CHECKING:
     from transformers import BatchEncoding
     from transformers.generation.utils import GenerateBeamOutput
-    from transformers.utils import ModelOutput
 
 
-class TestSMBDecoder(MultiGPUTask):
+class TestSMBDecoder(_BaseDecoderTestTask):
     """
     Test a SMB decoder for the SeqRec model.
     """
@@ -160,43 +151,12 @@ class TestSMBDecoder(MultiGPUTask):
                 num_beams,
             )
 
-            if self.ddp:
-                batch_size_gather_list = [None for _ in range(self.world_size)]
-                dist.all_gather_object(obj=batch_size, object_list=batch_size_gather_list)
-                total += sum(batch_size_gather_list)
-                res_gather_list = [None for _ in range(self.world_size)]
-                dist.all_gather_object(obj=topk_res, object_list=res_gather_list)
-                targets_gather_list = [None for _ in range(self.world_size)]
-                dist.all_gather_object(obj=targets, object_list=targets_gather_list)
-                duplicate_ratio_gather_list = [None for _ in range(self.world_size)]
-                dist.all_gather_object(obj=duplicate_ratio, object_list=duplicate_ratio_gather_list)
-
-                all_device_topk_res = []
-                for ga_res in res_gather_list:
-                    all_device_topk_res += ga_res
-                topk_res = all_device_topk_res
-
-                all_device_targets = []
-                for ga_targets in targets_gather_list:
-                    all_device_targets += ga_targets
-                targets = all_device_targets
-                all_device_duplicate_ratio = []
-                for ga_duplicate_ratio in duplicate_ratio_gather_list:
-                    all_device_duplicate_ratio += ga_duplicate_ratio
-                duplicate_ratio = all_device_duplicate_ratio
-
-                if 'uid' in inputs:
-                    uid = inputs['uid']
-                    uid_gather_list = [None for _ in range(self.world_size)]
-                    dist.all_gather_object(obj=uid, object_list=uid_gather_list)
-                    all_device_uids = []
-                    for ga_uids in uid_gather_list:
-                        all_device_uids += ga_uids
-                    uid = all_device_uids
-            else:
-                total += batch_size
-                if 'uid' in inputs:
-                    uid = inputs['uid']
+            total += self._gather_sum(batch_size)
+            topk_res = self._gather_concat(topk_res)
+            targets = self._gather_concat(targets)
+            duplicate_ratio = self._gather_concat(duplicate_ratio)
+            if 'uid' in inputs:
+                uid = self._gather_concat(inputs['uid'])
 
             if 'uid' in inputs:
                 batch_metrics_res = get_metrics_results(topk_res, self.metric_list, targets, list_output=True)
@@ -233,24 +193,11 @@ class TestSMBDecoder(MultiGPUTask):
             results[m] = results[m] / total
         results["Avg. Duplicate Ratio"] = np.mean(duplicate_ratios)
 
-        if len(user_metric_dict[self.metric_list[0]]) > 0:
-            # Save user-level metrics
-            save_path = os.path.join(
-                self.results_file.replace(".json", ""),
-                f"user_level_metrics_{behavior}.json",
-            )
-            ensure_dir(os.path.dirname(save_path))
-            # sort the metric with uid and transform to list[float]
-            user_metric_list = {}
-            for m in user_metric_dict:
-                sorted_uids = sorted(user_metric_dict[m].keys())
-                user_metric_list[m] = [user_metric_dict[m][uid] for uid in sorted_uids]
-                assert len(user_metric_list[m]) == len(loader.dataset), "User-level metric length should match dataset length."
-                results[m] = np.mean(user_metric_list[m])  # Prevent duplicate user metric calculation by DistributedSampler
-            if self.local_rank == 0:
-                with open(save_path, 'w', encoding='utf-8') as f:
-                    json.dump(user_metric_list, f, indent=4)
-            self.info(f"Saved user-level metrics to {save_path}.")
+        save_path = os.path.join(
+            self.results_file.replace(".json", ""),
+            f"user_level_metrics_{behavior}.json",
+        )
+        self._save_user_metrics(user_metric_dict, len(loader.dataset), save_path, results)
 
         return results
 
@@ -272,24 +219,6 @@ class TestSMBDecoder(MultiGPUTask):
         merge_results['eval_type'] = "Merged Behavior"
         results.append(merge_results)
         return results
-
-    def validation(self):
-        for i, loader in enumerate(self.loaders):
-            pbar = get_tqdm(desc=f"Validating {i}", total=len(loader))
-            losses = []
-            for batch in loader:
-                batch: "BatchEncoding"
-                batch = batch.to(self.device)
-                output: "ModelOutput" = self.model(**batch)
-                assert "loss" in output, "Model output must contain 'loss' for validation."
-                loss = output["loss"].item()
-                losses.append(loss)
-                if pbar:
-                    pbar.set_postfix({"Average loss": f"{np.mean(losses):.4f}"})
-                    pbar.update(1)
-            if pbar:
-                pbar.close()
-            self.info(f"Validation loss: {np.mean(losses):.4f} for dataset {i}.")
 
     def invoke(
         self,
@@ -320,12 +249,7 @@ class TestSMBDecoder(MultiGPUTask):
         Test the SMB decoder using the provided arguments.
         """
         self.init(seed, False)
-        self.model, self.tokenizer = load_model_and_tokenizer(backbone, ckpt_path)
-        self.model = self.model.to(self.device)
-        self.config = self.model.config
-
-        from transformers.generation import GenerationMixin
-        assert isinstance(self.model, GenerationMixin), "Model must be a generation model."
+        self._load_model_via_registry(backbone, ckpt_path)
         # output the parameters of the model
         total_params = sum(p.numel() for p in self.model.parameters())
         trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
@@ -357,17 +281,7 @@ class TestSMBDecoder(MultiGPUTask):
                 self.datasets.append(self.base_dataset.filter_by_behavior(behavior))
                 self.info(f"Loaded dataset for behavior {behavior} with {len(self.datasets[-1])} samples.")
 
-        if self.ddp:
-            self.samplers = [DistributedSampler(
-                test_dataset,
-                num_replicas=self.world_size,
-                rank=self.local_rank,
-                shuffle=False,
-            ) for test_dataset in self.datasets]
-            self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model).to(self.device)
-            self.model = DDP(self.model, device_ids=[self.local_rank])
-        else:
-            self.samplers = [None] * len(self.datasets)
+        self.samplers = self._setup_ddp_for_datasets(self.datasets)
 
         if valid_loss:
             behavior_tokens: list[str] = []
@@ -445,19 +359,6 @@ class TestSMBDecoder(MultiGPUTask):
             self.validation()
         else:
             results = self.test(num_beams)
-            logger.success("======================================================")
-            logger.success("Results:")
-            for res in results:
-                logger.success("======================================================")
-                logger.success(f"{res['eval_type']} results:")
-                for m in res:
-                    if isinstance(res[m], float):
-                        logger.success(f"\t{m} = {res[m]:.4f}")
-            logger.success("======================================================")
-            if self.local_rank == 0:
-                ensure_dir(os.path.dirname(self.results_file))
-                with open(self.results_file, "w") as f:
-                    json.dump(results, f, indent=4)
-            logger.success(f"Results saved to {self.results_file}.")
+            self._save_results_and_log(results, self.results_file, multiple=True)
 
         self.finish(False)
