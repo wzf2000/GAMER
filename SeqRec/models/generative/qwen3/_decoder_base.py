@@ -1,20 +1,22 @@
 """
 Shared Qwen3-family decoder ``ModelBase``.
 
-The three families (``Qwen3MultiModelBase``, ``Qwen3SessionMultiModelBase``,
-``Qwen3SessionMoeModelBase``) differed by only:
+The Qwen3 family (``Qwen3MultiModelBase``, ``Qwen3SessionMultiModelBase``,
+``Qwen3SessionMoeModelBase``, ``Qwen3TemporalHierarchicalModel``) differed by
+only:
 
   - which ``DecoderLayer`` class is instantiated
   - which router class is used (``Qwen3MultiDecoderRouter`` for Multi /
-    SessionMulti, ``Qwen3MoeDecoderRouter`` for SessionMoe)
-  - whether the model registers ``cross_injection_layers`` and passes
-    ``is_cross`` to the decoder layer (Multi / SessionMulti do, SessionMoe
-    does not)
+    SessionMulti / TemporalHierarchical, ``Qwen3MoeDecoderRouter`` for
+    SessionMoe)
+  - which extra per-layer flag is passed (``is_cross`` for the Multi family,
+    ``is_temporal_hierarchical`` for the TH family, none for SessionMoe)
 
 Everything else (the 200+ line forward, the standard ``_update_causal_mask``
-helpers, ``get/set_input_embeddings``) is byte-identical across all three.
-This base captures the common code and exposes the three differences as class
-attributes that subclasses override.
+helpers, ``get/set_input_embeddings``) is byte-identical across all four.
+This base captures the common code, exposes the layer / router choice as
+class attributes, and lets subclasses inject per-layer flags via the
+``_pre_layer_setup`` and ``_layer_kwargs`` hooks.
 
 Submodule registration order is preserved exactly
 (``embed_tokens`` → ``router`` → ``layers`` → ``norm`` → ``rotary_emb``) so
@@ -39,17 +41,40 @@ from SeqRec.models.generative.common.cache import prepare_cache_position_and_pos
 
 
 class Qwen3DecoderModelBase(Qwen3PreTrainedModel):
-    """Shared ``ModelBase`` parent for Multi / SessionMulti / SessionMoe families.
+    """Shared ``ModelBase`` parent for Multi / SessionMulti / SessionMoe / TH families.
 
     Subclass overrides:
       decoder_layer_cls: required, the DecoderLayer class to instantiate
       router_cls: required, ``Qwen3MultiDecoderRouter`` or ``Qwen3MoeDecoderRouter``
-      has_cross_injection: defaults to True; SessionMoe sets False
+
+    Subclass hooks:
+      _pre_layer_setup(config): runs before the decoder layers are built; use it
+        to read per-family config attrs (e.g. ``cross_attention_decoder``,
+        ``temporal_hierarchical_attention_decoder``) onto ``self``.
+      _layer_kwargs(config, layer_idx): returns the kwargs for one decoder
+        layer. Base provides ``is_sparse``, ``layer_idx``, ``behavior_injection``;
+        override and call ``super()`` to add ``is_cross``, ``is_temporal_hierarchical``,
+        etc.
     """
 
     decoder_layer_cls: type | None = None
     router_cls: type | None = None
-    has_cross_injection: bool = True
+
+    def _pre_layer_setup(self, config: Qwen3MoeConfig) -> None:
+        """Hook for per-family state that ``_layer_kwargs`` will read."""
+        pass
+
+    def _layer_kwargs(self, config: Qwen3MoeConfig, layer_idx: int) -> dict:
+        """Build kwargs for the decoder layer at ``layer_idx``.
+
+        Subclasses override and call ``super()`` to add their extra flag
+        (e.g. ``is_cross``, ``is_temporal_hierarchical``).
+        """
+        return dict(
+            is_sparse=(layer_idx in self.sparse_layers),
+            layer_idx=layer_idx,
+            behavior_injection=(layer_idx in self.behavior_injection_layers),
+        )
 
     def __init__(self, config: Qwen3MoeConfig):
         super().__init__(config)
@@ -63,19 +88,11 @@ class Qwen3DecoderModelBase(Qwen3PreTrainedModel):
 
         self.sparse_layers = config.sparse_layers_decoder
         self.behavior_injection_layers = config.behavior_injection_decoder
-        if self.has_cross_injection:
-            self.cross_injection_layers = config.cross_attention_decoder
         self.num_layers = config.num_hidden_layers
+        self._pre_layer_setup(config)
         self.layers = nn.ModuleList()
         for i in range(self.num_layers):
-            layer_kwargs = dict(
-                is_sparse=(i in self.sparse_layers),
-                layer_idx=i,
-                behavior_injection=(i in self.behavior_injection_layers),
-            )
-            if self.has_cross_injection:
-                layer_kwargs["is_cross"] = (i in self.cross_injection_layers)
-            self.layers.append(self.decoder_layer_cls(config, **layer_kwargs))
+            self.layers.append(self.decoder_layer_cls(config, **self._layer_kwargs(config, i)))
         self.norm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = Qwen3RotaryEmbedding(config=config)
         self.gradient_checkpointing = False

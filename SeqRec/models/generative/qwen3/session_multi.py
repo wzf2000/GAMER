@@ -241,6 +241,14 @@ class Qwen3SessionMultiModelBase(Qwen3DecoderModelBase):
     decoder_layer_cls = Qwen3SessionMultiDecoderLayer
     router_cls = Qwen3MultiDecoderRouter
 
+    def _pre_layer_setup(self, config):
+        self.cross_injection_layers = config.cross_attention_decoder
+
+    def _layer_kwargs(self, config, layer_idx):
+        kwargs = super()._layer_kwargs(config, layer_idx)
+        kwargs["is_cross"] = (layer_idx in self.cross_injection_layers)
+        return kwargs
+
 
 class Qwen3SessionMultiModel(Qwen3SessionMultiModelBase):
     def __init__(self, config: Qwen3MoeConfig):

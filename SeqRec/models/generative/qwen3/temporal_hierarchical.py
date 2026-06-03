@@ -19,9 +19,9 @@ from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.utils import can_return_tuple
 
+from SeqRec.models.generative.qwen3._decoder_base import Qwen3DecoderModelBase
 from SeqRec.models.generative.qwen3.moe_ffn import DenseMLP, MyQwen3SparseMLP, PBATransformerSparseMLP, RouterMoeBlock
 from SeqRec.models.generative.qwen3.multi_router import Qwen3MultiDecoderRouter
-from SeqRec.models.generative.qwen3.multi import Qwen3MultiModelBase
 from SeqRec.models.generative.common.cache import prepare_cache_position_and_position_ids
 from SeqRec.models.generative.common.decoder_loop import prepare_decoder_forward_state, run_temporal_hierarchical_decoder_layers
 from SeqRec.models.generative.common.wrappers import CustomCausalLMWrapperMixin
@@ -321,32 +321,20 @@ class Qwen3TemporalHierarchicalDecoderLayer(nn.Module):
         return outputs
 
 
-class Qwen3TemporalHierarchicalModel(Qwen3PreTrainedModel):
+class Qwen3TemporalHierarchicalModel(Qwen3DecoderModelBase):
+    decoder_layer_cls = Qwen3TemporalHierarchicalDecoderLayer
+    router_cls = Qwen3MultiDecoderRouter
+
+    def _pre_layer_setup(self, config):
+        self.temporal_hierarchical_layers = getattr(config, "temporal_hierarchical_attention_decoder", [])
+
+    def _layer_kwargs(self, config, layer_idx):
+        kwargs = super()._layer_kwargs(config, layer_idx)
+        kwargs["is_temporal_hierarchical"] = (layer_idx in self.temporal_hierarchical_layers)
+        return kwargs
+
     def __init__(self, config: Qwen3MoeConfig):
         super().__init__(config)
-        self.padding_idx = config.pad_token_id
-        self.vocab_size = config.vocab_size
-        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        self.router = Qwen3MultiDecoderRouter(config.n_positions, config)
-
-        self.sparse_layers = config.sparse_layers_decoder
-        self.behavior_injection_layers = config.behavior_injection_decoder
-        self.temporal_hierarchical_layers = getattr(config, "temporal_hierarchical_attention_decoder", [])
-        self.layers = nn.ModuleList()
-        for i in range(config.num_hidden_layers):
-            self.layers.append(
-                Qwen3TemporalHierarchicalDecoderLayer(
-                    config=config,
-                    layer_idx=i,
-                    is_sparse=i in self.sparse_layers,
-                    behavior_injection=i in self.behavior_injection_layers,
-                    is_temporal_hierarchical=i in self.temporal_hierarchical_layers,
-                )
-            )
-        self.norm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.rotary_emb = Qwen3RotaryEmbedding(config=config)
-        self.gradient_checkpointing = False
-
         max_item_num = config.model_max_length // config.num_positions
         block_lower = torch.tril(
             torch.ones(config.num_positions * max_item_num, config.num_positions * max_item_num),
@@ -359,13 +347,6 @@ class Qwen3TemporalHierarchicalModel(Qwen3PreTrainedModel):
             "Using replacement-style temporal-hierarchical attention in layers: "
             f"{self.temporal_hierarchical_layers}."
         )
-        self.post_init()
-
-    def get_input_embeddings(self):
-        return self.embed_tokens
-
-    def set_input_embeddings(self, value):
-        self.embed_tokens = value
 
     def _update_session_wise_causal_mask(
         self,
@@ -504,11 +485,6 @@ class Qwen3TemporalHierarchicalModel(Qwen3PreTrainedModel):
             hidden_states=all_hidden_states,
             attentions=all_self_attns,
         )
-
-    _update_causal_mask = Qwen3MultiModelBase._update_causal_mask
-    _prepare_4d_causal_attention_mask_with_cache_position = (
-        Qwen3MultiModelBase._prepare_4d_causal_attention_mask_with_cache_position
-    )
 
 
 class Qwen3TemporalHierarchicalWithTemperature(CustomCausalLMWrapperMixin, Qwen3ForCausalLM):
