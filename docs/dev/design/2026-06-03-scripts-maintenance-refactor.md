@@ -56,13 +56,17 @@ Added `scripts/lib/args.sh`.
 
 Current responsibilities:
 
-- `parse_extra_args`: converts comma-separated `key=value` pairs into argparse
-  options.
-- `parse_extra_flags`: converts comma-separated flag names into argparse
-  boolean flags.
+- `build_extra_cli_args`: builds a bash array of extra task arguments from
+  legacy environment variables and trailing script arguments.
+- `print_extra_cli_args`: prints the resolved extra argument array in a shell
+  readable form for easier debugging.
 
-This keeps the existing `extra_args=a=b,c=d` and `extra_flags=x,y` script
-interfaces unchanged while avoiding repeated `awk` snippets.
+Scripts now prefer normal argparse passthrough after the script path, for
+example `bash scripts/train_SMB_decoder.sh --max_his_len 100 --debug`. The
+existing `extra_args=a=b,c=d` and `extra_flags=x,y` interfaces remain supported
+for old commands, and trailing CLI arguments are appended after legacy
+arguments so they can override legacy values when the downstream parser allows
+last-value-wins behavior.
 
 ### Tokenization Naming
 

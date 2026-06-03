@@ -66,7 +66,7 @@ When `tasks=smb_explicit_decoder_4`, `loading_SMB.py` parses `augment=4` and con
 The README example:
 
 ```bash
-dataset=ShortVideoAD original=1 batch_size=1024 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3Multi extra_args=max_his_len=100,gradient_accumulation_steps=4,warmup_ratio=0.04,patience=20 bash ./scripts/train_SMB_decoder.sh
+dataset=ShortVideoAD original=1 batch_size=1024 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3Multi bash ./scripts/train_SMB_decoder.sh --max_his_len 100 --gradient_accumulation_steps 4 --warmup_ratio 0.04 --patience 20
 ```
 
 ### Qwen3 MoE Block and GAMER Architecture
@@ -157,7 +157,8 @@ Flow:
    - RID: `.index.rid.json`
    - RQ-Kmeans: `.index.rq-kmeans*.json`
 3. It builds `output_dir` under `checkpoint/SMB-decoder/...`.
-4. It converts `extra_args` and `extra_flags` into CLI args.
+4. It builds extra CLI args from trailing script arguments, while preserving
+   legacy `extra_args` and `extra_flags` compatibility.
 5. It launches `python main.py train_SMB_decoder` for one GPU or `torchrun` for multiple GPUs.
 6. `TrainSMBDecoder` loads tokenizer/config, dataset, collator, and model.
 7. `TrainSMBDecoder` adds item and behavior tokens to the tokenizer and saves config/tokenizer into the checkpoint directory.
@@ -228,11 +229,11 @@ Training and testing scripts select the same index naming convention, so tokeniz
 Main GAMER example from the README:
 
 ```bash
-dataset=ShortVideoAD original=1 batch_size=1024 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3Multi extra_args=max_his_len=100,gradient_accumulation_steps=4,warmup_ratio=0.04,patience=20 bash ./scripts/train_SMB_decoder.sh
+dataset=ShortVideoAD original=1 batch_size=1024 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3Multi bash ./scripts/train_SMB_decoder.sh --max_his_len 100 --gradient_accumulation_steps 4 --warmup_ratio 0.04 --patience 20
 ```
 
 ```bash
-dataset=ShortVideoAD original=1 batch_size=256 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3Multi extra_args=max_his_len=100 bash ./scripts/test_SMB_decoder.sh
+dataset=ShortVideoAD original=1 batch_size=256 tasks=smb_explicit_decoder_4 gpu=0,1,2,3,4,5,6,7 backbone=Qwen3Multi bash ./scripts/test_SMB_decoder.sh --max_his_len 100
 ```
 
 Useful ablation switches:
