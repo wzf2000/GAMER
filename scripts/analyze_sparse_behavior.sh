@@ -61,13 +61,8 @@ echo "Baseline model: ${baseline_backbone_arg} from ${baseline_ckpt_path}."
 results_file=$(build_result_path "${task_dir}" "sparse_behavior-${test_task}-${ckpt_tag}-vs-baseline.json")
 
 : ${target_behavior:=}
-: ${extra_args:=}
-extra_args_out=$(parse_extra_args "${extra_args}")
-echo "Extra arguments: ${extra_args_out}"
-
-: ${extra_flags:=}
-extra_flags_out=$(parse_extra_flags "${extra_flags}")
-echo "Extra flags: ${extra_flags_out}"
+build_extra_cli_args "$@"
+print_extra_cli_args
 
 target_behavior_arg=""
 if [ "${target_behavior}" != "" ]; then
@@ -94,5 +89,4 @@ python main.py analyze_sparse_behavior \
     --max_interesting_users ${max_interesting_users} \
     --interesting_top_k ${interesting_top_k} \
     ${target_behavior_arg} \
-    ${extra_args_out} \
-    ${extra_flags_out}
+    "${EXTRA_CLI_ARGS[@]}"

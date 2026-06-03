@@ -39,13 +39,8 @@ else
     echo "Using checkpoint from step ${ckpt_num}."
 fi
 
-: ${extra_args:=}
-extra_args_out=$(parse_extra_args "${extra_args}")
-echo "Extra arguments: ${extra_args_out}"
-
-: ${extra_flags:=}
-extra_flags_out=$(parse_extra_flags "${extra_flags}")
-echo "Extra flags: ${extra_flags_out}"
+build_extra_cli_args "$@"
+print_extra_cli_args
 
 run_main_distributed "${gpu_num}" "${port}" test_MB_decoder \
     --backbone ${backbone} \
@@ -57,5 +52,4 @@ run_main_distributed "${gpu_num}" "${port}" test_MB_decoder \
     --num_beams 20 \
     --index_file ${index_file} \
     --test_task ${test_task} \
-    ${extra_args_out} \
-    ${extra_flags_out}
+    "${EXTRA_CLI_ARGS[@]}"

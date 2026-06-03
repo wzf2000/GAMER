@@ -18,9 +18,8 @@ source "${script_dir}/lib/runtime.sh"
 gpu_num=$(count_gpus "${gpu}")
 per_device_batch_size=$(compute_per_device_batch_size "${batch_size}" "${gpu_num}")
 
-: ${extra_args:=}
-extra_args_out=$(parse_extra_args "${extra_args}")
-echo "Extra arguments: ${extra_args_out}"
+build_extra_cli_args "$@"
+print_extra_cli_args
 
 echo "Training RQ-VAE on ${dataset} with alpha=${alpha} and beta=${beta} using GPU ${gpu}, semantic model ${semantic_model}, and cf model ${cf_model}."
 
@@ -34,7 +33,7 @@ if [ $gpu_num -gt 1 ]; then
     --cf_emb ./pretrained_ckpt/cf-embs/${dataset}-32d-${cf_model}.pt \
     --ckpt_dir ./checkpoint/RQ-VAE/${dataset} \
     --batch_size ${per_device_batch_size} \
-    ${extra_args_out}
+    "${EXTRA_CLI_ARGS[@]}"
 else
   # if gpu_num is 1, use single GPU training
   python main.py RQVAE \
@@ -45,5 +44,5 @@ else
     --cf_emb ./pretrained_ckpt/cf-embs/${dataset}-32d-${cf_model}.pt \
     --ckpt_dir ./checkpoint/RQ-VAE/${dataset} \
     --batch_size ${per_device_batch_size} \
-    ${extra_args_out}
+    "${EXTRA_CLI_ARGS[@]}"
 fi

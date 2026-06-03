@@ -39,9 +39,8 @@ output_dir=$(build_checkpoint_path "decoder" "${task_dir}" "${token_tag}")
 run_name=${task_dir}/${token_tag}/
 echo "Training Decoder on ${dataset} using ${tokenization_desc} with GPUs ${gpu}."
 
-: ${extra_args:=}
-extra_args_out=$(parse_extra_args "${extra_args}")
-echo "Extra arguments: ${extra_args_out}"
+build_extra_cli_args "$@"
+print_extra_cli_args
 
 run_main_distributed "${gpu_num}" "${port}" train_decoder \
     --backbone ${backbone} \
@@ -55,4 +54,4 @@ run_main_distributed "${gpu_num}" "${port}" train_decoder \
     --epochs ${epochs} \
     --index_file ${index_file} \
     --temperature 0.7 \
-    ${extra_args_out}
+    "${EXTRA_CLI_ARGS[@]}"
