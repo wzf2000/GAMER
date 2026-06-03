@@ -33,6 +33,7 @@ from SeqRec.models.generative.PBATransformer.FFN import (
     PBATransformerSparseMLP,
 )
 from SeqRec.models.generative.PBATransformer.block import PBATransformerBlock
+from SeqRec.models.generative.mixins import TemperatureMixin
 
 
 if is_torch_flex_attn_available():
@@ -603,7 +604,7 @@ class PBATransformerStack(PBATransformerPreTrainedModel):
         return causal_mask
 
 
-class PBATransformerForConditionalGeneration(PBATransformerPreTrainedModel, GenerationMixin):
+class PBATransformerForConditionalGeneration(TemperatureMixin, PBATransformerPreTrainedModel, GenerationMixin):
     _tied_weights_keys = [
         "encoder.embed_tokens.weight",
         "decoder.embed_tokens.weight",
@@ -638,10 +639,7 @@ class PBATransformerForConditionalGeneration(PBATransformerPreTrainedModel, Gene
 
         # Model parallel
         self.device_map = None
-        self.temperature = 1.0
-
-    def set_hyper(self, temperature: float):
-        self.temperature = temperature
+        self.init_temperature()
 
     def get_input_embeddings(self) -> nn.Embedding:
         return self.shared
@@ -801,7 +799,7 @@ class PBATransformerForConditionalGeneration(PBATransformerPreTrainedModel, Gene
 
         if labels is not None:
             loss_fct = CrossEntropyLoss(ignore_index=-100)
-            t_logits = lm_logits / self.temperature
+            t_logits = self.apply_temperature(lm_logits)
             # move labels to correct device to enable PP
             labels = labels.to(lm_logits.device)
             loss = loss_fct(t_logits.view(-1, t_logits.size(-1)), labels.view(-1))

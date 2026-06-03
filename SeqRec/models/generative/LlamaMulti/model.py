@@ -20,6 +20,7 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from SeqRec.models.generative.LlamaMulti.router import LlamaMultiDecoderRouter
 from transformers.activations import ACT2FN
+from SeqRec.models.generative.mixins import TemperatureMixin
 
 
 class MyLlamaMLP(nn.Module):
@@ -710,7 +711,7 @@ class LlamaMultiModel(LlamaPreTrainedModel):
         return causal_mask
 
 
-class LlamaMultiWithTemperature(LlamaForCausalLM):
+class LlamaMultiWithTemperature(TemperatureMixin, LlamaForCausalLM):
     def __init__(self, config: LlamaConfig):
         super(LlamaForCausalLM, self).__init__(config)
         self.model = LlamaMultiModel(config)
@@ -719,17 +720,12 @@ class LlamaMultiWithTemperature(LlamaForCausalLM):
 
         # Initialize weights and apply final processing
         self.post_init()
-        self.temperature = 1.0
-
-    def set_hyper(self, temperature: float):
-        self.temperature = temperature
+        self.init_temperature()
 
     @property
     def loss_function(self):
         if hasattr(self, "_loss_function"):
             return self._loss_function
-
-        assert hasattr(self, "temperature"), "Model must have a temperature attribute."
 
         def ForCausalLMLossWithTemperature(
             logits,
@@ -740,7 +736,7 @@ class LlamaMultiWithTemperature(LlamaForCausalLM):
             shift_labels: torch.Tensor | None = None,
             **kwargs,
         ) -> torch.Tensor:
-            logits /= self.temperature
+            logits = self.apply_temperature(logits)
             return ForCausalLMLoss(
                 logits,
                 labels,

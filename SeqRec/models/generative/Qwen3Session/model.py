@@ -10,6 +10,8 @@ from transformers.models.qwen3.modeling_qwen3 import KwargsForCausalLM
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 
+from SeqRec.models.generative.mixins import TemperatureMixin
+
 
 class Qwen3SessionModel(Qwen3Model):
     def __init__(self, config: Qwen3Config):
@@ -193,7 +195,7 @@ class Qwen3SessionModel(Qwen3Model):
         )
 
 
-class Qwen3SessionWithTemperature(Qwen3ForCausalLM):
+class Qwen3SessionWithTemperature(TemperatureMixin, Qwen3ForCausalLM):
     def __init__(self, config: Qwen3Config):
         super(Qwen3ForCausalLM, self).__init__(config)
         self.model = Qwen3SessionModel(config)
@@ -202,17 +204,12 @@ class Qwen3SessionWithTemperature(Qwen3ForCausalLM):
 
         # Initialize weights and apply final processing
         self.post_init()
-        self.temperature = 1.0
-
-    def set_hyper(self, temperature: float):
-        self.temperature = temperature
+        self.init_temperature()
 
     @property
     def loss_function(self):
         if hasattr(self, "_loss_function"):
             return self._loss_function
-
-        assert hasattr(self, "temperature"), "Model must have a temperature attribute."
 
         def ForCausalLMLossWithTemperature(
             logits,
@@ -223,7 +220,7 @@ class Qwen3SessionWithTemperature(Qwen3ForCausalLM):
             shift_labels: torch.Tensor | None = None,
             **kwargs,
         ) -> torch.Tensor:
-            logits /= self.temperature
+            logits = self.apply_temperature(logits)
             return ForCausalLMLoss(
                 logits,
                 labels,
