@@ -8,6 +8,7 @@ from SeqRec.tasks.evaluation.base import _BaseDecoderTestTask
 from SeqRec.datasets.loaders.multi_behavior import load_MB_test_dataset, load_MB_valid_dataset
 from SeqRec.datasets.multi_behavior import BaseMBDataset, EvaluationType
 from SeqRec.datasets.collators.generative import EncoderDecoderTestCollator, DecoderOnlyTestCollator, EncoderDecoderCollator, DecoderOnlyCollator
+from SeqRec.models.generative.registry import backbone_uses_actions, is_decoder_only_backbone
 from SeqRec.tasks.evaluation.helpers import (
     build_behavior_prefix_fns,
     build_candidate_prefix_fn,
@@ -97,11 +98,12 @@ class TestMBDecoder(_BaseDecoderTestTask):
                 behavior_tokens = [''.join(dataset.get_behavior_tokens(b)) for b in behaviors]
                 behavior_tokens = self.tokenizer.batch_encode_plus(behavior_tokens, add_special_tokens=False)["input_ids"]
                 decoder_input_ids = [[self.config.decoder_start_token_id] + tokens for tokens in behavior_tokens]
-                if self.backbone in ['Qwen3', 'Qwen3Multi']:
+                if is_decoder_only_backbone(self.backbone):
                     # Get any item in all_items
                     max_new_tokens = self.sole_item_len
                     inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
                     inputs.attention_mask = inputs.attention_mask[:, :-max_new_tokens]
+                if backbone_uses_actions(self.backbone):
                     action = [[dataset.behavior_level[u]] for u in behaviors]
                     inputs.actions = torch.cat([inputs.actions, torch.tensor(action, device=self.device)], dim=1)
                 if eval_type == EvaluationType.TARGET_BEHAVIOR:
@@ -109,7 +111,7 @@ class TestMBDecoder(_BaseDecoderTestTask):
                 else:
                     prefix_allowed_tokens_fn = self.prefix_allowed_tokens
             else:
-                if self.backbone in ['Qwen3', 'Qwen3Multi']:
+                if is_decoder_only_backbone(self.backbone):
                     max_new_tokens = self.item_len
                     inputs.input_ids = inputs.input_ids[:, :-max_new_tokens]
                     inputs.attention_mask = inputs.attention_mask[:, :-max_new_tokens]
@@ -117,11 +119,11 @@ class TestMBDecoder(_BaseDecoderTestTask):
                 prefix_allowed_tokens_fn = self.prefix_allowed_tokens
             batch_size = len(targets)
 
-            if self.backbone in ['Qwen3', 'Qwen3Multi']:
+            if is_decoder_only_backbone(self.backbone):
                 gen_kwargs = build_generation_kwargs(
                     backbone=self.backbone,
                     inputs=inputs,
-                    max_new_tokens=self.sole_item_len if self.backbone == 'Qwen3Multi' else max_new_tokens,
+                    max_new_tokens=self.sole_item_len if backbone_uses_actions(self.backbone) else max_new_tokens,
                     prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
                     num_beams=num_beams,
                     device=self.device,
@@ -141,7 +143,7 @@ class TestMBDecoder(_BaseDecoderTestTask):
             output_ids = output.sequences
             scores = output.sequences_scores
 
-            if self.backbone in ['Qwen3', 'Qwen3Multi']:
+            if is_decoder_only_backbone(self.backbone):
                 output_ids = output_ids[:, -self.item_len:]
 
             output_str = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
@@ -237,12 +239,12 @@ class TestMBDecoder(_BaseDecoderTestTask):
         self.samplers = self._setup_ddp_for_datasets(self.datasets)
 
         if valid_loss:
-            if backbone in ['Qwen3', 'Qwen3Multi']:
+            if is_decoder_only_backbone(backbone):
                 collator = DecoderOnlyCollator(self.tokenizer, only_train_response=True)
             else:
                 collator = EncoderDecoderCollator(self.tokenizer)
         else:
-            if backbone in ['Qwen3', 'Qwen3Multi']:
+            if is_decoder_only_backbone(backbone):
                 collator = DecoderOnlyTestCollator(self.tokenizer)
             else:
                 collator = EncoderDecoderTestCollator(self.tokenizer)
