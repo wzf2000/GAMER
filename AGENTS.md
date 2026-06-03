@@ -71,6 +71,7 @@
 
 - For shell script edits, run `bash -n <script>` at minimum.
 - For Python syntax-level checks, prefer `python -m compileall main.py SeqRec` when practical.
+- After editing Python files, run flake8 on the modified Python files using the arguments from `.vscode/settings.json`, currently `--max-line-length=500 --ignore=F401,E203,W503,F841`.
 - For behavior changes, use the smallest relevant task/script invocation first. Full training jobs can be expensive and should not be run without user confirmation.
 - If GPU, data, checkpoint, or network requirements prevent verification, state exactly what was not run and why.
 
