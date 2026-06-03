@@ -459,7 +459,6 @@ class TestMBDecoder(MultiGPUTask):
         self.backbone = backbone
         self.results_file = results_file
 
-
         if valid_loss:
             self.info("Testing valid dataset...")
             self.validation()
