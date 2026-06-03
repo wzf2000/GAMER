@@ -11,37 +11,21 @@ Two modes in one task:
 """
 
 import os
-import copy
 import json
 import torch
 import numpy as np
 from loguru import logger
-from typing import Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from torch.utils.data import DataLoader
 
-from SeqRec.tasks.multi_gpu import MultiGPUTask
+from SeqRec.tasks.analysis.base import _BaseAnalysisTask
 from SeqRec.datasets.loaders.session_behavior import load_SMB_test_dataset
 from SeqRec.datasets.session_behavior import BaseSMBDataset
-from SeqRec.datasets.collators.generative import DecoderOnlyTestCollator, EncoderDecoderTestCollator
-from SeqRec.evaluation.ranking import get_topk_results, get_metrics_results
-from SeqRec.models.generative.registry import (
-    is_decoder_only_backbone,
-    load_model_and_tokenizer,
-)
-from SeqRec.tasks.evaluation.helpers import (
-    build_behavior_prefix_fns,
-    build_generation_kwargs,
-    get_generation_model,
-    get_item_token_info,
-    prepare_behavior_generation_prompt,
-    slice_decoder_only_output,
-)
 from SeqRec.utils.fs import ensure_dir
 from SeqRec.utils.args import SubParsersAction, parse_global_args, parse_dataset_args, parse_analysis_args
 from SeqRec.utils.runtime import get_tqdm
 
 if TYPE_CHECKING:
-    from transformers.generation.utils import GenerateBeamOutput
     from transformers import BatchEncoding
 
 
@@ -61,7 +45,7 @@ def _ndcg_at_k(rank: int | None, k: int) -> float:
 # Task
 # ---------------------------------------------------------------------------
 
-class AnalyzeSparseTargetBehavior(MultiGPUTask):
+class AnalyzeSparseTargetBehavior(_BaseAnalysisTask):
     """
     Compare *our model* vs *baseline* on users whose history contains only a
     small number of target-behavior interactions (sparse conversion signal).
@@ -108,87 +92,6 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
                             help="Our model must rank <= this AND baseline > this to be interesting.")
 
     # ------------------------------------------------------------------
-    # Model loading (same pattern as test_SMB_decoder)
-    # ------------------------------------------------------------------
-
-    def _load_model_and_tokenizer(self, backbone: str, ckpt_path: str):
-        self.model, self.tokenizer = load_model_and_tokenizer(backbone, ckpt_path)
-        self.model = self.model.to(self.device)
-        self.config = self.model.config
-
-    # ------------------------------------------------------------------
-    # Trie / prefix-constrained decoding
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _is_decoder_only_backbone(backbone: str) -> bool:
-        return is_decoder_only_backbone(backbone)
-
-    def _build_tries(self, base_dataset: BaseSMBDataset, is_decoder_only: bool, backbone: str):
-        all_beh_items = base_dataset.get_all_items("all")
-        item_reps = list(all_beh_items)
-        _, self.item_len, last_token_set = get_item_token_info(
-            self.tokenizer,
-            item_reps,
-            self.config.pad_token_id,
-        )
-        self.sole_item_len = len(
-            self.tokenizer.encode(next(iter(base_dataset.get_all_items())), add_special_tokens=False)
-        )
-
-        self.prefix_fn_by_behavior = build_behavior_prefix_fns(
-            backbone=backbone,
-            tokenizer=self.tokenizer,
-            config=self.config,
-            dataset=base_dataset,
-            last_token_set=last_token_set,
-        )
-
-    # ------------------------------------------------------------------
-    # Single-batch beam-search inference
-    # ------------------------------------------------------------------
-
-    def _run_inference(
-        self,
-        inputs: "BatchEncoding",
-        behavior: str,
-        dataset: BaseSMBDataset,
-        num_beams: int,
-        is_decoder_only: bool,
-        backbone: str,
-    ) -> tuple[list[str], torch.Tensor]:
-        """Append behavior token, run beam search; return (output_str, scores)."""
-        batch_size = inputs.input_ids.shape[0]
-
-        inp = copy.copy(inputs)
-        gen_model = get_generation_model(self.model)
-        decoder_input_ids, _ = prepare_behavior_generation_prompt(
-            inputs=inp,
-            tokenizer=self.tokenizer,
-            dataset=dataset,
-            behaviors=[behavior] * batch_size,
-            device=self.device,
-            is_decoder_only=is_decoder_only,
-            decoder_start_token_id=self.config.decoder_start_token_id,
-        )
-        gen_kwargs = build_generation_kwargs(
-            backbone=backbone,
-            inputs=inp,
-            max_new_tokens=self.sole_item_len,
-            prefix_allowed_tokens_fn=self.prefix_fn_by_behavior[behavior],
-            num_beams=num_beams,
-            device=self.device,
-            decoder_input_ids=decoder_input_ids,
-        )
-
-        output: "GenerateBeamOutput" = gen_model.generate(**gen_kwargs)
-        out_ids = output.sequences
-        scores = output.sequences_scores
-        out_ids = slice_decoder_only_output(backbone, out_ids, self.item_len)
-        output_str = self.tokenizer.batch_decode(out_ids, skip_special_tokens=True)
-        return output_str, scores
-
-    # ------------------------------------------------------------------
     # Full inference pass → per-uid result dict
     # ------------------------------------------------------------------
 
@@ -198,15 +101,13 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
         collator,
         target_behavior: str,
         num_beams: int,
-        is_decoder_only: bool,
-        backbone: str,
         batch_size: int,
         desc: str,
     ) -> dict[str, dict]:
         """
         Run beam-search over the whole filtered dataset and return a dict
-            uid → {rank, score, top_preds, targets, topk_result}
-        where `topk_result` is the raw list[int] from get_topk_results (length=num_beams).
+            uid → {rank, score, top_preds, targets}
+        ``rank`` is 1-indexed; ``None`` means the target was outside the top beams.
         """
         loader = DataLoader(
             filtered_dataset,
@@ -222,8 +123,8 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
             targets: list[list[str]] = batch[1]
             uids: list[str] = inputs.get("uid", [None] * len(targets))
 
-            output_str, scores = self._run_inference(
-                inputs, target_behavior, filtered_dataset, num_beams, is_decoder_only, backbone
+            output_str, scores, _ = self._run_inference(
+                inputs, target_behavior, filtered_dataset, num_beams
             )
 
             # Rank extraction (1-indexed; num_beams+1 if not found)
@@ -456,19 +357,14 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
         # Run our model
         # ================================================================
         logger.info(f"Loading our model: {backbone} from {ckpt_path}")
-        ours_is_dec = self._is_decoder_only_backbone(backbone)
+        self._setup_backbone(backbone)
         self._load_model_and_tokenizer(backbone, ckpt_path)
-        self._build_tries(base_dataset, ours_is_dec, backbone)
-        ours_collator = (
-            DecoderOnlyTestCollator(self.tokenizer)
-            if ours_is_dec
-            else EncoderDecoderTestCollator(self.tokenizer)
-        )
+        self._build_tries(base_dataset)
         self.model.eval()
         with torch.no_grad():
             results_ours = self._collect_results(
-                filtered_dataset, ours_collator, eval_behavior,
-                num_beams, ours_is_dec, backbone, test_batch_size,
+                filtered_dataset, self._make_test_collator(), eval_behavior,
+                num_beams, test_batch_size,
                 desc=f"Our model [{backbone}] inference",
             )
         del self.model
@@ -479,19 +375,14 @@ class AnalyzeSparseTargetBehavior(MultiGPUTask):
         # Run baseline model
         # ================================================================
         logger.info(f"Loading baseline model: {baseline_backbone} from {baseline_ckpt_path}")
-        base_is_dec = self._is_decoder_only_backbone(baseline_backbone)
+        self._setup_backbone(baseline_backbone)
         self._load_model_and_tokenizer(baseline_backbone, baseline_ckpt_path)
-        self._build_tries(baseline_base_dataset, base_is_dec, baseline_backbone)
-        base_collator = (
-            DecoderOnlyTestCollator(self.tokenizer)
-            if base_is_dec
-            else EncoderDecoderTestCollator(self.tokenizer)
-        )
+        self._build_tries(baseline_base_dataset)
         self.model.eval()
         with torch.no_grad():
             results_base = self._collect_results(
-                baseline_filtered_dataset, base_collator, eval_behavior,
-                num_beams, base_is_dec, baseline_backbone, test_batch_size,
+                baseline_filtered_dataset, self._make_test_collator(), eval_behavior,
+                num_beams, test_batch_size,
                 desc=f"Baseline [{baseline_backbone}] inference",
             )
         del self.model
