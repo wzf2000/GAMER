@@ -5,7 +5,6 @@ from SeqRec.datasets.seq_dataset import BaseSeqDataset
 from SeqRec.datasets.loading import load_datasets
 from SeqRec.models.generative.registry import (
     get_backbone_train_profile,
-    instantiate_generative_model,
     load_config_and_tokenizer,
 )
 from SeqRec.tasks.generative_training import (
@@ -13,6 +12,7 @@ from SeqRec.tasks.generative_training import (
     build_train_collator,
     build_training_arguments,
     finalize_generative_model,
+    prepare_generative_model_for_training,
     prepare_tokenizer_and_config,
 )
 from SeqRec.utils.futils import ensure_dir
@@ -127,33 +127,17 @@ class TrainDecoder(MultiGPUTask):
             first_dataset=first_dataset,
         )
 
-        if train_profile == "basic":
-            model = instantiate_generative_model(backbone, config)
-            model.set_hyper(temperature)
-        elif train_profile == "pba":
-            all_items = first_dataset.get_all_items()
-            single_item = list(all_items)[0]
-            config.num_behavior = 0
-            config.use_behavior_token = False
-            config.behavior_injection = False
-            config.behavior_injection_encoder = []
-            config.behavior_injection_decoder = []
-            single_item_ids = tokenizer.encode(single_item, add_special_tokens=False)
-            config.num_positions = len(single_item_ids)
-            if not config.Moe_behavior_only:
-                config.num_experts = (
-                    config.num_positions + 1
-                )  # 1 for the BOS, EOS, PAD tokens
-            else:
-                config.num_experts = (
-                    2  # 1 for the item semantic tokens, 1 for the other tokens
-                )
-            config.n_positions = max_his_len
-            config.use_user_token = False
-            self.info(f"PBATransformer Model Config: {config}")
-            model = instantiate_generative_model(backbone, config)
-        else:
-            raise ValueError(f"Unsupported backbone model: {backbone}")
+        model = prepare_generative_model_for_training(
+            backbone=backbone,
+            train_profile=train_profile,
+            config=config,
+            tokenizer=tokenizer,
+            first_dataset=first_dataset,
+            max_his_len=max_his_len,
+            model_max_length=model_max_length,
+            temperature=temperature,
+            info=self.info,
+        )
         model = finalize_generative_model(model, tokenizer, self.device, self.ddp, self.info)
 
         training_args = build_training_arguments(
