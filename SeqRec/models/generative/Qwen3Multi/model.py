@@ -15,10 +15,14 @@ from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeRMSNorm, apply_rotary_pos_emb, eager_attention_forward
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
-from transformers.activations import ACT2FN
 
 from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP, DenseMLP, RouterMoeBlock
 from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
+from SeqRec.models.generative.components import (
+    CrossBehaviorAttentionMixin,
+    run_multi_level_cross_attention_block,
+    run_multi_level_self_attention_block,
+)
 from SeqRec.models.generative.mixins import (
     CustomCausalLMWrapperMixin,
     init_cross_level_cache_state,
@@ -38,7 +42,7 @@ from SeqRec.models.generative.session_masks import (
 )
 
 
-class Qwen3MultiAttention(nn.Module):
+class Qwen3MultiAttention(CrossBehaviorAttentionMixin, nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
     def __init__(self, config: Qwen3MoeConfig, layer_idx: int, is_cross: bool):
@@ -75,12 +79,7 @@ class Qwen3MultiAttention(nn.Module):
 
         self.is_cross = is_cross
         if self.is_cross:
-            self.behavior_embedding_dim = config.head_dim
-            self.q_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_attention_heads * config.behavior_embedding_dim)
-            self.k_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
-            self.v_behavior_embedding = nn.Embedding(config.num_behavior + 1, config.num_key_value_heads * config.behavior_embedding_dim)
-            self.gating = nn.Linear(config.hidden_size, config.hidden_size, bias=config.attention_bias)
-            self.act_fn = ACT2FN[config.hidden_act]
+            self.init_cross_behavior_attention(config)
 
     def forward(
         self,
@@ -96,10 +95,10 @@ class Qwen3MultiAttention(nn.Module):
         hidden_shape = (*input_shape, -1, self.head_dim)
 
         if self.is_cross:
-            behavior_embedding_shape = (*input_shape, -1, self.behavior_embedding_dim)
-            q_behavior_embedding = self.q_behavior_embedding(action_index).view(behavior_embedding_shape)
-            k_behavior_embedding = self.k_behavior_embedding(action_index).view(behavior_embedding_shape)
-            v_behavior_embedding = self.v_behavior_embedding(action_index).view(behavior_embedding_shape)
+            q_behavior_embedding, k_behavior_embedding, v_behavior_embedding = self.get_cross_behavior_embeddings(
+                hidden_states,
+                action_index,
+            )
             query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape) + q_behavior_embedding).transpose(1, 2)
             key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape) + k_behavior_embedding).transpose(1, 2)
             value_states = (self.v_proj(hidden_states).view(hidden_shape) + v_behavior_embedding).transpose(1, 2)
@@ -138,10 +137,9 @@ class Qwen3MultiAttention(nn.Module):
         )
 
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+        attn_output = self.o_proj(attn_output)
         if self.is_cross:
-            attn_output = self.o_proj(attn_output) * self.act_fn(self.gating(hidden_states))
-        else:
-            attn_output = self.o_proj(attn_output)
+            attn_output = self.apply_cross_behavior_gate(attn_output, hidden_states)
         return attn_output, attn_weights
 
 
@@ -199,39 +197,31 @@ class Qwen3MultiDecoderLayer(nn.Module):
         cross_past_key_value: Optional[Cache] = None,
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-        # Self Attention
-        residual = hidden_states
-        hidden_states = self.input_layernorm(hidden_states)
-        hidden_states, self_attn_weights = self.self_attn(
+        hidden_states, self_attn_weights = run_multi_level_self_attention_block(
+            self,
             hidden_states=hidden_states,
-            attention_mask=multi_self_mask,
+            multi_self_mask=multi_self_mask,
             position_ids=position_ids,
             past_key_value=past_key_value,
             output_attentions=output_attentions,
             use_cache=use_cache,
             cache_position=cache_position,
             position_embeddings=position_embeddings,
-            **kwargs,
+            kwargs=kwargs,
         )
-        hidden_states = residual + self.dropout(hidden_states)
-
-        # Cross Attention
-        if self.is_cross:
-            residual = hidden_states
-            hidden_states = self.post_self_attention_layernorm(hidden_states)
-            hidden_states, self_cross_weights = self.cross_attn(
-                hidden_states=hidden_states,
-                attention_mask=multi_cross_mask,
-                position_ids=position_ids,
-                past_key_value=cross_past_key_value,
-                output_attentions=output_attentions,
-                use_cache=use_cache,
-                cache_position=cache_position,
-                position_embeddings=position_embeddings,
-                action_index=action_indices,
-                **kwargs,
-            )
-            hidden_states = residual + self.dropout(hidden_states)
+        hidden_states = run_multi_level_cross_attention_block(
+            self,
+            hidden_states=hidden_states,
+            action_indices=action_indices,
+            multi_cross_mask=multi_cross_mask,
+            position_ids=position_ids,
+            cross_past_key_value=cross_past_key_value,
+            output_attentions=output_attentions,
+            use_cache=use_cache,
+            cache_position=cache_position,
+            position_embeddings=position_embeddings,
+            kwargs=kwargs,
+        )
 
         # Fully Connected
         residual = hidden_states
