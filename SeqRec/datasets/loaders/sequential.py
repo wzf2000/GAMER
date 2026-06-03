@@ -1,6 +1,6 @@
 from torch.utils.data import ConcatDataset
 
-from SeqRec.datasets.seq_dataset import SeqRecDataset
+from SeqRec.datasets.sequential import SeqRecDataset
 
 
 def load_datasets(
