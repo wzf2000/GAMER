@@ -17,7 +17,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeAttention
 
 from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
 from SeqRec.models.generative.Qwen3Moe.router import Qwen3MoeDecoderRouter
-from SeqRec.models.generative.mixins import TemperatureCausalLMLossMixin, prepare_cache_position_and_position_ids
+from SeqRec.models.generative.mixins import ExtendedSessionPositionMixin, prepare_cache_position_and_position_ids
 
 
 class Qwen3SessionMoeDecoderLayer(nn.Module):
@@ -583,16 +583,10 @@ class Qwen3SessionMoeModel(Qwen3SessionMoeModelBase):
         )
 
 
-class Qwen3SessionMoeWithTemperature(TemperatureCausalLMLossMixin, Qwen3ForCausalLM):
+class Qwen3SessionMoeWithTemperature(ExtendedSessionPositionMixin, Qwen3ForCausalLM):
     def __init__(self, config: Qwen3MoeConfig):
         super(Qwen3ForCausalLM, self).__init__(config)
-        self.model = Qwen3SessionMoeModel(config)
-        self.vocab_size = config.vocab_size
-        self.lm_head = torch.nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-
-        # Initialize weights and apply final processing
-        self.post_init()
-        self.init_temperature()
+        self.init_custom_causal_lm(config, Qwen3SessionMoeModel)
 
     @can_return_tuple
     def forward(
@@ -643,56 +637,21 @@ class Qwen3SessionMoeWithTemperature(TemperatureCausalLMLossMixin, Qwen3ForCausa
         >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "Hey, are you conscious? Can you talk to me?\nI'm not conscious, but I can talk to you."
         ```"""
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
-
-        if cache_position is not None and cache_position.min() == 0:
-            # the first time to generate
-            if extended_session_ids is not None:
-                self.max_extended_session_id = extended_session_ids.max(dim=-1)[0]
-        elif cache_position:
-            # not the first time to generate
-            if extended_session_ids is not None:
-                assert cache_position.shape[-1] == 1
-                if self.max_extended_session_id.ndim == 1:
-                    self.max_extended_session_id += 1
-                    extended_session_ids = self.max_extended_session_id[:, None]
-                else:
-                    self.max_extended_session_id += 1
-                    extended_session_ids = self.max_extended_session_id[None]
-        if extended_session_ids is not None:
-            position_ids = extended_session_ids
-
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
-        outputs: BaseModelOutputWithPast = self.model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
+        return self.forward_custom_causal_lm(
+            labels=labels,
             position_ids=position_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            use_cache=use_cache,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
-            cache_position=cache_position,
-            session_ids=session_ids,
-            **kwargs,
-        )
-
-        hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
-        slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
-        logits = self.lm_head(hidden_states[:, slice_indices, :])
-
-        loss = None
-        if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
-
-        return CausalLMOutputWithPast(
-            loss=loss,
-            logits=logits,
-            past_key_values=outputs.past_key_values,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
+            logits_to_keep=logits_to_keep,
+            model_kwargs=dict(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                use_cache=use_cache,
+                cache_position=cache_position,
+                session_ids=session_ids,
+            ),
+            extra_kwargs=kwargs,
+            wrapper_kwargs=dict(extended_session_ids=extended_session_ids),
         )
