@@ -50,6 +50,41 @@ def build_generation_kwargs(
     return gen_kwargs
 
 
+def prepare_behavior_generation_prompt(
+    *,
+    inputs: Any,
+    tokenizer: Any,
+    dataset: Any,
+    behaviors: list[str],
+    device: torch.device,
+    is_decoder_only: bool,
+    decoder_start_token_id: int,
+) -> tuple[list[list[int]] | None, int]:
+    behavior_texts = ["".join(dataset.get_behavior_tokens(behavior)) for behavior in behaviors]
+    behavior_tokens = tokenizer.batch_encode_plus(behavior_texts, add_special_tokens=False)
+    behavior_token_ids = behavior_tokens["input_ids"]
+    behavior_token_lens = [len(tokens) for tokens in behavior_token_ids]
+    assert len(set(behavior_token_lens)) == 1, "All behavior tokens should be of the same length."
+    behavior_token_num = behavior_token_lens[0]
+
+    if is_decoder_only:
+        inputs.input_ids = torch.cat(
+            [inputs.input_ids, torch.tensor(behavior_token_ids, device=device)],
+            dim=1,
+        )
+        inputs.attention_mask = torch.cat(
+            [inputs.attention_mask, torch.tensor(behavior_tokens["attention_mask"], device=device)],
+            dim=1,
+        )
+        if "actions" in inputs:
+            actions = [[dataset.behavior_level[behavior]] for behavior in behaviors]
+            inputs.actions = torch.cat([inputs.actions, torch.tensor(actions, device=device)], dim=1)
+        return None, behavior_token_num
+
+    decoder_input_ids = [[decoder_start_token_id] + tokens for tokens in behavior_token_ids]
+    return decoder_input_ids, behavior_token_num
+
+
 def slice_decoder_only_output(backbone: str, output_ids: torch.Tensor, item_len: int) -> torch.Tensor:
     if is_decoder_only_backbone(backbone):
         return output_ids[:, -item_len:]

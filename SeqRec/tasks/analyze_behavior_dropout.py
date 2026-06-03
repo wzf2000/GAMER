@@ -30,6 +30,7 @@ from SeqRec.tasks.generative_eval import (
     build_generation_kwargs,
     get_generation_model,
     get_item_token_info,
+    prepare_behavior_generation_prompt,
     slice_decoder_only_output,
 )
 from SeqRec.utils.futils import ensure_dir
@@ -153,37 +154,21 @@ class AnalyzeBehaviorDropout(MultiGPUTask):
         output_str[i*num_beams + j] is the j-th candidate (full decoded string,
         including behavior token) for sample i.
         """
-        # --- encode behavior token for each sample ---
         batch_size = inputs.input_ids.shape[0]
-        beh_str = "".join(dataset.get_behavior_tokens(behavior))
-        beh_enc = self.tokenizer.batch_encode_plus(
-            [beh_str] * batch_size, add_special_tokens=False
-        )
-        beh_token_ids = beh_enc["input_ids"]           # list of lists
-        beh_attn_mask = beh_enc["attention_mask"]
-        beh_token_num = len(beh_token_ids[0])
 
         # --- work on a copy so the original tensor is not mutated ---
         inp = copy.copy(inputs)
 
         gen_model = get_generation_model(self.model)
-
-        if self._is_decoder_only:
-            inp.input_ids = torch.cat(
-                [inp.input_ids, torch.tensor(beh_token_ids, device=self.device)], dim=1
-            )
-            inp.attention_mask = torch.cat(
-                [inp.attention_mask, torch.tensor(beh_attn_mask, device=self.device)],
-                dim=1,
-            )
-            beh_action = [[dataset.behavior_level[behavior]]] * batch_size
-            inp.actions = torch.cat(
-                [inp.actions, torch.tensor(beh_action, device=self.device)], dim=1
-            )
-
-        decoder_input_ids = None
-        if not self._is_decoder_only:
-            decoder_input_ids = [[self.config.decoder_start_token_id] + tokens for tokens in beh_token_ids]
+        decoder_input_ids, beh_token_num = prepare_behavior_generation_prompt(
+            inputs=inp,
+            tokenizer=self.tokenizer,
+            dataset=dataset,
+            behaviors=[behavior] * batch_size,
+            device=self.device,
+            is_decoder_only=self._is_decoder_only,
+            decoder_start_token_id=self.config.decoder_start_token_id,
+        )
         gen_kwargs = build_generation_kwargs(
             backbone=self.backbone,
             inputs=inp,

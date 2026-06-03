@@ -24,7 +24,7 @@ from transformers.utils import can_return_tuple
 from SeqRec.models.generative.Qwen3Moe.FFN import DenseMLP, MyQwen3SparseMLP, PBATransformerSparseMLP, RouterMoeBlock
 from SeqRec.models.generative.Qwen3Multi.router import Qwen3MultiDecoderRouter
 from SeqRec.models.generative.Qwen3Multi.model import Qwen3MultiModelBase
-from SeqRec.models.generative.mixins import TemperatureMixin
+from SeqRec.models.generative.mixins import TemperatureMixin, prepare_cache_position_and_position_ids
 
 
 class Qwen3TemporalHierarchicalAttention(nn.Module):
@@ -461,15 +461,12 @@ class Qwen3TemporalHierarchicalModel(Qwen3PreTrainedModel):
             inputs_embeds = self.embed_tokens(input_ids)
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache()
-        if cache_position is None:
-            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            cache_position = torch.arange(
-                past_seen_tokens,
-                past_seen_tokens + inputs_embeds.shape[1],
-                device=inputs_embeds.device,
-            )
-        if position_ids is None:
-            position_ids = cache_position.unsqueeze(0)
+        cache_position, position_ids = prepare_cache_position_and_position_ids(
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            cache_position=cache_position,
+            position_ids=position_ids,
+        )
 
         position_indices, behavior_indices, action_indices = self.router(input_ids, cache_position=cache_position)
         key_action_indices = self._update_key_action_indices(action_indices, cache_position, past_key_values)

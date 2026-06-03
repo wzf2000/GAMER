@@ -20,7 +20,7 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from SeqRec.models.generative.LlamaMulti.router import LlamaMultiDecoderRouter
 from transformers.activations import ACT2FN
-from SeqRec.models.generative.mixins import TemperatureMixin
+from SeqRec.models.generative.mixins import TemperatureMixin, prepare_cache_position_and_position_ids
 
 
 class MyLlamaMLP(nn.Module):
@@ -376,14 +376,12 @@ class LlamaMultiModel(LlamaPreTrainedModel):
         if use_cache and past_key_values.get_seq_length() == 0:
             self.cross_past_key_values = DynamicCache()
 
-        if cache_position is None:
-            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            cache_position = torch.arange(
-                past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
-            )
-
-        if position_ids is None:
-            position_ids = cache_position.unsqueeze(0)
+        cache_position, position_ids = prepare_cache_position_and_position_ids(
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            cache_position=cache_position,
+            position_ids=position_ids,
+        )
 
         position_indices, behavior_indices, action_indices = self.router(input_ids, cache_position=cache_position)
 

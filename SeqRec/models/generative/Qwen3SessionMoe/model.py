@@ -18,7 +18,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeAttention
 
 from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
 from SeqRec.models.generative.Qwen3Moe.router import Qwen3MoeDecoderRouter
-from SeqRec.models.generative.mixins import TemperatureMixin
+from SeqRec.models.generative.mixins import TemperatureMixin, prepare_cache_position_and_position_ids
 
 
 class Qwen3SessionMoeDecoderLayer(nn.Module):
@@ -178,14 +178,12 @@ class Qwen3SessionMoeModelBase(Qwen3PreTrainedModel):
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache()
 
-        if cache_position is None:
-            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            cache_position = torch.arange(
-                past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
-            )
-
-        if position_ids is None:
-            position_ids = cache_position.unsqueeze(0)
+        cache_position, position_ids = prepare_cache_position_and_position_ids(
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            cache_position=cache_position,
+            position_ids=position_ids,
+        )
 
         causal_mask = self._update_causal_mask(
             attention_mask, inputs_embeds, cache_position, past_key_values, output_attentions
@@ -508,14 +506,12 @@ class Qwen3SessionMoeModel(Qwen3SessionMoeModelBase):
         if use_cache and past_key_values is None:
             past_key_values = DynamicCache()
 
-        if cache_position is None:
-            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            cache_position = torch.arange(
-                past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
-            )
-
-        if position_ids is None:
-            position_ids = cache_position.unsqueeze(0)
+        cache_position, position_ids = prepare_cache_position_and_position_ids(
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            cache_position=cache_position,
+            position_ids=position_ids,
+        )
 
         position_indices, behavior_indices = self.router(input_ids, cache_position=cache_position)
 
