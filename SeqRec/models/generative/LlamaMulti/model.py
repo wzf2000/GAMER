@@ -5,7 +5,6 @@ from typing import Unpack, Callable, Optional, Tuple
 from functools import partial
 from transformers.utils import can_return_tuple
 from transformers.cache_utils import Cache, DynamicCache
-from transformers.loss.loss_utils import ForCausalLMLoss
 from transformers.models.llama import LlamaForCausalLM, LlamaPreTrainedModel
 from .configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import LlamaRMSNorm, LlamaRotaryEmbedding
@@ -20,7 +19,7 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from SeqRec.models.generative.LlamaMulti.router import LlamaMultiDecoderRouter
 from transformers.activations import ACT2FN
-from SeqRec.models.generative.mixins import TemperatureMixin, prepare_cache_position_and_position_ids
+from SeqRec.models.generative.mixins import TemperatureCausalLMLossMixin, prepare_cache_position_and_position_ids
 
 
 class MyLlamaMLP(nn.Module):
@@ -709,7 +708,7 @@ class LlamaMultiModel(LlamaPreTrainedModel):
         return causal_mask
 
 
-class LlamaMultiWithTemperature(TemperatureMixin, LlamaForCausalLM):
+class LlamaMultiWithTemperature(TemperatureCausalLMLossMixin, LlamaForCausalLM):
     def __init__(self, config: LlamaConfig):
         super(LlamaForCausalLM, self).__init__(config)
         self.model = LlamaMultiModel(config)
@@ -719,34 +718,6 @@ class LlamaMultiWithTemperature(TemperatureMixin, LlamaForCausalLM):
         # Initialize weights and apply final processing
         self.post_init()
         self.init_temperature()
-
-    @property
-    def loss_function(self):
-        if hasattr(self, "_loss_function"):
-            return self._loss_function
-
-        def ForCausalLMLossWithTemperature(
-            logits,
-            labels,
-            vocab_size: int,
-            num_items_in_batch: int | None = None,
-            ignore_index: int = -100,
-            shift_labels: torch.Tensor | None = None,
-            **kwargs,
-        ) -> torch.Tensor:
-            logits = self.apply_temperature(logits)
-            return ForCausalLMLoss(
-                logits,
-                labels,
-                vocab_size=vocab_size,
-                num_items_in_batch=num_items_in_batch,
-                ignore_index=ignore_index,
-                shift_labels=shift_labels,
-                **kwargs,
-            )
-
-        self._loss_function = ForCausalLMLossWithTemperature
-        return self._loss_function
 
     @can_return_tuple
     def forward(

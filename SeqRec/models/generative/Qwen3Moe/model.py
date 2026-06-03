@@ -1,6 +1,5 @@
 import torch
 from torch import nn
-from transformers.loss.loss_utils import ForCausalLMLoss
 from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     logger,
     KwargsForCausalLM,
@@ -32,7 +31,7 @@ from transformers.models.qwen3_moe import Qwen3MoeConfig
 
 from SeqRec.models.generative.Qwen3Moe.router import Qwen3MoeDecoderRouter
 from SeqRec.models.generative.Qwen3Moe.FFN import PBATransformerSparseMLP, MyQwen3SparseMLP
-from SeqRec.models.generative.mixins import TemperatureMixin, prepare_cache_position_and_position_ids
+from SeqRec.models.generative.mixins import TemperatureCausalLMLossMixin, prepare_cache_position_and_position_ids
 
 _CONFIG_FOR_DOC = "Qwen3MoeConfig"
 
@@ -601,35 +600,7 @@ class MyQwen3MoeForCausalLM(Qwen3MoePreTrainedModel, GenerationMixin):
         )
 
 
-class Qwen3MoeWithTemperature(TemperatureMixin, MyQwen3MoeForCausalLM):
+class Qwen3MoeWithTemperature(TemperatureCausalLMLossMixin, MyQwen3MoeForCausalLM):
     def __init__(self, config):
         super().__init__(config)
         self.init_temperature()
-
-    @property
-    def loss_function(self):
-        if hasattr(self, "_loss_function"):
-            return self._loss_function
-
-        def ForCausalLMLossWithTemperature(
-            logits,
-            labels,
-            vocab_size: int,
-            num_items_in_batch: int | None = None,
-            ignore_index: int = -100,
-            shift_labels: torch.Tensor | None = None,
-            **kwargs,
-        ) -> torch.Tensor:
-            logits = self.apply_temperature(logits)
-            return ForCausalLMLoss(
-                logits,
-                labels,
-                vocab_size=vocab_size,
-                num_items_in_batch=num_items_in_batch,
-                ignore_index=ignore_index,
-                shift_labels=shift_labels,
-                **kwargs,
-            )
-
-        self._loss_function = ForCausalLMLossWithTemperature
-        return self._loss_function

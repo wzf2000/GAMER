@@ -5,7 +5,6 @@ from typing import Unpack, Optional, Tuple
 from functools import partial
 from transformers.utils import can_return_tuple
 from transformers.cache_utils import Cache, DynamicCache
-from transformers.loss.loss_utils import ForCausalLMLoss
 from transformers.models.qwen3 import Qwen3ForCausalLM, Qwen3PreTrainedModel
 from transformers.models.qwen3.modeling_qwen3 import KwargsForCausalLM, Qwen3RMSNorm, Qwen3RotaryEmbedding, QWEN3_INPUTS_DOCSTRING
 from transformers.models.qwen3_moe import Qwen3MoeConfig
@@ -18,7 +17,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeAttention
 
 from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
 from SeqRec.models.generative.Qwen3Moe.router import Qwen3MoeDecoderRouter
-from SeqRec.models.generative.mixins import TemperatureMixin, prepare_cache_position_and_position_ids
+from SeqRec.models.generative.mixins import TemperatureCausalLMLossMixin, prepare_cache_position_and_position_ids
 
 
 class Qwen3SessionMoeDecoderLayer(nn.Module):
@@ -584,7 +583,7 @@ class Qwen3SessionMoeModel(Qwen3SessionMoeModelBase):
         )
 
 
-class Qwen3SessionMoeWithTemperature(TemperatureMixin, Qwen3ForCausalLM):
+class Qwen3SessionMoeWithTemperature(TemperatureCausalLMLossMixin, Qwen3ForCausalLM):
     def __init__(self, config: Qwen3MoeConfig):
         super(Qwen3ForCausalLM, self).__init__(config)
         self.model = Qwen3SessionMoeModel(config)
@@ -594,34 +593,6 @@ class Qwen3SessionMoeWithTemperature(TemperatureMixin, Qwen3ForCausalLM):
         # Initialize weights and apply final processing
         self.post_init()
         self.init_temperature()
-
-    @property
-    def loss_function(self):
-        if hasattr(self, "_loss_function"):
-            return self._loss_function
-
-        def ForCausalLMLossWithTemperature(
-            logits,
-            labels,
-            vocab_size: int,
-            num_items_in_batch: int | None = None,
-            ignore_index: int = -100,
-            shift_labels: torch.Tensor | None = None,
-            **kwargs,
-        ) -> torch.Tensor:
-            logits = self.apply_temperature(logits)
-            return ForCausalLMLoss(
-                logits,
-                labels,
-                vocab_size=vocab_size,
-                num_items_in_batch=num_items_in_batch,
-                ignore_index=ignore_index,
-                shift_labels=shift_labels,
-                **kwargs,
-            )
-
-        self._loss_function = ForCausalLMLossWithTemperature
-        return self._loss_function
 
     @can_return_tuple
     def forward(
