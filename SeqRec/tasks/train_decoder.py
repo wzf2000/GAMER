@@ -10,7 +10,7 @@ from SeqRec.models.generative.registry import (
 from SeqRec.tasks.generative_training import (
     build_hf_trainer,
     build_train_collator,
-    build_training_arguments,
+    build_training_arguments_from_script_args,
     finalize_generative_model,
     prepare_generative_model_for_training,
     prepare_tokenizer_and_config,
@@ -71,7 +71,6 @@ class TrainDecoder(MultiGPUTask):
             model_max_length=script_args.model_max_length,
         )
         train_profile = get_backbone_train_profile(model_args.backbone)
-        deepspeed = None
 
         train_data, valid_data = load_datasets(
             dataset=data_args.dataset,
@@ -110,26 +109,9 @@ class TrainDecoder(MultiGPUTask):
         )
         model = finalize_generative_model(model, tokenizer, self.device, self.ddp, self.info)
 
-        hf_training_args = build_training_arguments(
-            output_dir=model_args.output_dir,
-            seed=model_args.seed,
-            per_device_train_batch_size=script_args.per_device_batch_size,
-            per_device_eval_batch_size=script_args.per_device_batch_size,
-            gradient_accumulation_steps=script_args.gradient_accumulation_steps,
-            warmup_ratio=script_args.warmup_ratio,
-            num_train_epochs=script_args.epochs,
-            learning_rate=script_args.learning_rate,
-            weight_decay=script_args.weight_decay,
-            lr_scheduler_type=script_args.lr_scheduler_type,
-            fp16=script_args.fp16,
-            bf16=script_args.bf16,
-            logging_steps=script_args.logging_step,
-            optim=script_args.optim,
-            eval_strategy=script_args.save_and_eval_strategy,
-            save_strategy=script_args.save_and_eval_strategy,
-            eval_steps=script_args.save_and_eval_steps,
-            save_steps=script_args.save_and_eval_steps,
-            deepspeed=deepspeed,
+        hf_training_args = build_training_arguments_from_script_args(
+            model_args=model_args,
+            script_args=script_args,
             ddp=self.ddp,
             run_name=(
                 script_args.wandb_run_name
