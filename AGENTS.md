@@ -38,7 +38,8 @@
 - Script environment variables use `name=value` prefixes before `bash`; extra task arguments should be appended after the script path with normal argparse syntax, for example:
   - `gpu=0 dataset=Retail bash scripts/train_SMB_decoder.sh`
   - `dataset=ShortVideoAD original=1 batch_size=256 tasks=smb_explicit_decoder_4 gpu=0 backbone=Qwen3Multi bash scripts/test_SMB_decoder.sh --max_his_len 100`
-  - `dataset=ShortVideoAD gpu=0 bash scripts/train_SMB_decoder.sh --warmup_ratio 0.04 --debug`
+  - `dataset=ShortVideoAD gpu=0 bash scripts/train_SMB_decoder.sh --num_train_epochs 20 --learning_rate 3e-4 --warmup_ratio 0.04 --debug`
+- Prefer passing training hyperparameters after the script path with argparse/Hugging Face-style names instead of adding new script environment variables.
 - Legacy `extra_args=max_his_len=100,warmup_ratio=0.04` and `extra_flags=foo,bar` script environment variables are still supported for older commands, but avoid using them in new examples.
 
 ## Coding Conventions

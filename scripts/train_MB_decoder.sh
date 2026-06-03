@@ -2,10 +2,8 @@
 : ${dataset:=Retail}
 : ${rq_kmeans:=0}
 : ${batch_size:=512}
-: ${learning_rate:=5e-4}
 : ${tasks:=mb_explicit}
 : ${gpu:=0,1,2,3}
-: ${epochs:=200}
 : ${port:=2314}
 : ${backbone:=TIGER}
 
@@ -51,9 +49,6 @@ run_main_distributed "${gpu_num}" "${port}" train_MB_decoder \
     --wandb_run_name ${run_name} \
     --dataset ${dataset} \
     --per_device_batch_size ${per_device_batch_size} \
-    --learning_rate ${learning_rate} \
     --tasks ${tasks} \
-    --epochs ${epochs} \
     --index_file ${index_file} \
-    --temperature 0.7 \
     "${EXTRA_CLI_ARGS[@]}"
