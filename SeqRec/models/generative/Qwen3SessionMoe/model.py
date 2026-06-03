@@ -18,6 +18,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeAttention
 
 from SeqRec.models.generative.Qwen3Moe.FFN import MyQwen3SparseMLP, PBATransformerSparseMLP
 from SeqRec.models.generative.Qwen3Moe.router import Qwen3MoeDecoderRouter
+from SeqRec.models.generative.mixins import TemperatureMixin
 
 
 class Qwen3SessionMoeDecoderLayer(nn.Module):
@@ -587,7 +588,7 @@ class Qwen3SessionMoeModel(Qwen3SessionMoeModelBase):
         )
 
 
-class Qwen3SessionMoeWithTemperature(Qwen3ForCausalLM):
+class Qwen3SessionMoeWithTemperature(TemperatureMixin, Qwen3ForCausalLM):
     def __init__(self, config: Qwen3MoeConfig):
         super(Qwen3ForCausalLM, self).__init__(config)
         self.model = Qwen3SessionMoeModel(config)
@@ -596,17 +597,12 @@ class Qwen3SessionMoeWithTemperature(Qwen3ForCausalLM):
 
         # Initialize weights and apply final processing
         self.post_init()
-        self.temperature = 1.0
-
-    def set_hyper(self, temperature: float):
-        self.temperature = temperature
+        self.init_temperature()
 
     @property
     def loss_function(self):
         if hasattr(self, "_loss_function"):
             return self._loss_function
-
-        assert hasattr(self, "temperature"), "Model must have a temperature attribute."
 
         def ForCausalLMLossWithTemperature(
             logits,
@@ -617,7 +613,7 @@ class Qwen3SessionMoeWithTemperature(Qwen3ForCausalLM):
             shift_labels: torch.Tensor | None = None,
             **kwargs,
         ) -> torch.Tensor:
-            logits /= self.temperature
+            logits = self.apply_temperature(logits)
             return ForCausalLMLoss(
                 logits,
                 labels,

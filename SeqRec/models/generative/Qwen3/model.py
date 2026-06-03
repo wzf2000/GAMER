@@ -2,21 +2,18 @@ import torch
 from transformers.loss.loss_utils import ForCausalLMLoss
 from transformers.models.qwen3 import Qwen3ForCausalLM
 
+from SeqRec.models.generative.mixins import TemperatureMixin
 
-class Qwen3WithTemperature(Qwen3ForCausalLM):
+
+class Qwen3WithTemperature(TemperatureMixin, Qwen3ForCausalLM):
     def __init__(self, config):
         super().__init__(config)
-        self.temperature = 1.0
-
-    def set_hyper(self, temperature: float):
-        self.temperature = temperature
+        self.init_temperature()
 
     @property
     def loss_function(self):
         if hasattr(self, "_loss_function"):
             return self._loss_function
-
-        assert hasattr(self, "temperature"), "Model must have a temperature attribute."
 
         def ForCausalLMLossWithTemperature(
             logits,
@@ -27,7 +24,7 @@ class Qwen3WithTemperature(Qwen3ForCausalLM):
             shift_labels: torch.Tensor | None = None,
             **kwargs,
         ) -> torch.Tensor:
-            logits /= self.temperature
+            logits = self.apply_temperature(logits)
             return ForCausalLMLoss(
                 logits,
                 labels,
