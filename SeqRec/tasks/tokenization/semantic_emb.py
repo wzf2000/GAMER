@@ -10,9 +10,9 @@ from zhon.hanzi import punctuation
 from torch.utils.data import DataLoader
 
 from SeqRec.tasks.base import Task
-from SeqRec.utils.futils import load_json
-from SeqRec.utils.parse import SubParsersAction
-from SeqRec.utils.pipe import set_device
+from SeqRec.utils.fs import load_json
+from SeqRec.utils.args import SubParsersAction
+from SeqRec.utils.runtime import set_device
 from SeqRec.utils.text import clean_text
 
 

@@ -5,7 +5,7 @@ import numpy as np
 from loguru import logger
 
 from SeqRec.datasets.session_behavior.explicit import SMBExplicitDataset
-from SeqRec.utils.pipe import set_seed, get_tqdm
+from SeqRec.utils.runtime import set_seed, get_tqdm
 
 
 class SMBExplicitDatasetForDecoder(SMBExplicitDataset):

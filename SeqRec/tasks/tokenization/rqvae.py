@@ -8,7 +8,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.datasets.emb_dataset import EmbDataset
-from SeqRec.utils.parse import SubParsersAction
+from SeqRec.utils.args import SubParsersAction
 
 
 class TrainRQVAE(MultiGPUTask):

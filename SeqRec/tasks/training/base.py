@@ -15,9 +15,9 @@ from SeqRec.tasks.training.helpers import (
     prepare_tokenizer_and_config,
 )
 from SeqRec.tasks.multi_gpu import MultiGPUTask
-from SeqRec.utils.futils import ensure_dir
+from SeqRec.utils.fs import ensure_dir
 from SeqRec.utils.logging import replace_progress_callback
-from SeqRec.utils.parse import SubParsersAction, build_generative_training_args, parse_dataset_args, parse_global_args, parse_training_args
+from SeqRec.utils.args import SubParsersAction, build_generative_training_args, parse_dataset_args, parse_global_args, parse_training_args
 
 
 class BaseGenerativeTrainTask(MultiGPUTask):

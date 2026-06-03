@@ -4,7 +4,7 @@ from typing import Any
 import torch.distributed as dist
 
 from SeqRec.tasks.base import Task
-from SeqRec.utils.pipe import set_seed
+from SeqRec.utils.runtime import set_seed
 
 
 class MultiGPUTask(Task):

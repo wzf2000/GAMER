@@ -8,7 +8,7 @@ from loguru import logger
 from torch.utils.data import DataLoader
 
 from SeqRec.modules.model_base.seq_model import SeqModel
-from SeqRec.utils.pipe import get_tqdm
+from SeqRec.utils.runtime import get_tqdm
 
 
 class Trainer:

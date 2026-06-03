@@ -33,9 +33,9 @@ from SeqRec.tasks.evaluation.helpers import (
     prepare_behavior_generation_prompt,
     slice_decoder_only_output,
 )
-from SeqRec.utils.futils import ensure_dir
-from SeqRec.utils.parse import SubParsersAction, parse_global_args, parse_dataset_args, parse_analysis_args
-from SeqRec.utils.pipe import get_tqdm
+from SeqRec.utils.fs import ensure_dir
+from SeqRec.utils.args import SubParsersAction, parse_global_args, parse_dataset_args, parse_analysis_args
+from SeqRec.utils.runtime import get_tqdm
 
 if TYPE_CHECKING:
     from transformers.generation.utils import GenerateBeamOutput
