@@ -83,9 +83,25 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
                 getattr(config, "th_multi_view_use_relation_bias", False)
             )
             if self.use_relation_bias:
-                self.level_pair_bias = nn.Parameter(
-                    torch.zeros(config.num_behavior + 1, config.num_behavior + 1, config.num_attention_heads)
-                )
+                self.th_relation_bias_type = getattr(config, "th_relation_bias_type", "table")
+                if self.th_relation_bias_type not in ("table", "factorized"):
+                    raise ValueError("th_relation_bias_type must be 'table' or 'factorized'.")
+                if self.th_relation_bias_type == "table":
+                    bias = torch.zeros(config.num_behavior + 1, config.num_behavior + 1, config.num_attention_heads)
+                    if bool(getattr(config, "th_relation_bias_trainable", True)):
+                        self.level_pair_bias = nn.Parameter(bias)
+                    else:
+                        self.register_buffer("level_pair_bias", bias)
+                else:
+                    self.th_relation_bias_rank = int(getattr(config, "th_relation_bias_rank", 4))
+                    if self.th_relation_bias_rank <= 0:
+                        raise ValueError("th_relation_bias_rank must be positive.")
+                    self.level_query_bias_factor = nn.Parameter(
+                        torch.empty(config.num_behavior + 1, config.num_attention_heads, self.th_relation_bias_rank)
+                    )
+                    self.level_key_bias_factor = nn.Parameter(
+                        torch.empty(config.num_behavior + 1, config.num_attention_heads, self.th_relation_bias_rank)
+                    )
             self.gating = nn.Linear(config.hidden_size, config.hidden_size, bias=config.attention_bias)
             self.act_fn = ACT2FN[config.hidden_act]
             if self.use_relation_bias:
@@ -96,6 +112,9 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
 
     def _init_level_pair_bias(self):
         init_type = getattr(self.config, "th_relation_bias_init", "zero")
+        if getattr(self, "th_relation_bias_type", "table") == "factorized":
+            self._init_factorized_level_pair_bias(init_type)
+            return
         if init_type == "zero":
             return
         if init_type != "soft":
@@ -107,6 +126,29 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
             bias = level_diff.clamp(max=0.0) * scale
             self.level_pair_bias.copy_(bias[:, :, None].expand_as(self.level_pair_bias))
 
+    def _init_factorized_level_pair_bias(self, init_type: str):
+        if init_type not in ("zero", "soft"):
+            raise ValueError("th_relation_bias_init must be 'zero' or 'soft'.")
+        with torch.no_grad():
+            if init_type == "zero":
+                std = float(getattr(self.config, "th_relation_bias_factor_init_std", 0.02))
+                nn.init.normal_(self.level_query_bias_factor, mean=0.0, std=std)
+                self.level_key_bias_factor.zero_()
+                return
+
+            scale = float(getattr(self.config, "th_relation_bias_soft_scale", 0.1))
+            levels = torch.arange(self.config.num_behavior + 1, dtype=self.level_query_bias_factor.dtype)
+            target = (levels[:, None] - levels[None, :]).clamp(max=0.0) * scale
+            u, s, vh = torch.linalg.svd(target.to(torch.float32), full_matrices=False)
+            rank = min(self.th_relation_bias_rank, s.numel())
+            query_factor = torch.zeros_like(self.level_query_bias_factor)
+            key_factor = torch.zeros_like(self.level_key_bias_factor)
+            sqrt_s = torch.sqrt(s[:rank]).to(query_factor.dtype)
+            query_factor[:, :, :rank] = (u[:, :rank].to(query_factor.dtype) * sqrt_s).unsqueeze(1)
+            key_factor[:, :, :rank] = (vh[:rank].T.to(key_factor.dtype) * sqrt_s).unsqueeze(1)
+            self.level_query_bias_factor.copy_(query_factor)
+            self.level_key_bias_factor.copy_(key_factor)
+
     def _compute_level_pair_bias(
         self,
         query_action_index: torch.Tensor,
@@ -115,6 +157,10 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
     ) -> torch.Tensor:
         query_action_index = query_action_index.clamp(min=0, max=self.config.num_behavior)
         key_action_index = key_action_index.clamp(min=0, max=self.config.num_behavior)
+        if getattr(self, "th_relation_bias_type", "table") == "factorized":
+            query_factor = self.level_query_bias_factor[query_action_index]
+            key_factor = self.level_key_bias_factor[key_action_index]
+            return torch.einsum("blhr,bshr->bhls", query_factor, key_factor).to(dtype)
         pair_bias = self.level_pair_bias[query_action_index[:, :, None], key_action_index[:, None, :]]
         return pair_bias.permute(0, 3, 1, 2).to(dtype)
 
