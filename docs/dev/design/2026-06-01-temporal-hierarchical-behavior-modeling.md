@@ -244,6 +244,38 @@ Expected benefit:
 - `causal`, `level`, `geq`, and `soft` become fixed points inside a broader learnable relation model.
 - High-level sparse behaviors can attend to lower-level evidence, but the model can also use high-level evidence to contextualize later low-level behaviors.
 
+Profiling update:
+
+Synthetic profiling on `batch=8`, `seq_len=1024`, and SDPA showed that the naive trainable table implementation is not practical for training. Forward-only cost is normal, but backward becomes roughly two orders of magnitude slower because a small parameter table is expanded through advanced indexing into a dense `[batch, heads, seq_len, seq_len]` bias and autograd must scatter the attention-bias gradient back to the small table. Freezing the table removes the slowdown and restores step time close to the multi-view version.
+
+The implementation should therefore support three explicit relation-bias variants:
+
+- `table` + `th_relation_bias_trainable=false`: fixed pairwise relation-bias table. This keeps a deterministic temporal-hierarchical prior without the expensive indexing backward. It is suitable as a high-efficiency relation-bias baseline.
+- `factorized` + `th_relation_bias_trainable=true`: learnable low-rank relation bias. Instead of directly learning `level_pair_bias[q_level, k_level, head]`, learn `query_factor[level, head, rank]` and `key_factor[level, head, rank]`, then compute the dense bias with a regular contraction:
+
+```text
+bias(q_level, k_level, head)
+  = sum_r query_factor[q_level, head, r]
+        * key_factor[k_level, head, r]
+```
+
+This preserves learnable pairwise hierarchy modeling while moving gradient flow to level embeddings of shape `[batch, seq_len, heads, rank]`, avoiding the pathological `[batch, heads, seq_len, seq_len] -> small table` scatter-add backward.
+
+- `multi_view`: hard head-partitioned temporal/same/up/down visibility masks. This is not a learnable scalar relation-bias table, but it gives efficient structured temporal-hierarchical views and serves as the stage-2 method/ablation.
+
+Default experiment direction:
+
+- Use `factorized` relation bias for the learnable relation-bias model.
+- Use fixed `table` only when testing the effect of deterministic hierarchy priors.
+- Avoid the naive trainable `table` implementation for long-sequence training except as a profiler/debug ablation.
+
+Config mapping:
+
+- `Qwen3TemporalHierarchicalFixedBias`: fixed table relation bias, with `th_relation_bias_type="table"` and `th_relation_bias_trainable=false`.
+- `Qwen3TemporalHierarchicalFactorized`: learnable low-rank relation bias, with `th_relation_bias_type="factorized"` and `th_relation_bias_rank=4`.
+- `Qwen3TemporalHierarchicalMultiView`: head-partitioned multi-view temporal/same/up/down attention.
+- `Qwen3TemporalHierarchical` remains a compatibility alias for the factorized version.
+
 ### 2. Multi-View Cross-Level Attention Heads
 
 Instead of choosing one global cross mask, split cross-level attention heads into semantic views:
