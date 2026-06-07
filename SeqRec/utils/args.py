@@ -24,6 +24,7 @@ class DatasetArgs:
     dataset: str = "Instruments"
     index_file: str = ".index.json"
     max_his_len: int = 20
+    train_session: bool = True
 
 
 @dataclass
