@@ -28,6 +28,7 @@ class TrainSMBDecoder(BaseGenerativeTrainTask):
             max_his_len=data_args.max_his_len,
             index_file=data_args.index_file,
             tasks=data_args.tasks,
+            train_session=data_args.train_session
         )
 
     def get_train_notes(self, data_args, model_args) -> str:

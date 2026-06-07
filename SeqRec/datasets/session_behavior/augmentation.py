@@ -82,32 +82,44 @@ class SMBAugmentDataset(SMBExplicitDataset):
             times = self.time[uid][:self.valid_pos[uid]]
             items_list, behaviors_list, sids_list, times_list = self._augment_interactions(items, behaviors, sids, times)
             for items, behaviors, sids, times in zip(items_list, behaviors_list, sids_list, times_list):
-                session_ids_map = {}
-                extended_session_ids_map = {}
-                times_map = {}
-                poss = [0]
-                for i in range(1, len(items)):
-                    if sids[i] > sids[i - 1]:
-                        poss.append(i)
-                    else:
-                        poss.append(poss[-1])
-                for i in range(1, len(items)):
-                    sid = sids[i]
-                    pos = poss[i]
-                    # wrong, mark
-                    if sid not in session_ids_map:
-                        session_ids_map[sid] = self._generate_session_ids(sids[:pos + 1])
-                        extended_session_ids_map[sid] = self._generate_extended_session_ids(sids[:pos + 1])
-                        times_map[sid] = self._generate_times(times[:pos + 1])
-                    inter_data.append({
-                        "item": self.get_behavior_item(items[i], behaviors[i]),
-                        "inters": self._get_inters(items[:pos], behaviors[:pos]),
-                        "session_ids": session_ids_map[sid],
-                        "extended_session_ids": extended_session_ids_map[sid],
-                        "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
-                        "time": times_map[sid],
-                        "behavior": behaviors[i],
-                    })
+                if self.train_session:
+                    session_ids_map = {}
+                    extended_session_ids_map = {}
+                    times_map = {}
+                    poss = [0]
+                    for i in range(1, len(items)):
+                        if sids[i] > sids[i - 1]:
+                            poss.append(i)
+                        else:
+                            poss.append(poss[-1])
+                    for i in range(1, len(items)):
+                        sid = sids[i]
+                        pos = poss[i]
+                        # wrong, mark
+                        if sid not in session_ids_map:
+                            session_ids_map[sid] = self._generate_session_ids(sids[:pos + 1])
+                            extended_session_ids_map[sid] = self._generate_extended_session_ids(sids[:pos + 1])
+                            times_map[sid] = self._generate_times(times[:pos + 1])
+                        inter_data.append({
+                            "item": self.get_behavior_item(items[i], behaviors[i]),
+                            "inters": self._get_inters(items[:pos], behaviors[:pos]),
+                            "session_ids": session_ids_map[sid],
+                            "extended_session_ids": extended_session_ids_map[sid],
+                            "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
+                            "time": times_map[sid],
+                            "behavior": behaviors[i],
+                        })
+                else:
+                    for i in range(1, len(items)):
+                        inter_data.append({
+                            "item": self.get_behavior_item(items[i], behaviors[i]),
+                            "inters": self._get_inters(items[:i], behaviors[:i]),
+                            "session_ids": self._generate_session_ids(sids[:i+1]),
+                            "extended_session_ids": self._generate_extended_session_ids(sids[:i+1]),
+                            "actions": self._generate_actions(behaviors[:i+1]),
+                            "time": self._generate_times(times[:i+1]),
+                            "behavior": behaviors[i],
+                        })
 
         return inter_data
 

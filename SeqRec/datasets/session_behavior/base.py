@@ -15,7 +15,7 @@ class BaseSMBDataset(Dataset):
     Base class for session-wise multi-behavior sequential recommendation datasets.
     """
 
-    def __init__(self, dataset: str, data_path: str, max_his_len: int, index_file: str, mode: str):
+    def __init__(self, dataset: str, data_path: str, max_his_len: int, index_file: str, mode: str, train_session: bool=True):
         super().__init__()
 
         self.dataset: str = dataset
@@ -29,6 +29,7 @@ class BaseSMBDataset(Dataset):
         self.all_items = None
         self.all_items_by_behavior: dict[str, set[str]] = {}
         self.mode = mode
+        self.train_session = train_session
 
         # load data
         self._load_data()
@@ -254,26 +255,38 @@ class BaseSMBDataset(Dataset):
                 continue
             items = self.remapped_inters[uid][: self.valid_pos[uid]]
             behaviors = self.history_behaviors[uid][: self.valid_pos[uid]]
+            sids = self.session[uid][: self.valid_pos[uid]]
             times = self.time[uid][: self.valid_pos[uid]]
             session_ids_map = {}
             extended_session_ids_map = {}
             times_map = {}
             for i in range(1, len(items)):
-                sid = self.session[uid][i]
-                pos = self.train_pos[uid][sid]
-                if sid not in session_ids_map:
-                    session_ids_map[sid] = self._generate_session_ids(self.session[uid][:pos + 1])
-                    extended_session_ids_map[sid] = self._generate_extended_session_ids(self.session[uid][:pos + 1])
-                    times_map[sid] = self._generate_times(times[:pos + 1])
-                inter_data.append({
-                    "item": self.get_behavior_item(items[i], behaviors[i]),
-                    "inters": self._get_inters(items[:pos], behaviors[:pos]),
-                    "session_ids": session_ids_map[sid],
-                    "extended_session_ids": extended_session_ids_map[sid],
-                    "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
-                    "time": times_map[sid],
-                    "behavior": behaviors[i],
-                })
+                if self.train_session:
+                    sid = self.session[uid][i]
+                    pos = self.train_pos[uid][sid]
+                    if sid not in session_ids_map:
+                        session_ids_map[sid] = self._generate_session_ids(self.session[uid][:pos + 1])
+                        extended_session_ids_map[sid] = self._generate_extended_session_ids(self.session[uid][:pos + 1])
+                        times_map[sid] = self._generate_times(times[:pos + 1])
+                    inter_data.append({
+                        "item": self.get_behavior_item(items[i], behaviors[i]),
+                        "inters": self._get_inters(items[:pos], behaviors[:pos]),
+                        "session_ids": session_ids_map[sid],
+                        "extended_session_ids": extended_session_ids_map[sid],
+                        "actions": self._generate_actions(behaviors[:pos] + [behaviors[i]]),
+                        "time": times_map[sid],
+                        "behavior": behaviors[i],
+                    })
+                else:
+                    inter_data.append({
+                        "item": self.get_behavior_item(items[i], behaviors[i]),
+                        "inters": self._get_inters(items[:i], behaviors[:i]),
+                        "session_ids": self._generate_session_ids(sids[:i+1]),
+                        "extended_session_ids": self._generate_extended_session_ids(sids[:i+1]),
+                        "actions": self._generate_actions(behaviors[:i+1]),
+                        "time": self._generate_times(times[:i+1]),
+                        "behavior": behaviors[i],
+                    })
 
         return inter_data
 
