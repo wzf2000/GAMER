@@ -46,9 +46,15 @@ class SMBExplicitDataset(BaseSMBDataset):
     @property
     def cached_file_name(self) -> str:
         if self.behavior_first:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}{self.index_suffix}.pkl")
+            if self.train_session:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}{self.index_suffix}.pkl")
+            else:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.MB.{self.mode}{self.index_suffix}.pkl")
         else:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.{self.mode}{self.index_suffix}.pkl")
+            if self.train_session:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.{self.mode}{self.index_suffix}.pkl")
+            else:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.MB.behind.{self.mode}{self.index_suffix}.pkl")
 
     def _update_behavior_tokens(self):
         for behavior in self.behaviors:
