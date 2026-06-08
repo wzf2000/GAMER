@@ -69,7 +69,10 @@ class BaseSMBDataset(Dataset):
 
     @property
     def cached_file_name(self) -> str:
-        return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}{self.index_suffix}.pkl")
+        if self.train_session:
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{self.mode}{self.index_suffix}.pkl")
+        else:
+            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.MB.{self.mode}{self.index_suffix}.pkl")
 
     def _load_data(self):
         with open(os.path.join(self.data_path, self.dataset + ".SMB.inter.json"), "r") as f:

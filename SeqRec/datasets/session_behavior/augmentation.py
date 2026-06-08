@@ -18,9 +18,15 @@ class SMBAugmentDataset(SMBExplicitDataset):
     @property
     def cached_file_name(self) -> str:
         if self.behavior_first:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.aug{self.augment}.{self.mode}{self.index_suffix}.pkl")
+            if self.train_session:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.aug{self.augment}.{self.mode}{self.index_suffix}.pkl")
+            else:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.MB.aug{self.augment}.{self.mode}{self.index_suffix}.pkl")
         else:
-            return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.aug{self.augment}.{self.mode}{self.index_suffix}.pkl")
+            if self.train_session:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.behind.aug{self.augment}.{self.mode}{self.index_suffix}.pkl")
+            else:
+                return os.path.join(self.data_path, self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.MB.behind.aug{self.augment}.{self.mode}{self.index_suffix}.pkl")
 
     def _augment_interactions(self, items: list[str], behaviors: list[str], sids: list[int], times: list[float]) -> tuple[list[list[str]], list[list[str]], list[list[int]], list[list[float]]]:
         if not self.augment:
