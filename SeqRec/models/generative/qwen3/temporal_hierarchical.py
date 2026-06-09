@@ -83,6 +83,11 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
                 getattr(config, "th_multi_view_use_relation_bias", False)
             )
             if self.use_relation_bias:
+                self.th_relation_bias_scale = float(getattr(config, "th_relation_bias_scale", 1.0))
+                self.th_relation_bias_learnable_scale = bool(getattr(config, "th_relation_bias_learnable_scale", False))
+                if self.th_relation_bias_learnable_scale:
+                    alpha_init = float(getattr(config, "th_relation_bias_alpha_init", self.th_relation_bias_scale))
+                    self.th_relation_bias_alpha = nn.Parameter(torch.tensor(alpha_init, dtype=torch.float32))
                 self.th_relation_bias_type = getattr(config, "th_relation_bias_type", "table")
                 if self.th_relation_bias_type not in ("table", "factorized"):
                     raise ValueError("th_relation_bias_type must be 'table' or 'factorized'.")
@@ -107,8 +112,25 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
             if self.use_relation_bias:
                 self._init_level_pair_bias()
             if self.th_attention_mode == "multi_view":
-                view_ids = self._build_multi_view_head_ids(config)
-                self.register_buffer("multi_view_head_ids", view_ids, persistent=False)
+                self.th_multi_view_mode = getattr(config, "th_multi_view_mode", "hard")
+                if self.th_multi_view_mode not in ("hard", "soft", "gated"):
+                    raise ValueError("th_multi_view_mode must be 'hard', 'soft', or 'gated'.")
+                if self.th_multi_view_mode == "hard":
+                    view_ids = self._build_multi_view_head_ids(config)
+                    self.register_buffer("multi_view_head_ids", view_ids, persistent=False)
+                else:
+                    view_ids = self._build_multi_view_type_ids(config)
+                    self.register_buffer("multi_view_type_ids", view_ids, persistent=False)
+                    self.th_multi_view_soft_bias_scale = float(getattr(config, "th_multi_view_soft_bias_scale", 1.0))
+                    if self.th_multi_view_mode == "gated":
+                        gate_logits = torch.zeros(config.num_attention_heads, len(view_ids))
+                        if getattr(config, "th_multi_view_gate_init", "uniform") == "allocation":
+                            hard_view_ids = self._build_multi_view_head_ids(config)
+                            for head_idx, view_id in enumerate(hard_view_ids.tolist()):
+                                matches = (view_ids == view_id).nonzero(as_tuple=False)
+                                if matches.numel() > 0:
+                                    gate_logits[head_idx, matches[0].item()] = 2.0
+                        self.multi_view_gate_logits = nn.Parameter(gate_logits)
 
     def _init_level_pair_bias(self):
         init_type = getattr(self.config, "th_relation_bias_init", "zero")
@@ -165,13 +187,27 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
         return pair_bias.permute(0, 3, 1, 2).to(dtype)
 
     @staticmethod
-    def _build_multi_view_head_ids(config: Qwen3MoeConfig) -> torch.Tensor:
+    def _get_multi_view_types(config: Qwen3MoeConfig) -> list[str]:
         view_types = getattr(config, "th_multi_view_types", ["temporal", "same", "up", "down"])
-        allocation = getattr(config, "th_multi_view_head_allocation", None)
         valid_views = {"temporal": 0, "same": 1, "up": 2, "down": 3}
         for view in view_types:
             if view not in valid_views:
                 raise ValueError(f"Unsupported th_multi_view type: {view}")
+        return view_types
+
+    @staticmethod
+    def _build_multi_view_type_ids(config: Qwen3MoeConfig) -> torch.Tensor:
+        valid_views = {"temporal": 0, "same": 1, "up": 2, "down": 3}
+        return torch.tensor(
+            [valid_views[view] for view in Qwen3TemporalHierarchicalAttention._get_multi_view_types(config)],
+            dtype=torch.long,
+        )
+
+    @staticmethod
+    def _build_multi_view_head_ids(config: Qwen3MoeConfig) -> torch.Tensor:
+        view_types = Qwen3TemporalHierarchicalAttention._get_multi_view_types(config)
+        allocation = getattr(config, "th_multi_view_head_allocation", None)
+        valid_views = {"temporal": 0, "same": 1, "up": 2, "down": 3}
         if allocation is None:
             base = config.num_attention_heads // len(view_types)
             allocation = [base] * len(view_types)
@@ -215,6 +251,46 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
         )
         return bias.masked_fill(head_block, torch.finfo(dtype).min)
 
+    def _compute_soft_multi_view_bias(
+        self,
+        query_action_index: torch.Tensor,
+        key_action_index: torch.Tensor,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        query_level = query_action_index[:, :, None]
+        key_level = key_action_index[:, None, :]
+        special_pair = (query_level == 0) | (key_level == 0)
+        same_block = (query_level != key_level) & ~special_pair
+        up_block = (query_level <= key_level) & ~special_pair
+        down_block = (query_level >= key_level) & ~special_pair
+        block_by_view = torch.stack(
+            [
+                torch.zeros_like(same_block),
+                same_block,
+                up_block,
+                down_block,
+            ],
+            dim=1,
+        )
+        view_ids = self.multi_view_type_ids.to(query_action_index.device)
+        selected_blocks = block_by_view[:, view_ids].to(dtype)
+        if self.th_multi_view_mode == "gated":
+            view_weights = torch.softmax(self.multi_view_gate_logits.to(dtype), dim=-1)
+        else:
+            view_weights = torch.full(
+                (self.config.num_attention_heads, len(view_ids)),
+                1.0 / len(view_ids),
+                dtype=dtype,
+                device=query_action_index.device,
+            )
+        soft_block = torch.einsum("bvls,hv->bhls", selected_blocks, view_weights)
+        return -self.th_multi_view_soft_bias_scale * soft_block
+
+    def _apply_relation_bias_scale(self, relation_bias: torch.Tensor) -> torch.Tensor:
+        if self.th_relation_bias_learnable_scale:
+            return relation_bias * self.th_relation_bias_alpha.to(relation_bias.dtype)
+        return relation_bias * self.th_relation_bias_scale
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -254,14 +330,21 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
         if self.is_temporal_hierarchical:
             extra_bias = None
             if self.th_attention_mode == "relation_bias":
-                extra_bias = self._compute_level_pair_bias(action_index, key_action_index, hidden_states.dtype)
+                extra_bias = self._apply_relation_bias_scale(
+                    self._compute_level_pair_bias(action_index, key_action_index, hidden_states.dtype)
+                )
             elif self.th_attention_mode == "multi_view":
-                extra_bias = self._compute_multi_view_bias(action_index, key_action_index, hidden_states.dtype)
+                if self.th_multi_view_mode == "hard":
+                    extra_bias = self._compute_multi_view_bias(action_index, key_action_index, hidden_states.dtype)
+                else:
+                    extra_bias = self._compute_soft_multi_view_bias(action_index, key_action_index, hidden_states.dtype)
                 if self.use_relation_bias:
-                    extra_bias = extra_bias + self._compute_level_pair_bias(
-                        action_index,
-                        key_action_index,
-                        hidden_states.dtype,
+                    extra_bias = extra_bias + self._apply_relation_bias_scale(
+                        self._compute_level_pair_bias(
+                            action_index,
+                            key_action_index,
+                            hidden_states.dtype,
+                        )
                     )
             attention_mask = extra_bias if attention_mask is None else attention_mask + extra_bias
 
