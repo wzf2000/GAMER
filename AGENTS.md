@@ -66,6 +66,7 @@
 - Use `docs/dev/decisions/` for important technical or workflow decisions, using a lightweight ADR style when useful.
 - Use `docs/dev/notes/` for temporary development notes, debugging records, and experiment observations.
 - Prefer Markdown files named `YYYY-MM-DD-short-topic.md`.
+- Keep `docs/dev/` Markdown documents bilingual. For every English development document, keep a Chinese counterpart with the same path and `.zh.md` suffix; for every Chinese-first document, keep an English counterpart without the `.zh` suffix. Update both versions when adding, renaming, or materially changing development docs.
 - Keep these development documents on `dev` by default. Cherry-pick them to `master` only when they are needed with a published feature or the user explicitly asks.
 
 ## Testing And Verification
