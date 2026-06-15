@@ -37,21 +37,24 @@ The main limitation is architectural rather than informational:
 
 Most static strategies are therefore straightforward after a small policy-layer refactor.
 
-## Feasibility Summary
+## Implementation Status Summary (Living)
 
-| Scheme | Feasibility | Expected cost | Model changes | Recommended status |
-| --- | --- | --- | --- | --- |
-| Time-Decayed Behavior Dropout | Easy | Low | None | Implement first |
-| Session-Aware Dropout | Easy | Low-medium | None | Implement first |
-| User-Adaptive Ratio | Moderate | Medium | None | Implement after policy abstraction |
-| Dataset-Level Fixed Proportion | Easy-moderate | Medium | None | Implement as control |
-| Target-Conditioned Augmentation | Moderate | Medium | None for current target-aware samples | Implement after protocol review |
-| Multi-View Sequence Augmentation | Moderate | Medium | None initially | Implement after basic policies |
-| Curriculum Augmentation | Difficult under current cache design | High | Trainer/data pipeline integration | Defer |
+| Scheme or component | Implementation | Verification | Next role |
+| --- | --- | --- | --- |
+| Shared policy interface and structured sequence | Implemented | Unit tests, compileall, and flake8 passed | Foundation for further policies |
+| Unified decoder dataset | Implemented | Synthetic loader and sample-schema tests passed | Keep as the common entry |
+| Explicit arguments, cache key, and `smb_policy_decoder` | Implemented | CLI, cache isolation, and legacy task parsing verified | Continue using |
+| Time-Decayed Behavior Dropout | Implemented | Determinism, recency protection, and level protection verified | First experiment batch |
+| Session-Aware Dropout | Implemented | Session atomicity and minimum-history protection verified | First experiment batch |
+| Dataset-Level Fixed Proportion | Implemented | Soft cap and top-level protection verified | Control experiment |
+| User-Adaptive Ratio | Not implemented | Not verified | Next-stage candidate |
+| Target-Conditioned Augmentation | Not implemented | Not verified | Implement after protocol review |
+| Multi-View Sequence Augmentation | Not implemented | Not verified | Implement after basic-policy experiments |
+| Curriculum Augmentation | Not implemented | Not verified | Deferred |
 
-## Recommended Shared Architecture (Priority Refactor)
+## Shared Architecture (Implemented And Verified)
 
-### Policy Interface
+### Policy Interface (Implemented And Verified)
 
 Add a strategy module:
 
@@ -78,12 +81,12 @@ class AugmentedView:
 
 
 class SequenceAugmentationPolicy(Protocol):
-    def generate_views(
+    def generate_view(
         self,
         sequence: BehaviorSequence,
         context: AugmentationContext,
         rng: np.random.Generator,
-    ) -> list[AugmentedView]:
+    ) -> AugmentedView:
         ...
 ```
 
@@ -91,17 +94,16 @@ class SequenceAugmentationPolicy(Protocol):
 
 ```text
 uid
-mode
-target_index
 target_behavior
 target_level
+target_time
 behavior_level
 max_behavior_level
 ```
 
 Policies should return indices, not copied item arrays. A common helper applies the mask once to every aligned field. This prevents `items`, `behaviors`, `session_ids`, and `times` from becoming misaligned.
 
-### Unified Decoder Dataset
+### Unified Decoder Dataset (Implemented And Verified)
 
 Add:
 
@@ -109,13 +111,13 @@ Add:
 SeqRec/datasets/session_behavior/augmented_decoder.py
 ```
 
-Recommended class:
+Implemented class:
 
 ```text
 SMBPolicyAugmentedDatasetForDecoder
 ```
 
-It should inherit from `SMBExplicitDatasetForDecoder`, so the existing decoder-only collator logic continues to recognize it through `isinstance`.
+It inherits from `SMBExplicitDatasetForDecoder`, so the existing decoder-only collator logic continues to recognize it through `isinstance`.
 
 Responsibilities:
 
@@ -129,31 +131,36 @@ Responsibilities:
 
 The policy should not construct tokenizer strings or token-level metadata.
 
-### Policy Registry
+### Policy Registry (Partly Implemented)
 
-Add a small registry in the same module or in:
+Supported policies are currently resolved by `SMBPolicyAugmentedDatasetForDecoder._build_policy()`. A separate registry module has not been added. It can be introduced later at:
 
 ```text
 SeqRec/datasets/session_behavior/augmentation_registry.py
 ```
 
-Example names:
+Currently supported:
+
+```text
+time_decay
+session
+dataset_proportion
+```
+
+Not yet supported:
 
 ```text
 none
 uniform_level
 fixed_ratio
-time_decay
-session
 user_adaptive_ratio
-dataset_proportion
 target_conditioned
 multi_view
 ```
 
 Do not create one complete Dataset class per strategy.
 
-### Explicit Arguments
+### Explicit Arguments (Implemented And Verified)
 
 Add augmentation fields to `DatasetArgs` rather than encoding all values into `--tasks`:
 
@@ -161,35 +168,34 @@ Add augmentation fields to `DatasetArgs` rather than encoding all values into `-
 --sequence_augmentation none
 --augmentation_views 1
 --augmentation_seed 42
---augmentation_keep_original
---augmentation_eval_mode original
---behavior_keep_ratios 1.0,0.8,0.6
+--augmentation_drop_original
 --time_decay_type exponential
 --time_decay_tau 48
 --recent_session_count 1
+--dataset_proportion_preset natural
 ```
 
-The exact policy-specific arguments can initially be parsed as a compact JSON/config file if the flat argument list becomes too long:
+Explicit arguments are wired through `DatasetArgs` and `TrainSMBDecoder.load_train_data`. The unified task is:
 
 ```text
---sequence_augmentation_config config/augmentation/time_decay.json
+--tasks smb_policy_decoder
 ```
 
-Recommended transition:
+Current status:
 
 - retain existing task names for backward compatibility;
-- introduce one new task, such as `smb_policy_decoder`;
+- `smb_policy_decoder` has been added;
 - select the policy and parameters through explicit dataset arguments;
 - deprecate new parameter-encoded task names.
 
-This requires passing the new dataset arguments through `TrainSMBDecoder.load_train_data` and `load_SMB_datasets`.
+A compact JSON/config-file interface is not implemented and can be reconsidered if the flat argument list grows further.
 
-### Cache Identity
+### Cache Identity (Implemented And Verified)
 
 Every static policy must expose a stable serializable configuration:
 
 ```python
-policy.cache_key()
+policy.cache_config()
 ```
 
 The dataset cache name should include:
@@ -203,7 +209,7 @@ The dataset cache name should include:
 
 This avoids stale cache reuse when a policy parameter changes.
 
-### Training And Evaluation Protocol
+### Training And Evaluation Protocol (Default Implemented)
 
 Default protocol:
 
@@ -215,7 +221,7 @@ test: original history
 
 This isolates augmentation as a training intervention.
 
-Separate robustness protocol:
+`smb_policy_decoder` now follows the default protocol above. The following separate robustness protocol is not yet integrated into the policy dataset:
 
 ```text
 train: augmented or original history
@@ -224,7 +230,7 @@ valid/test: explicitly corrupted history
 
 The current fixed-ratio behavior across train, validation, and test should remain available as a named robustness experiment, not as the default comparison.
 
-## Time-Decayed Behavior Dropout (Easy, Highest Priority)
+## Time-Decayed Behavior Dropout (Implemented And Verified, First Experiments)
 
 ### Reuse
 
@@ -297,7 +303,7 @@ time_decay_preserve_target_level = true
 - target and required recent items are preserved;
 - zero-span timestamps do not fail.
 
-## Session-Aware Dropout (Easy, Highest Priority)
+## Session-Aware Dropout (Implemented And Verified, First Experiments)
 
 ### Reuse
 
@@ -352,7 +358,7 @@ Use user seed plus stable session id. Avoid assigning randomness based on a sess
 - single-session users remain valid;
 - sparse users retain enough history.
 
-## User-Adaptive Ratio (Moderate, Medium-High Priority)
+## User-Adaptive Ratio (Not Implemented, Medium-High Priority)
 
 ### Feasibility
 
@@ -430,7 +436,7 @@ For these reasons, compare against dataset-level fixed proportion before treatin
 - ratios stay within configured bounds;
 - fixed seed and prefix rules are deterministic.
 
-## Dataset-Level Fixed Behavior Proportion (Easy-Moderate, Control Baseline)
+## Dataset-Level Fixed Behavior Proportion (Implemented And Verified, Control)
 
 ### Policy
 
@@ -468,7 +474,7 @@ Only overrepresented levels are downsampled.
 - output approaches, but is not forced to equal, the configured distribution;
 - short histories are protected.
 
-## Target-Conditioned Augmentation (Moderate, Protocol Review Required)
+## Target-Conditioned Augmentation (Not Implemented, Protocol Review Required)
 
 ### Feasibility
 
@@ -527,7 +533,7 @@ The number or type of retained interactions must not uniquely reveal the target 
 - expected lengths are comparable across target levels;
 - target-conditioned weights change the intended relation categories.
 
-## Multi-View Sequence Augmentation (Moderate, Medium-High Priority)
+## Multi-View Sequence Augmentation (Not Implemented, Medium-High Priority)
 
 ### Feasibility
 
@@ -594,7 +600,7 @@ This prevents attributing an improvement to the wrong component.
 - dataset-size growth is predictable;
 - view ordering and seeds are deterministic.
 
-## Curriculum Augmentation (Difficult, Deferred)
+## Curriculum Augmentation (Not Implemented, Deferred)
 
 ### Why Current Static Caching Is Insufficient
 
@@ -629,9 +635,9 @@ SeqRec/datasets/samplers/curriculum_view_sampler.py
 
 This should be attempted only after static semantic views demonstrate benefit.
 
-## Recommended File-Level Plan
+## File-Level Implementation Progress
 
-### Stage 1: Shared Static Policy Layer (Implement First)
+### Stage 1: Shared Static Policy Layer (Implemented And Verified)
 
 Add:
 
@@ -649,9 +655,9 @@ SeqRec/tasks/training/train_SMB_decoder.py
 SeqRec/utils/args.py
 ```
 
-Provide compatibility adapters for the current uniform-level and fixed-ratio behavior.
+Legacy uniform-level and fixed-ratio task parsing remains compatible, but those implementations have not been migrated into policy adapters.
 
-### Stage 2: First Policies
+### Stage 2: First Policies (Implemented And Verified)
 
 Implement and test:
 
@@ -661,7 +667,7 @@ Implement and test:
 
 These have clear semantics and low leakage risk.
 
-### Stage 3: Adaptive And Composed Policies
+### Stage 3: Adaptive And Composed Policies (Not Implemented)
 
 Implement:
 
@@ -670,31 +676,32 @@ Implement:
 3. `TargetConditionedPolicy`;
 4. `MultiViewAugmentationPolicy`.
 
-### Stage 4: Online Sampling And Curriculum
+### Stage 4: Online Sampling And Curriculum (Not Implemented, Deferred)
 
 Only proceed if static MultiView is useful and cached dataset expansion becomes a practical bottleneck.
 
-## Verification Plan
+## Verification Status
 
-### Unit-Level Tests
+### Implemented Tests
 
 Create:
 
 ```text
 tests/datasets/session_behavior/test_augmentation_policies.py
-tests/datasets/session_behavior/test_augmented_decoder.py
-tests/datasets/loaders/test_session_behavior_augmentation.py
+tests/datasets/session_behavior/test_policy_augmented_dataset.py
 ```
 
-Use synthetic users covering:
+The current eight synthetic tests cover:
 
 - one and multiple sessions;
-- equal and irregular timestamps;
-- missing target behavior;
-- all interactions at one level;
-- very short histories;
-- multiple high-level behaviors;
-- split prefixes sharing historical sessions.
+- time-decay recency and top-level protection;
+- fixed-seed reproducibility;
+- atomic session retention and minimum-history protection;
+- dataset-proportion soft caps;
+- aligned-field validation;
+- loader construction for all three policies;
+- augmented training with original validation;
+- legacy task parsing compatibility.
 
 ### Invariants
 
@@ -709,19 +716,26 @@ Every policy must satisfy:
 - no validation/test interaction contributes to training statistics;
 - cache keys change when behavior changes.
 
-### Integration Checks
+### Completed Integration Checks
 
 For each new task/policy:
 
-1. Resolve loader arguments without constructing a full real dataset.
-2. Build a tiny synthetic train/valid/test dataset.
-3. Verify the collator receives the same sample schema.
-4. Run `python -m compileall main.py SeqRec`.
-5. Run configured `flake8` on modified Python files.
-6. Run a short CPU DataLoader iteration.
-7. If available, run a one-step GPU smoke test without launching full training.
+1. Loader argument resolution and legacy task compatibility.
+2. Tiny synthetic train/validation dataset construction.
+3. Dataset output sample-schema validation.
+4. `python -m compileall main.py SeqRec tests`.
+5. Configured `flake8` on modified Python files.
+6. CPU dataset construction and sample access.
+7. CLI exposure through `train_SMB_decoder --help`.
 
-### Experiment Logging
+Not yet executed:
+
+- complete preprocessing on the real ShortVideoAD dataset;
+- a full collated batch forward pass;
+- a one-step GPU smoke test;
+- full training and recommendation-metric experiments.
+
+### Experiment Logging (Partly Implemented)
 
 Log at dataset construction:
 
@@ -730,16 +744,15 @@ policy name and normalized configuration
 input/output sequence-length distribution
 keep rate by behavior level
 keep rate by time bucket
-kept sessions per user
 number and frequency of views
 fraction of unchanged samples
 ```
 
-These statistics are necessary to interpret recommendation results and to detect accidental differences in training volume.
+Policy configuration, mean input/output length, keep rates by level and time bucket, view counts, and unchanged-view ratio are implemented. Kept-session counts remain in policy metadata but are not yet aggregated in dataset logs.
 
-## Final Recommendation
+## Current Conclusion And Next Step
 
-The current framework can support most proposed sequence augmentation without changing the TH model. The best implementation path is:
+The following foundation is implemented and has passed synthetic verification:
 
 ```text
 shared policy abstraction
@@ -760,4 +773,4 @@ Time-Decayed Dropout
 → Curriculum only if static views are effective
 ```
 
-Time-decayed and session-aware strategies are the easiest and most aligned with the current TH framing. User-adaptive and target-conditioned methods are feasible but require stronger leakage and shortcut controls. Curriculum augmentation should remain deferred because it crosses the current static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
+The next step is to run the three implemented policies on ShortVideoAD before implementing User-Adaptive, Target-Conditioned, or semantic Multi-View augmentation. Curriculum remains deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.

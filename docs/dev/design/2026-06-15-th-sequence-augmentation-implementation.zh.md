@@ -37,21 +37,24 @@
 
 因此，多数静态增强方案在增加轻量 policy 层后都比较容易实现。
 
-## 可行性总览
+## 实现状态总览（持续更新）
 
-| 方案 | 实现可行性 | 预计成本 | 是否修改模型 | 推荐状态 |
-| --- | --- | --- | --- | --- |
-| Time-Decayed Behavior Dropout | 容易 | 低 | 否 | 第一批实现 |
-| Session-Aware Dropout | 容易 | 低至中 | 否 | 第一批实现 |
-| User-Adaptive Ratio | 中等 | 中 | 否 | Policy 抽象后实现 |
-| Dataset-Level Fixed Proportion | 容易至中等 | 中 | 否 | 作为控制实验实现 |
-| Target-Conditioned Augmentation | 中等 | 中 | 当前 target-aware 样本下不需要 | 明确协议后实现 |
-| Multi-View Sequence Augmentation | 中等 | 中 | 第一版不需要 | 基础 policy 后实现 |
-| Curriculum Augmentation | 当前缓存结构下较难 | 高 | 需要 Trainer/数据管线配合 | 暂缓 |
+| 方案或组件 | 实现状态 | 验证状态 | 后续定位 |
+| --- | --- | --- | --- |
+| 共享 Policy 接口与结构化序列 | 已实现 | 已通过单元测试、compileall 和 flake8 | 作为后续策略扩展基础 |
+| 统一 Decoder Dataset | 已实现 | 已通过 synthetic loader 和样本 schema 测试 | 保持统一入口 |
+| 显式参数、cache key 和 `smb_policy_decoder` | 已实现 | 已验证 CLI、cache 隔离和旧 task 解析兼容 | 继续沿用 |
+| Time-Decayed Behavior Dropout | 已实现 | 已验证确定性、近期保护和层级保护 | 第一批实验 |
+| Session-Aware Dropout | 已实现 | 已验证 session 原子性和最小历史保护 | 第一批实验 |
+| Dataset-Level Fixed Proportion | 已实现 | 已验证 soft cap 和最高层保护 | 控制实验 |
+| User-Adaptive Ratio | 未实现 | 未验证 | 下一阶段候选 |
+| Target-Conditioned Augmentation | 未实现 | 未验证 | 明确协议后实现 |
+| Multi-View Sequence Augmentation | 未实现 | 未验证 | 基础策略实验后实现 |
+| Curriculum Augmentation | 未实现 | 未验证 | 暂缓 |
 
-## 推荐的共享实现架构（优先重构）
+## 共享实现架构（已实现并验证）
 
-### Policy 接口
+### Policy 接口（已实现并验证）
 
 新增策略模块：
 
@@ -78,12 +81,12 @@ class AugmentedView:
 
 
 class SequenceAugmentationPolicy(Protocol):
-    def generate_views(
+    def generate_view(
         self,
         sequence: BehaviorSequence,
         context: AugmentationContext,
         rng: np.random.Generator,
-    ) -> list[AugmentedView]:
+    ) -> AugmentedView:
         ...
 ```
 
@@ -91,17 +94,16 @@ class SequenceAugmentationPolicy(Protocol):
 
 ```text
 uid
-mode
-target_index
 target_behavior
 target_level
+target_time
 behavior_level
 max_behavior_level
 ```
 
 Policy 应返回保留索引，而不是复制后的 item 数组。统一 helper 再将同一个 mask 应用到所有对齐字段，可避免 `items`、`behaviors`、`session_ids` 和 `times` 错位。
 
-### 统一 Decoder Dataset
+### 统一 Decoder Dataset（已实现并验证）
 
 新增：
 
@@ -109,13 +111,13 @@ Policy 应返回保留索引，而不是复制后的 item 数组。统一 helper
 SeqRec/datasets/session_behavior/augmented_decoder.py
 ```
 
-推荐类名：
+已实现类：
 
 ```text
 SMBPolicyAugmentedDatasetForDecoder
 ```
 
-建议继承 `SMBExplicitDatasetForDecoder`，这样现有 decoder-only collator 可以继续通过 `isinstance` 自动识别，无需改变训练 label 协议。
+该类继承 `SMBExplicitDatasetForDecoder`，现有 decoder-only collator 可以继续通过 `isinstance` 自动识别，无需改变训练 label 协议。
 
 该类负责：
 
@@ -129,31 +131,36 @@ SMBPolicyAugmentedDatasetForDecoder
 
 Policy 不负责 tokenizer 字符串和 token-level metadata 的构造。
 
-### Policy Registry
+### Policy Registry（部分实现）
 
-可在同一模块或以下新模块增加轻量 registry：
+当前由 `SMBPolicyAugmentedDatasetForDecoder._build_policy()` 统一解析已支持策略，尚未拆出独立 registry 模块。后续策略数量增加时可迁移到：
 
 ```text
 SeqRec/datasets/session_behavior/augmentation_registry.py
 ```
 
-建议支持的名称：
+当前已支持：
+
+```text
+time_decay
+session
+dataset_proportion
+```
+
+尚未支持：
 
 ```text
 none
 uniform_level
 fixed_ratio
-time_decay
-session
 user_adaptive_ratio
-dataset_proportion
 target_conditioned
 multi_view
 ```
 
 不建议为每个策略新增一套完整 Dataset 类。
 
-### 显式参数
+### 显式参数（已实现并验证）
 
 建议在 `DatasetArgs` 增加增强参数，不再把所有值编码进 `--tasks`：
 
@@ -161,35 +168,34 @@ multi_view
 --sequence_augmentation none
 --augmentation_views 1
 --augmentation_seed 42
---augmentation_keep_original
---augmentation_eval_mode original
---behavior_keep_ratios 1.0,0.8,0.6
+--augmentation_drop_original
 --time_decay_type exponential
 --time_decay_tau 48
 --recent_session_count 1
+--dataset_proportion_preset natural
 ```
 
-如果平铺参数过多，也可以先支持紧凑的 JSON/config 文件：
+当前已通过 `DatasetArgs` 和 `TrainSMBDecoder.load_train_data` 接入显式参数，并新增统一 task：
 
 ```text
---sequence_augmentation_config config/augmentation/time_decay.json
+--tasks smb_policy_decoder
 ```
 
-推荐迁移方式：
+当前状态：
 
 - 保留现有 task 名称，保证旧命令兼容。
-- 新增统一 task，例如 `smb_policy_decoder`。
+- 已新增统一 task `smb_policy_decoder`。
 - 使用显式 dataset 参数选择 policy 和具体配置。
 - 后续不再新增编码大量参数的 task 名称。
 
-该改动需要将新 dataset 参数通过 `TrainSMBDecoder.load_train_data` 传入 `load_SMB_datasets`。
+紧凑 JSON/config 文件尚未实现，可在参数继续增长时再考虑。
 
-### Cache 标识
+### Cache 标识（已实现并验证）
 
 每个静态 policy 应提供稳定、可序列化的配置：
 
 ```python
-policy.cache_key()
+policy.cache_config()
 ```
 
 Dataset cache 文件名至少包含：
@@ -203,7 +209,7 @@ Dataset cache 文件名至少包含：
 
 这样可以避免修改 policy 参数后错误复用旧缓存。
 
-### 训练与评测协议
+### 训练与评测协议（默认协议已实现）
 
 默认协议建议为：
 
@@ -215,7 +221,7 @@ test：原始历史
 
 这样才能将性能变化明确归因于训练增强。
 
-另设鲁棒性协议：
+当前 `smb_policy_decoder` 已采用上述默认协议。以下独立鲁棒性协议尚未统一接入新 Policy Dataset：
 
 ```text
 train：增强或原始历史
@@ -224,7 +230,7 @@ valid/test：显式损坏后的历史
 
 当前 fixed-ratio 在 train、valid、test 上保持一致裁剪的行为可以保留为具名鲁棒性实验，但不应成为训练增强方案的默认对比方式。
 
-## Time-Decayed Behavior Dropout（容易，最高优先级）
+## Time-Decayed Behavior Dropout（已实现并验证，第一批实验）
 
 ### 可复用部分
 
@@ -297,7 +303,7 @@ time_decay_preserve_target_level = true
 - target 和要求保留的近期交互不被删除。
 - 时间跨度为零时不报错。
 
-## Session-Aware Dropout（容易，最高优先级）
+## Session-Aware Dropout（已实现并验证，第一批实验）
 
 ### 可复用部分
 
@@ -352,7 +358,7 @@ session_preserve_target_level = true
 - 单 session 用户保持有效。
 - 稀疏用户仍保留足够历史。
 
-## User-Adaptive Ratio（中等，中高优先级）
+## User-Adaptive Ratio（未实现，中高优先级）
 
 ### 可行性
 
@@ -430,7 +436,7 @@ cap_l = min(
 - 比例始终处于配置上下界内。
 - Seed 和 prefix 规则具有确定性。
 
-## Dataset-Level Fixed Behavior Proportion（容易至中等，控制实验）
+## Dataset-Level Fixed Behavior Proportion（已实现并验证，控制实验）
 
 ### Policy 设计
 
@@ -468,7 +474,7 @@ max_count_l = ceil(history_length * target_share_l * tolerance)
 - 输出分布向目标分布靠近，但不被强制完全一致。
 - 短历史受到保护。
 
-## Target-Conditioned Augmentation（中等，需要先确认协议）
+## Target-Conditioned Augmentation（未实现，需要先确认协议）
 
 ### 可行性
 
@@ -527,7 +533,7 @@ general temporal evidence
 - 不同 target level 的期望历史长度接近。
 - Target condition 确实改变预期 relation category 的权重。
 
-## Multi-View Sequence Augmentation（中等，中高优先级）
+## Multi-View Sequence Augmentation（未实现，中高优先级）
 
 ### 可行性
 
@@ -594,7 +600,7 @@ view_weights
 - 数据集增长规模可预测。
 - View 顺序和 seed 具有确定性。
 
-## Curriculum Augmentation（较难，暂缓）
+## Curriculum Augmentation（未实现，暂缓）
 
 ### 当前静态 Cache 不足的原因
 
@@ -629,9 +635,9 @@ SeqRec/datasets/samplers/curriculum_view_sampler.py
 
 只有静态语义视图确认有效后，才建议实现该方案。
 
-## 推荐的文件级实施路径
+## 文件级实施进度
 
-### 第一阶段：共享静态 Policy 层（优先实现）
+### 第一阶段：共享静态 Policy 层（已实现并验证）
 
 新增：
 
@@ -649,9 +655,9 @@ SeqRec/tasks/training/train_SMB_decoder.py
 SeqRec/utils/args.py
 ```
 
-同时为当前 uniform-level 和 fixed-ratio 行为提供兼容 adapter。
+已保持原有 uniform-level 和 fixed-ratio task 的解析兼容，但尚未将它们迁移为新 Policy adapter。
 
-### 第二阶段：第一批 Policy
+### 第二阶段：第一批 Policy（已实现并验证）
 
 按顺序实现并验证：
 
@@ -661,7 +667,7 @@ SeqRec/utils/args.py
 
 这些方案语义清晰，泄漏风险相对较低。
 
-### 第三阶段：自适应和组合 Policy
+### 第三阶段：自适应和组合 Policy（未实现）
 
 实现：
 
@@ -670,31 +676,32 @@ SeqRec/utils/args.py
 3. `TargetConditionedPolicy`。
 4. `MultiViewAugmentationPolicy`。
 
-### 第四阶段：在线采样与 Curriculum
+### 第四阶段：在线采样与 Curriculum（未实现，暂缓）
 
 仅在静态 MultiView 有效，并且缓存数据膨胀成为实际问题时继续。
 
-## 验证规划
+## 验证状态
 
-### 单元测试
+### 已实现的测试
 
 新增：
 
 ```text
 tests/datasets/session_behavior/test_augmentation_policies.py
-tests/datasets/session_behavior/test_augmented_decoder.py
-tests/datasets/loaders/test_session_behavior_augmentation.py
+tests/datasets/session_behavior/test_policy_augmented_dataset.py
 ```
 
-使用人工构造用户覆盖：
+当前共有 8 个 synthetic tests，已覆盖：
 
 - 单 session 和多 session；
-- 相同时间戳和不规则时间间隔；
-- 无 target behavior；
-- 全部交互位于同一层级；
-- 极短历史；
-- 多个高层行为；
-- Train/valid prefix 共享历史 session。
+- 时间衰减的近期与最高层保护；
+- 固定 seed 的可复现性；
+- session 原子保留与最小历史保护；
+- dataset proportion soft cap；
+- 对齐字段长度校验；
+- 三种策略的 loader 构造；
+- 训练增强、验证原始的协议；
+- 旧 task 解析兼容。
 
 ### 通用不变量
 
@@ -709,19 +716,26 @@ tests/datasets/loaders/test_session_behavior_augmentation.py
 - Valid/test 交互不参与训练统计。
 - 影响行为的参数变化后 cache key 必须变化。
 
-### 集成验证
+### 已完成的集成验证
 
 每个新 task/policy 至少执行：
 
-1. 在不加载完整真实数据的情况下验证 loader 参数解析。
-2. 构造极小 synthetic train/valid/test dataset。
-3. 验证 collator 收到的样本 schema 不变。
-4. 运行 `python -m compileall main.py SeqRec`。
+1. Loader 参数解析和旧 task 兼容检查。
+2. 极小 synthetic train/valid dataset 构造。
+3. Dataset 输出样本 schema 检查。
+4. `python -m compileall main.py SeqRec tests`。
 5. 按项目配置对修改的 Python 文件运行 `flake8`。
-6. 在 CPU 上完成一次短 DataLoader iteration。
-7. 环境允许时运行 one-step GPU smoke test，不启动完整训练。
+6. CPU 上的数据集构造和取样。
+7. `train_SMB_decoder --help` 的 CLI 参数暴露检查。
 
-### 实验日志
+尚未执行：
+
+- 真实 ShortVideoAD 数据的完整预处理。
+- Collator 后的完整 batch 前向。
+- One-step GPU smoke test。
+- 完整训练和推荐指标实验。
+
+### 实验日志（部分实现）
 
 Dataset 构造时记录：
 
@@ -730,16 +744,15 @@ policy 名称和规范化配置
 输入/输出序列长度分布
 各行为层级 keep rate
 各时间 bucket keep rate
-每用户保留 session 数
 view 数量及出现频率
 未发生变化的样本比例
 ```
 
-这些统计是解释推荐结果和排查训练数据量意外变化所必需的。
+当前已记录 policy 配置、输入/输出平均长度、各层级 keep rate、时间 bucket keep rate、view 数和未变化比例。每用户保留 session 数仅存在于 policy metadata，尚未汇总到 Dataset 日志。
 
-## 最终建议
+## 当前结论与下一步
 
-当前框架无需修改 TH 模型，就可以支持大部分候选序列增强。推荐实现主线为：
+以下基础主线已经实现并通过 synthetic verification：
 
 ```text
 共享 Policy 抽象
@@ -760,4 +773,4 @@ Time-Decayed Dropout
 → 仅在静态视图有效后考虑 Curriculum
 ```
 
-Time-decayed 和 session-aware 最容易实现，也最符合当前 TH 建模叙事。User-adaptive 和 target-conditioned 同样可行，但必须增加更严格的泄漏与分布捷径检查。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此现阶段应继续暂缓。
+下一步应先在 ShortVideoAD 上完成三个已实现策略的训练实验，再决定是否继续实现 User-Adaptive、Target-Conditioned 和语义 Multi-View。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此继续暂缓。
