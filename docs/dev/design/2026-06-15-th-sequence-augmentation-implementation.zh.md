@@ -47,9 +47,10 @@
 | Time-Decayed Behavior Dropout | 已实现 | 已验证确定性、近期保护和层级保护 | 第一批实验 |
 | Session-Aware Dropout | 已实现 | 已验证 session 原子性和最小历史保护 | 第一批实验 |
 | Dataset-Level Fixed Proportion | 已实现 | 已验证 soft cap 和最高层保护 | 控制实验 |
-| User-Adaptive Ratio | 未实现 | 未验证 | 下一阶段候选 |
-| Target-Conditioned Augmentation | 未实现 | 未验证 | 明确协议后实现 |
-| Multi-View Sequence Augmentation | 未实现 | 未验证 | 基础策略实验后实现 |
+| 训练前缀行为统计 | 已实现 | 已验证仅使用 `history[:valid_pos]` | 为全局先验提供基础 |
+| User-Adaptive Ratio | 已实现 | 已验证零 target 回退和训练前缀先验 | 第二批实验 |
+| Target-Conditioned Augmentation | 已实现 | 已验证 same-level/precursor 恢复 | 第二批实验，限制在已知 target behavior 协议 |
+| Multi-View Sequence Augmentation | 已实现 | 已验证语义视图生成和 Dataset 去重 | 第二批实验 |
 | Curriculum Augmentation | 未实现 | 未验证 | 暂缓 |
 
 ## 共享实现架构（已实现并验证）
@@ -145,6 +146,9 @@ SeqRec/datasets/session_behavior/augmentation_registry.py
 time_decay
 session
 dataset_proportion
+user_adaptive_ratio
+target_conditioned
+multi_view
 ```
 
 尚未支持：
@@ -153,9 +157,6 @@ dataset_proportion
 none
 uniform_level
 fixed_ratio
-user_adaptive_ratio
-target_conditioned
-multi_view
 ```
 
 不建议为每个策略新增一套完整 Dataset 类。
@@ -358,7 +359,7 @@ session_preserve_target_level = true
 - 单 session 用户保持有效。
 - 稀疏用户仍保留足够历史。
 
-## User-Adaptive Ratio（未实现，中高优先级）
+## User-Adaptive Ratio（已实现并验证，第二批实验）
 
 ### 可行性
 
@@ -474,7 +475,7 @@ max_count_l = ceil(history_length * target_share_l * tolerance)
 - 输出分布向目标分布靠近，但不被强制完全一致。
 - 短历史受到保护。
 
-## Target-Conditioned Augmentation（未实现，需要先确认协议）
+## Target-Conditioned Augmentation（已实现并验证，需遵守 target-aware 协议）
 
 ### 可行性
 
@@ -499,6 +500,8 @@ TargetConditionedPolicy
 ```text
 TargetConditionedPolicy(base_policy=time_decay)
 ```
+
+当前版本仅支持 `time_decay` 作为 base policy。其他 base policy 组合尚未实现。
 
 它根据 target 调整以下关系的保留权重：
 
@@ -533,7 +536,7 @@ general temporal evidence
 - 不同 target level 的期望历史长度接近。
 - Target condition 确实改变预期 relation category 的权重。
 
-## Multi-View Sequence Augmentation（未实现，中高优先级）
+## Multi-View Sequence Augmentation（已实现并验证，第二批实验）
 
 ### 可行性
 
@@ -565,6 +568,16 @@ session_subsampled
 4. `session`：session-aware 子采样。
 
 第一轮不要同时启用所有可能视图。
+
+当前实现由 Dataset 单独保留可选 original view，Policy 生成：
+
+```text
+multi_view_recent
+multi_view_hierarchy
+multi_view_session
+```
+
+同一用户产生相同 keep indices 的视图会在 Dataset 层去重。`augmentation_views` 表示整组语义视图的重复采样次数。
 
 ### 样本权重
 
@@ -667,7 +680,7 @@ SeqRec/utils/args.py
 
 这些方案语义清晰，泄漏风险相对较低。
 
-### 第三阶段：自适应和组合 Policy（未实现）
+### 第三阶段：自适应和组合 Policy（已实现并验证）
 
 实现：
 
@@ -691,7 +704,7 @@ tests/datasets/session_behavior/test_augmentation_policies.py
 tests/datasets/session_behavior/test_policy_augmented_dataset.py
 ```
 
-当前共有 8 个 synthetic tests，已覆盖：
+当前共有 13 个 synthetic tests，已覆盖：
 
 - 单 session 和多 session；
 - 时间衰减的近期与最高层保护；
@@ -702,6 +715,11 @@ tests/datasets/session_behavior/test_policy_augmented_dataset.py
 - 三种策略的 loader 构造；
 - 训练增强、验证原始的协议；
 - 旧 task 解析兼容。
+- 训练统计仅使用训练 prefix。
+- User-Adaptive 在 target count 为零时的全局先验回退。
+- Target-Conditioned 对 same-level 和 precursor evidence 的恢复。
+- Multi-View 具名语义视图及 hierarchy view 约束。
+- 六种静态 policy 的 loader 构造。
 
 ### 通用不变量
 
@@ -773,4 +791,4 @@ Time-Decayed Dropout
 → 仅在静态视图有效后考虑 Curriculum
 ```
 
-下一步应先在 ShortVideoAD 上完成三个已实现策略的训练实验，再决定是否继续实现 User-Adaptive、Target-Conditioned 和语义 Multi-View。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此继续暂缓。
+下一步应在 ShortVideoAD 上分别完成第一批和第二批共六种静态 policy 的训练实验，并重点监控数据量、各层级 keep rate 和 target-conditioned 分布捷径。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。

@@ -47,9 +47,10 @@ Most static strategies are therefore straightforward after a small policy-layer 
 | Time-Decayed Behavior Dropout | Implemented | Determinism, recency protection, and level protection verified | First experiment batch |
 | Session-Aware Dropout | Implemented | Session atomicity and minimum-history protection verified | First experiment batch |
 | Dataset-Level Fixed Proportion | Implemented | Soft cap and top-level protection verified | Control experiment |
-| User-Adaptive Ratio | Not implemented | Not verified | Next-stage candidate |
-| Target-Conditioned Augmentation | Not implemented | Not verified | Implement after protocol review |
-| Multi-View Sequence Augmentation | Not implemented | Not verified | Implement after basic-policy experiments |
+| Training-prefix behavior statistics | Implemented | Verified to use only `history[:valid_pos]` | Supplies global priors |
+| User-Adaptive Ratio | Implemented | Zero-target fallback and training-prefix prior verified | Second experiment batch |
+| Target-Conditioned Augmentation | Implemented | Same-level and precursor restoration verified | Second batch under a known-target protocol |
+| Multi-View Sequence Augmentation | Implemented | Semantic view generation and dataset deduplication verified | Second experiment batch |
 | Curriculum Augmentation | Not implemented | Not verified | Deferred |
 
 ## Shared Architecture (Implemented And Verified)
@@ -145,6 +146,9 @@ Currently supported:
 time_decay
 session
 dataset_proportion
+user_adaptive_ratio
+target_conditioned
+multi_view
 ```
 
 Not yet supported:
@@ -153,9 +157,6 @@ Not yet supported:
 none
 uniform_level
 fixed_ratio
-user_adaptive_ratio
-target_conditioned
-multi_view
 ```
 
 Do not create one complete Dataset class per strategy.
@@ -358,7 +359,7 @@ Use user seed plus stable session id. Avoid assigning randomness based on a sess
 - single-session users remain valid;
 - sparse users retain enough history.
 
-## User-Adaptive Ratio (Not Implemented, Medium-High Priority)
+## User-Adaptive Ratio (Implemented And Verified, Second Experiments)
 
 ### Feasibility
 
@@ -474,7 +475,7 @@ Only overrepresented levels are downsampled.
 - output approaches, but is not forced to equal, the configured distribution;
 - short histories are protected.
 
-## Target-Conditioned Augmentation (Not Implemented, Protocol Review Required)
+## Target-Conditioned Augmentation (Implemented And Verified, Target-Aware Protocol Required)
 
 ### Feasibility
 
@@ -499,6 +500,8 @@ Recommended implementation is a wrapper around another base policy:
 ```text
 TargetConditionedPolicy(base_policy=time_decay)
 ```
+
+The current implementation supports only `time_decay` as the base policy. Other base-policy combinations are not implemented.
 
 It modifies level-preservation weights according to the target:
 
@@ -533,7 +536,7 @@ The number or type of retained interactions must not uniquely reveal the target 
 - expected lengths are comparable across target levels;
 - target-conditioned weights change the intended relation categories.
 
-## Multi-View Sequence Augmentation (Not Implemented, Medium-High Priority)
+## Multi-View Sequence Augmentation (Implemented And Verified, Second Experiments)
 
 ### Feasibility
 
@@ -565,6 +568,16 @@ Recommended first view set:
 4. `session`: session-aware subsample.
 
 Do not enable every possible view initially.
+
+The dataset provides the optional original view separately. The policy currently generates:
+
+```text
+multi_view_recent
+multi_view_hierarchy
+multi_view_session
+```
+
+Views with identical keep indices are deduplicated by the dataset. `augmentation_views` denotes the number of repeated samples of the complete semantic-view set.
 
 ### Sample Weighting
 
@@ -667,7 +680,7 @@ Implement and test:
 
 These have clear semantics and low leakage risk.
 
-### Stage 3: Adaptive And Composed Policies (Not Implemented)
+### Stage 3: Adaptive And Composed Policies (Implemented And Verified)
 
 Implement:
 
@@ -691,7 +704,7 @@ tests/datasets/session_behavior/test_augmentation_policies.py
 tests/datasets/session_behavior/test_policy_augmented_dataset.py
 ```
 
-The current eight synthetic tests cover:
+The current thirteen synthetic tests cover:
 
 - one and multiple sessions;
 - time-decay recency and top-level protection;
@@ -702,6 +715,11 @@ The current eight synthetic tests cover:
 - loader construction for all three policies;
 - augmented training with original validation;
 - legacy task parsing compatibility.
+- training statistics restricted to training prefixes;
+- User-Adaptive fallback when target count is zero;
+- Target-Conditioned restoration of same-level and precursor evidence;
+- named Multi-View outputs and hierarchy-view constraints;
+- loader construction for all six static policies.
 
 ### Invariants
 
@@ -773,4 +791,4 @@ Time-Decayed Dropout
 → Curriculum only if static views are effective
 ```
 
-The next step is to run the three implemented policies on ShortVideoAD before implementing User-Adaptive, Target-Conditioned, or semantic Multi-View augmentation. Curriculum remains deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
+The next step is to run all six static policies from the first and second batches on ShortVideoAD, while monitoring dataset growth, keep rates by level, and target-conditioned distribution shortcuts. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
