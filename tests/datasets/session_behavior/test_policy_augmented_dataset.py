@@ -135,13 +135,16 @@ class PolicyAugmentedDatasetTest(unittest.TestCase):
                     tasks="smb_policy_decoder",
                 )
 
-    def test_loader_builds_each_initial_policy(self):
+    def test_loader_builds_each_static_policy(self):
         policy_configs = {
             "time_decay": {},
             "session": {},
             "dataset_proportion": {
                 "dataset_proportion_preset": "balanced",
             },
+            "user_adaptive_ratio": {},
+            "target_conditioned": {},
+            "multi_view": {},
         }
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -169,6 +172,30 @@ class PolicyAugmentedDatasetTest(unittest.TestCase):
                         policy_name,
                     )
                     self.assertGreaterEqual(len(train_dataset), 1)
+
+    def test_training_statistics_exclude_validation_and_test_history(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self._build_dataset_files(root)
+
+            train_data, _ = load_SMB_datasets(
+                dataset="TinySMB",
+                data_path=str(root),
+                max_his_len=100,
+                index_file=".index.json",
+                tasks="smb_policy_decoder",
+                sequence_augmentation_config={
+                    "sequence_augmentation": "user_adaptive_ratio",
+                    "augmentation_views": 1,
+                    "augmentation_seed": 7,
+                    "augmentation_drop_original": False,
+                    "augmentation_config": {},
+                },
+            )
+            statistics = train_data.datasets[0].training_statistics
+
+            self.assertEqual(statistics.level_counts, (2, 1, 1))
+            self.assertEqual(statistics.total_interactions, 4)
 
 
 if __name__ == "__main__":

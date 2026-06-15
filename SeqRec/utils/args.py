@@ -44,6 +44,18 @@ class DatasetArgs:
     dataset_proportion_preset: str = "natural"
     dataset_proportion_tolerance: float = 1.2
     dataset_proportion_allow_target_level_drop: bool = False
+    user_adaptive_smoothing: float = 5.0
+    user_adaptive_confidence_scale: float = 20.0
+    user_adaptive_min_ratio: float = 0.25
+    user_adaptive_max_ratio: float = 20.0
+    user_adaptive_tolerance: float = 1.0
+    user_adaptive_allow_target_level_drop: bool = False
+    target_conditioned_base_policy: str = "time_decay"
+    target_conditioned_same_level_restore: float = 0.8
+    target_conditioned_precursor_restore: float = 0.8
+    multi_view_disable_recent: bool = False
+    multi_view_disable_hierarchy: bool = False
+    multi_view_disable_session: bool = False
 
 
 @dataclass
@@ -124,6 +136,18 @@ ARGUMENT_HELP = {
     "dataset_proportion_preset": "Dataset proportion preset: natural or balanced",
     "dataset_proportion_tolerance": "Soft-cap tolerance for dataset-level proportions",
     "dataset_proportion_allow_target_level_drop": "Allow proportion balancing to remove target-level history",
+    "user_adaptive_smoothing": "Prior strength for user-adaptive behavior ratios",
+    "user_adaptive_confidence_scale": "History length scale for user-ratio confidence",
+    "user_adaptive_min_ratio": "Minimum user-adaptive level-to-target ratio",
+    "user_adaptive_max_ratio": "Maximum user-adaptive level-to-target ratio",
+    "user_adaptive_tolerance": "Soft-cap tolerance for user-adaptive ratios",
+    "user_adaptive_allow_target_level_drop": "Allow user-adaptive balancing to remove target-level history",
+    "target_conditioned_base_policy": "Base policy wrapped by target-conditioned augmentation",
+    "target_conditioned_same_level_restore": "Restore probability for same-level target evidence",
+    "target_conditioned_precursor_restore": "Restore probability for one-level-below evidence",
+    "multi_view_disable_recent": "Disable the recent-history semantic view",
+    "multi_view_disable_hierarchy": "Disable the hierarchy-evidence semantic view",
+    "multi_view_disable_session": "Disable the session-subsampled semantic view",
     "optim": "The name of the optimizer",
     "epochs": "Number of training epochs",
     "num_train_epochs": "HF Trainer-compatible number of training epochs. Overrides --epochs when set.",
