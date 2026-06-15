@@ -22,13 +22,37 @@ class TrainSMBDecoder(BaseGenerativeTrainTask):
         return "train_SMB_decoder"
 
     def load_train_data(self, data_args):
+        augmentation_config = {
+            "sequence_augmentation": data_args.sequence_augmentation,
+            "augmentation_views": data_args.augmentation_views,
+            "augmentation_seed": data_args.augmentation_seed,
+            "augmentation_drop_original": data_args.augmentation_drop_original,
+            "augmentation_config": {
+                "augmentation_min_history_items": data_args.augmentation_min_history_items,
+                "time_decay_type": data_args.time_decay_type,
+                "time_decay_tau": data_args.time_decay_tau,
+                "time_decay_severity": data_args.time_decay_severity,
+                "time_decay_max_drop": data_args.time_decay_max_drop,
+                "time_decay_min_recent_items": data_args.time_decay_min_recent_items,
+                "time_decay_allow_target_level_drop": data_args.time_decay_allow_target_level_drop,
+                "recent_session_count": data_args.recent_session_count,
+                "session_keep_probability": data_args.session_keep_probability,
+                "session_time_decay_tau": data_args.session_time_decay_tau,
+                "session_high_level_bonus": data_args.session_high_level_bonus,
+                "session_allow_target_level_drop": data_args.session_allow_target_level_drop,
+                "dataset_proportion_preset": data_args.dataset_proportion_preset,
+                "dataset_proportion_tolerance": data_args.dataset_proportion_tolerance,
+                "dataset_proportion_allow_target_level_drop": data_args.dataset_proportion_allow_target_level_drop,
+            },
+        }
         return load_SMB_datasets(
             dataset=data_args.dataset,
             data_path=data_args.data_path,
             max_his_len=data_args.max_his_len,
             index_file=data_args.index_file,
             tasks=data_args.tasks,
-            train_session=data_args.train_session
+            train_session=data_args.train_session,
+            sequence_augmentation_config=augmentation_config,
         )
 
     def get_train_notes(self, data_args, model_args) -> str:

@@ -25,6 +25,25 @@ class DatasetArgs:
     index_file: str = ".index.json"
     max_his_len: int = 20
     train_session: bool = True
+    sequence_augmentation: str = "time_decay"
+    augmentation_views: int = 1
+    augmentation_seed: int = 42
+    augmentation_drop_original: bool = False
+    augmentation_min_history_items: int = 1
+    time_decay_type: str = "exponential"
+    time_decay_tau: float = 48.0
+    time_decay_severity: float = 0.5
+    time_decay_max_drop: float = 0.9
+    time_decay_min_recent_items: int = 1
+    time_decay_allow_target_level_drop: bool = False
+    recent_session_count: int = 1
+    session_keep_probability: float = 0.5
+    session_time_decay_tau: float = 7.0
+    session_high_level_bonus: float = 0.3
+    session_allow_target_level_drop: bool = False
+    dataset_proportion_preset: str = "natural"
+    dataset_proportion_tolerance: float = 1.2
+    dataset_proportion_allow_target_level_drop: bool = False
 
 
 @dataclass
@@ -86,6 +105,25 @@ ARGUMENT_HELP = {
     "dataset": "Dataset name",
     "index_file": "the item indices file",
     "max_his_len": "the max number of items in history sequence, -1 means no limit",
+    "sequence_augmentation": "Sequence augmentation policy used by smb_policy_decoder",
+    "augmentation_views": "Number of augmented views generated per user",
+    "augmentation_seed": "Random seed for sequence augmentation",
+    "augmentation_drop_original": "Exclude the original full-history view",
+    "augmentation_min_history_items": "Minimum history length after augmentation",
+    "time_decay_type": "Time decay type: exponential, linear_rank, or bucket",
+    "time_decay_tau": "Time scale used by time-decayed dropout",
+    "time_decay_severity": "Overall time-decayed dropout severity",
+    "time_decay_max_drop": "Maximum per-interaction dropout probability",
+    "time_decay_min_recent_items": "Number of most recent interactions to preserve",
+    "time_decay_allow_target_level_drop": "Allow time dropout to remove target-level history",
+    "recent_session_count": "Number of most recent sessions to preserve",
+    "session_keep_probability": "Base probability for preserving an older session",
+    "session_time_decay_tau": "Session-distance scale for session-aware dropout",
+    "session_high_level_bonus": "Keep-probability bonus for high-level sessions",
+    "session_allow_target_level_drop": "Allow removal of all target-level sessions",
+    "dataset_proportion_preset": "Dataset proportion preset: natural or balanced",
+    "dataset_proportion_tolerance": "Soft-cap tolerance for dataset-level proportions",
+    "dataset_proportion_allow_target_level_drop": "Allow proportion balancing to remove target-level history",
     "optim": "The name of the optimizer",
     "epochs": "Number of training epochs",
     "num_train_epochs": "HF Trainer-compatible number of training epochs. Overrides --epochs when set.",

@@ -11,6 +11,7 @@ from SeqRec.datasets.session_behavior import (
     SMBExplicitDataset,
     SMBExplicitDatasetForDecoder,
     SMBFixedRatioDatasetForDecoder,
+    SMBPolicyAugmentedDatasetForDecoder,
 )
 
 
@@ -162,6 +163,16 @@ def _train_fixed_ratio(task_lower: str) -> SMBTrainTaskResolution:
     )
 
 
+def _train_policy_decoder(_: str) -> SMBTrainTaskResolution:
+    return SMBTrainTaskResolution(
+        "policy_decoder",
+        SMBPolicyAugmentedDatasetForDecoder,
+        {"behavior_first": True},
+        SMBExplicitDataset,
+        {"behavior_first": True},
+    )
+
+
 def _eval_fixed_ratio(task_lower: str) -> SMBTaskResolution:
     return SMBTaskResolution(
         "fixed_ratio",
@@ -199,6 +210,7 @@ SMB_TASK_PATTERNS: tuple[SMBTaskPattern, ...] = (
     SMBTaskPattern(lambda task: task.startswith("smb_augment_"), _train_augment, _valid_augment, _test_augment),
     SMBTaskPattern(lambda task: task == "smb_explicit_back", _train_explicit_back, _eval_explicit_back, _eval_explicit_back),
     SMBTaskPattern(lambda task: task.startswith("smb_fixed_ratio"), _train_fixed_ratio, _eval_fixed_ratio, _eval_fixed_ratio),
+    SMBTaskPattern(lambda task: task == "smb_policy_decoder", _train_policy_decoder, None, None),
     SMBTaskPattern(lambda task: task == "smb_explicit_valid", None, None, _test_explicit_valid),
     SMBTaskPattern(lambda task: task.startswith("smb_valid_augment_"), None, None, _test_valid_augment),
     SMBTaskPattern(lambda task: task == "smb_drop_gt", None, None, _test_drop_gt),
@@ -236,6 +248,7 @@ def load_SMB_datasets(
     index_file: str,
     tasks: str,
     train_session: bool = True,
+    sequence_augmentation_config: dict[str, Any] | None = None,
 ) -> tuple[ConcatDataset, SMBDataset | SMBExplicitDataset]:
     task_names: list[str] = tasks.split(",")
     common_kwargs = _common_kwargs(dataset, data_path, max_his_len, index_file, train_session)
@@ -245,12 +258,19 @@ def load_SMB_datasets(
     for task in task_names:
         assert train_resolution is None, "Only one multi-behavior type is allowed in tasks."
         train_resolution = _resolve_smb_train_task(task)
+        train_kwargs = dict(train_resolution.kwargs)
+        if train_resolution.task_type == "policy_decoder":
+            if sequence_augmentation_config is None:
+                raise ValueError(
+                    "smb_policy_decoder requires sequence augmentation configuration."
+                )
+            train_kwargs.update(sequence_augmentation_config)
         train_datasets.append(
             _build_dataset(
                 train_resolution.dataset_cls,
                 common_kwargs,
                 "train",
-                train_resolution.kwargs,
+                train_kwargs,
             )
         )
 
