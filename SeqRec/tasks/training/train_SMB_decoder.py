@@ -43,6 +43,18 @@ class TrainSMBDecoder(BaseGenerativeTrainTask):
                 "dataset_proportion_preset": data_args.dataset_proportion_preset,
                 "dataset_proportion_tolerance": data_args.dataset_proportion_tolerance,
                 "dataset_proportion_allow_target_level_drop": data_args.dataset_proportion_allow_target_level_drop,
+                "user_adaptive_smoothing": data_args.user_adaptive_smoothing,
+                "user_adaptive_confidence_scale": data_args.user_adaptive_confidence_scale,
+                "user_adaptive_min_ratio": data_args.user_adaptive_min_ratio,
+                "user_adaptive_max_ratio": data_args.user_adaptive_max_ratio,
+                "user_adaptive_tolerance": data_args.user_adaptive_tolerance,
+                "user_adaptive_allow_target_level_drop": data_args.user_adaptive_allow_target_level_drop,
+                "target_conditioned_base_policy": data_args.target_conditioned_base_policy,
+                "target_conditioned_same_level_restore": data_args.target_conditioned_same_level_restore,
+                "target_conditioned_precursor_restore": data_args.target_conditioned_precursor_restore,
+                "multi_view_disable_recent": data_args.multi_view_disable_recent,
+                "multi_view_disable_hierarchy": data_args.multi_view_disable_hierarchy,
+                "multi_view_disable_session": data_args.multi_view_disable_session,
             },
         }
         return load_SMB_datasets(

@@ -11,11 +11,18 @@ from SeqRec.datasets.session_behavior.augmentation_policies import (
     AugmentationContext,
     BehaviorSequence,
     DatasetProportionPolicy,
+    MultiViewAugmentationPolicy,
     SequenceAugmentationPolicy,
     SessionAwareDropoutPolicy,
+    TargetConditionedPolicy,
     TimeDecayDropoutPolicy,
+    UserAdaptiveRatioPolicy,
 )
 from SeqRec.datasets.session_behavior.decoder import SMBExplicitDatasetForDecoder
+from SeqRec.datasets.session_behavior.statistics import (
+    BehaviorLevelStatistics,
+    compute_training_level_statistics,
+)
 from SeqRec.utils.runtime import get_tqdm
 
 
@@ -39,10 +46,17 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
         self.augmentation_drop_original = augmentation_drop_original
         self.augmentation_config = augmentation_config or {}
         self.augmentation_policy: SequenceAugmentationPolicy | None = None
+        self.training_statistics: BehaviorLevelStatistics | None = None
         super().__init__(augment=None, **kwargs)
 
     def _load_data(self):
         super()._load_data()
+        self.training_statistics = compute_training_level_statistics(
+            histories=self.history_behaviors,
+            valid_positions=self.valid_pos,
+            behavior_level=self.behavior_level,
+            max_behavior_level=self.max_behavior_level,
+        )
         self.augmentation_policy = self._build_policy()
         logger.info(
             "Using sequence augmentation policy {} with config {}.",
@@ -80,72 +94,72 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
         )
 
     def _training_level_proportions(self) -> tuple[float, ...]:
-        level_counts = np.zeros(self.max_behavior_level + 1, dtype=float)
-        for uid, behaviors in self.history_behaviors.items():
-            end = max(self.valid_pos[uid], 0)
-            for behavior in behaviors[:end]:
-                level_counts[self.behavior_level[behavior]] += 1
-        if level_counts.sum() == 0:
-            return tuple(
-                1.0 / len(level_counts)
-                for _ in level_counts
-            )
-        return tuple((level_counts / level_counts.sum()).tolist())
+        if self.training_statistics is None:
+            raise RuntimeError("Training statistics are not initialized.")
+        return self.training_statistics.level_proportions
+
+    def _build_time_decay_policy(self) -> TimeDecayDropoutPolicy:
+        config = self.augmentation_config
+        return TimeDecayDropoutPolicy(
+            tau=config.get("time_decay_tau", 48.0),
+            severity=config.get("time_decay_severity", 0.5),
+            max_drop_probability=config.get(
+                "time_decay_max_drop",
+                0.9,
+            ),
+            min_recent_items=config.get(
+                "time_decay_min_recent_items",
+                1,
+            ),
+            min_history_items=config.get(
+                "augmentation_min_history_items",
+                1,
+            ),
+            preserve_target_level=not config.get(
+                "time_decay_allow_target_level_drop",
+                False,
+            ),
+            decay_type=config.get(
+                "time_decay_type",
+                "exponential",
+            ),
+        )
+
+    def _build_session_policy(self) -> SessionAwareDropoutPolicy:
+        config = self.augmentation_config
+        return SessionAwareDropoutPolicy(
+            recent_session_count=config.get(
+                "recent_session_count",
+                1,
+            ),
+            base_keep_probability=config.get(
+                "session_keep_probability",
+                0.5,
+            ),
+            time_decay_tau=config.get(
+                "session_time_decay_tau",
+                7.0,
+            ),
+            high_level_bonus=config.get(
+                "session_high_level_bonus",
+                0.3,
+            ),
+            preserve_target_level=not config.get(
+                "session_allow_target_level_drop",
+                False,
+            ),
+            min_history_items=config.get(
+                "augmentation_min_history_items",
+                1,
+            ),
+        )
 
     def _build_policy(self) -> SequenceAugmentationPolicy:
         config = self.augmentation_config
         if self.sequence_augmentation == "time_decay":
-            return TimeDecayDropoutPolicy(
-                tau=config.get("time_decay_tau", 48.0),
-                severity=config.get("time_decay_severity", 0.5),
-                max_drop_probability=config.get(
-                    "time_decay_max_drop",
-                    0.9,
-                ),
-                min_recent_items=config.get(
-                    "time_decay_min_recent_items",
-                    1,
-                ),
-                min_history_items=config.get(
-                    "augmentation_min_history_items",
-                    1,
-                ),
-                preserve_target_level=not config.get(
-                    "time_decay_allow_target_level_drop",
-                    False,
-                ),
-                decay_type=config.get(
-                    "time_decay_type",
-                    "exponential",
-                ),
-            )
+            return self._build_time_decay_policy()
         if self.sequence_augmentation == "session":
-            return SessionAwareDropoutPolicy(
-                recent_session_count=config.get(
-                    "recent_session_count",
-                    1,
-                ),
-                base_keep_probability=config.get(
-                    "session_keep_probability",
-                    0.5,
-                ),
-                time_decay_tau=config.get(
-                    "session_time_decay_tau",
-                    7.0,
-                ),
-                high_level_bonus=config.get(
-                    "session_high_level_bonus",
-                    0.3,
-                ),
-                preserve_target_level=not config.get(
-                    "session_allow_target_level_drop",
-                    False,
-                ),
-                min_history_items=config.get(
-                    "augmentation_min_history_items",
-                    1,
-                ),
-            )
+            return self._build_session_policy()
         if self.sequence_augmentation == "dataset_proportion":
             preset = config.get(
                 "dataset_proportion_preset",
@@ -175,6 +189,72 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
                 ),
                 preserve_target_level=not config.get(
                     "dataset_proportion_allow_target_level_drop",
+                    False,
+                ),
+            )
+        if self.sequence_augmentation == "user_adaptive_ratio":
+            return UserAdaptiveRatioPolicy(
+                global_proportions=self._training_level_proportions(),
+                smoothing=config.get("user_adaptive_smoothing", 5.0),
+                confidence_scale=config.get(
+                    "user_adaptive_confidence_scale",
+                    20.0,
+                ),
+                min_ratio=config.get("user_adaptive_min_ratio", 0.25),
+                max_ratio=config.get("user_adaptive_max_ratio", 20.0),
+                tolerance=config.get("user_adaptive_tolerance", 1.0),
+                min_history_items=config.get(
+                    "augmentation_min_history_items",
+                    1,
+                ),
+                preserve_target_level=not config.get(
+                    "user_adaptive_allow_target_level_drop",
+                    False,
+                ),
+            )
+        if self.sequence_augmentation == "target_conditioned":
+            base_name = config.get(
+                "target_conditioned_base_policy",
+                "time_decay",
+            )
+            if base_name != "time_decay":
+                raise ValueError(
+                    "target_conditioned currently supports only "
+                    "time_decay as its base policy."
+                )
+            return TargetConditionedPolicy(
+                base_policy=self._build_time_decay_policy(),
+                same_level_restore_probability=config.get(
+                    "target_conditioned_same_level_restore",
+                    0.8,
+                ),
+                precursor_restore_probability=config.get(
+                    "target_conditioned_precursor_restore",
+                    0.8,
+                ),
+                min_history_items=config.get(
+                    "augmentation_min_history_items",
+                    1,
+                ),
+            )
+        if self.sequence_augmentation == "multi_view":
+            return MultiViewAugmentationPolicy(
+                recent_policy=self._build_time_decay_policy(),
+                session_policy=self._build_session_policy(),
+                min_history_items=config.get(
+                    "augmentation_min_history_items",
+                    1,
+                ),
+                include_recent=not config.get(
+                    "multi_view_disable_recent",
+                    False,
+                ),
+                include_hierarchy=not config.get(
+                    "multi_view_disable_hierarchy",
+                    False,
+                ),
+                include_session=not config.get(
+                    "multi_view_disable_session",
                     False,
                 ),
             )
@@ -294,60 +374,65 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
                 output_lengths.append(len(history.items))
 
             for view_id in range(self.augmentation_views):
-                view = self.augmentation_policy.generate_view(
+                views = self.augmentation_policy.generate_views(
                     history,
                     context,
                     self._view_rng(uid, view_id),
                 )
-                indices = tuple(view.keep_indices)
-                if any(
-                    index < 0 or index >= len(history.items)
-                    for index in indices
-                ):
-                    raise ValueError(
-                        f"Policy {view.name} returned an invalid history index."
+                for view in views:
+                    indices = tuple(view.keep_indices)
+                    if any(
+                        index < 0 or index >= len(history.items)
+                        for index in indices
+                    ):
+                        raise ValueError(
+                            f"Policy {view.name} returned an invalid history index."
+                        )
+                    if list(indices) != sorted(set(indices)):
+                        raise ValueError(
+                            f"Policy {view.name} must return sorted unique indices."
+                        )
+                    policy_view_count += 1
+                    if len(indices) == len(history.items):
+                        unchanged_policy_views += 1
+                    age = np.maximum(
+                        context.target_time
+                        - np.asarray(history.times, dtype=float),
+                        0.0,
                     )
-                if list(indices) != sorted(set(indices)):
-                    raise ValueError(
-                        f"Policy {view.name} must return sorted unique indices."
+                    time_buckets = np.digitize(age, bins=[48.0, 336.0])
+                    for index, behavior in enumerate(history.behaviors):
+                        level = self.behavior_level[behavior]
+                        input_level_counts[level] += 1
+                        input_time_bucket_counts[time_buckets[index]] += 1
+                    for index in indices:
+                        level = self.behavior_level[
+                            history.behaviors[index]
+                        ]
+                        output_level_counts[level] += 1
+                        output_time_bucket_counts[
+                            time_buckets[index]
+                        ] += 1
+                    if indices in seen_views:
+                        continue
+                    seen_views.add(indices)
+                    augmented_history = history.select(list(indices))
+                    if not augmented_history.items:
+                        continue
+                    inter_data.append(self._build_sample(
+                        augmented_history,
+                        items[-1],
+                        behaviors[-1],
+                        session_ids[-1],
+                        times[-1],
+                    ))
+                    view_counts[view.name] = (
+                        view_counts.get(view.name, 0) + 1
                     )
-                policy_view_count += 1
-                if len(indices) == len(history.items):
-                    unchanged_policy_views += 1
-                age = np.maximum(
-                    context.target_time
-                    - np.asarray(history.times, dtype=float),
-                    0.0,
-                )
-                time_buckets = np.digitize(age, bins=[48.0, 336.0])
-                for index, behavior in enumerate(history.behaviors):
-                    level = self.behavior_level[behavior]
-                    input_level_counts[level] += 1
-                    input_time_bucket_counts[time_buckets[index]] += 1
-                for index in indices:
-                    level = self.behavior_level[history.behaviors[index]]
-                    output_level_counts[level] += 1
-                    output_time_bucket_counts[time_buckets[index]] += 1
-                if indices in seen_views:
-                    continue
-                seen_views.add(indices)
-                augmented_history = history.select(list(indices))
-                if not augmented_history.items:
-                    continue
-                inter_data.append(self._build_sample(
-                    augmented_history,
-                    items[-1],
-                    behaviors[-1],
-                    session_ids[-1],
-                    times[-1],
-                ))
-                view_counts[view.name] = (
-                    view_counts.get(view.name, 0) + 1
-                )
-                input_lengths.append(len(history.items))
-                output_lengths.append(
-                    len(augmented_history.items)
-                )
+                    input_lengths.append(len(history.items))
+                    output_lengths.append(
+                        len(augmented_history.items)
+                    )
 
         mean_input = (
             float(np.mean(input_lengths))
