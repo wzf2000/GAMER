@@ -120,10 +120,10 @@ class SMBAugmentDataset(SMBExplicitDataset):
                         inter_data.append({
                             "item": self.get_behavior_item(items[i], behaviors[i]),
                             "inters": self._get_inters(items[:i], behaviors[:i]),
-                            "session_ids": self._generate_session_ids(sids[:i+1]),
-                            "extended_session_ids": self._generate_extended_session_ids(sids[:i+1]),
-                            "actions": self._generate_actions(behaviors[:i+1]),
-                            "time": self._generate_times(times[:i+1]),
+                            "session_ids": self._generate_session_ids(sids[:i + 1]),
+                            "extended_session_ids": self._generate_extended_session_ids(sids[:i + 1]),
+                            "actions": self._generate_actions(behaviors[:i + 1]),
+                            "time": self._generate_times(times[:i + 1]),
                             "behavior": behaviors[i],
                         })
 
