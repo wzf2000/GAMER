@@ -748,7 +748,7 @@ For each new task/policy:
 
 Executed on ShortVideoAD:
 
-- `session` augmentation with `Qwen3TemporalHierarchicalMultiViewSoft`, result path `results/ShortVideoAD/smb_policy_decoder/Qwen3TemporalHierarchicalMultiViewSoft_aug_session/results-smb_explicit-original.json`.
+- `session` augmentation with `Qwen3TemporalHierarchicalMultiViewSoft`, using `smb_policy_decoder` with `--sequence_augmentation session`; result path `results/ShortVideoAD/smb_policy_decoder/Qwen3TemporalHierarchicalMultiViewSoft_aug_session/results-smb_explicit-original.json`.
 
 Not yet executed:
 
@@ -794,18 +794,18 @@ Time-Decayed Dropout
 → Curriculum only if static views are effective
 ```
 
-The first completed ShortVideoAD policy run is `session` augmentation on `Qwen3TemporalHierarchicalMultiViewSoft`. Its merged behavior result is:
+The first completed ShortVideoAD policy run is `session` augmentation on `Qwen3TemporalHierarchicalMultiViewSoft`, specifically `smb_policy_decoder` with `--sequence_augmentation session` and the `aug_session` run suffix. It is compared against the same backbone under the original `smb_explicit_decoder_4` task, which uses the original four-view/four-times explicit decoder sequence augmentation rather than no augmentation. The merged behavior result is:
 
 | Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| MultiViewSoft, no data augmentation | 0.0496 | 0.1508 | 0.2218 | 0.0239 | 0.0780 | 0.1212 | 0.0657 | 0.0796 |
-| MultiViewSoft + session augmentation | 0.0432 | 0.1386 | 0.2043 | 0.0205 | 0.0701 | 0.1096 | 0.0589 | 0.0717 |
+| MultiViewSoft + original 4x augmentation (`smb_explicit_decoder_4`) | 0.0496 | 0.1508 | 0.2218 | 0.0239 | 0.0780 | 0.1212 | 0.0657 | 0.0796 |
+| MultiViewSoft + policy session augmentation (`smb_policy_decoder`, `sequence_augmentation=session`) | 0.0432 | 0.1386 | 0.2043 | 0.0205 | 0.0701 | 0.1096 | 0.0589 | 0.0717 |
 
 The CVR target-behavior result is also lower:
 
 | Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| MultiViewSoft, no data augmentation | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
-| MultiViewSoft + session augmentation | 0.0381 | 0.1256 | 0.1915 | 0.0294 | 0.0958 | 0.1481 | 0.0684 | 0.0858 |
+| MultiViewSoft + original 4x augmentation (`smb_explicit_decoder_4`) | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
+| MultiViewSoft + policy session augmentation (`smb_policy_decoder`, `sequence_augmentation=session`) | 0.0381 | 0.1256 | 0.1915 | 0.0294 | 0.0958 | 0.1481 | 0.0684 | 0.0858 |
 
-The first result is negative: session augmentation in its current static form hurts both merged behavior and CVR. This does not invalidate the full data-side direction, but it means sequence augmentation should not be mixed into the final model until the policy family is tested systematically. The next step is to run the remaining static policies on ShortVideoAD while monitoring dataset growth, keep rates by level, and target-conditioned distribution shortcuts. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
+The first policy result is negative relative to the original 4x explicit-decoder augmentation baseline: session augmentation in its current static form hurts both merged behavior and CVR. This does not invalidate the full data-side direction, but it means the new policy augmentation should not replace the original augmentation baseline until the policy family is tested systematically. The next step is to run the remaining static policies on ShortVideoAD while monitoring dataset growth, keep rates by level, and target-conditioned distribution shortcuts. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.

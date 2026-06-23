@@ -748,7 +748,7 @@ tests/datasets/session_behavior/test_policy_augmented_dataset.py
 
 已在 ShortVideoAD 上执行：
 
-- `Qwen3TemporalHierarchicalMultiViewSoft` 搭配 `session` augmentation，结果路径为 `results/ShortVideoAD/smb_policy_decoder/Qwen3TemporalHierarchicalMultiViewSoft_aug_session/results-smb_explicit-original.json`。
+- `Qwen3TemporalHierarchicalMultiViewSoft` 搭配 `session` augmentation，具体为 `smb_policy_decoder` 加 `--sequence_augmentation session`；结果路径为 `results/ShortVideoAD/smb_policy_decoder/Qwen3TemporalHierarchicalMultiViewSoft_aug_session/results-smb_explicit-original.json`。
 
 尚未执行：
 
@@ -794,18 +794,18 @@ Time-Decayed Dropout
 → 仅在静态视图有效后考虑 Curriculum
 ```
 
-目前第一个完成的 ShortVideoAD policy run 是在 `Qwen3TemporalHierarchicalMultiViewSoft` 上使用 `session` augmentation。其 merged behavior 结果为：
+目前第一个完成的 ShortVideoAD policy run 是在 `Qwen3TemporalHierarchicalMultiViewSoft` 上使用 `session` augmentation，具体为 `smb_policy_decoder` 加 `--sequence_augmentation session`，并使用 `aug_session` run suffix。这里对比的 baseline 是同一 backbone 在原始 `smb_explicit_decoder_4` 任务下的结果，也就是原始 explicit decoder 的 4 倍序列增强方案，并不是无增强。其 merged behavior 结果为：
 
 | Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| MultiViewSoft, no data augmentation | 0.0496 | 0.1508 | 0.2218 | 0.0239 | 0.0780 | 0.1212 | 0.0657 | 0.0796 |
-| MultiViewSoft + session augmentation | 0.0432 | 0.1386 | 0.2043 | 0.0205 | 0.0701 | 0.1096 | 0.0589 | 0.0717 |
+| MultiViewSoft + 原始 4x augmentation（`smb_explicit_decoder_4`） | 0.0496 | 0.1508 | 0.2218 | 0.0239 | 0.0780 | 0.1212 | 0.0657 | 0.0796 |
+| MultiViewSoft + policy session augmentation（`smb_policy_decoder`, `sequence_augmentation=session`） | 0.0432 | 0.1386 | 0.2043 | 0.0205 | 0.0701 | 0.1096 | 0.0589 | 0.0717 |
 
 CVR 目标行为结果同样下降：
 
 | Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| MultiViewSoft, no data augmentation | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
-| MultiViewSoft + session augmentation | 0.0381 | 0.1256 | 0.1915 | 0.0294 | 0.0958 | 0.1481 | 0.0684 | 0.0858 |
+| MultiViewSoft + 原始 4x augmentation（`smb_explicit_decoder_4`） | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
+| MultiViewSoft + policy session augmentation（`smb_policy_decoder`, `sequence_augmentation=session`） | 0.0381 | 0.1256 | 0.1915 | 0.0294 | 0.0958 | 0.1481 | 0.0684 | 0.0858 |
 
-第一个结果是负向的：当前静态 session augmentation 同时损伤 merged behavior 和 CVR。这并不否定数据侧 TH 增强方向，但说明在系统测试完整 policy family 之前，不应把 sequence augmentation 混入最终模型。下一步应在 ShortVideoAD 上继续完成其他静态 policy 训练实验，并重点监控数据量、各层级 keep rate 和 target-conditioned 分布捷径。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。
+第一个 policy 结果相对原始 4x explicit-decoder augmentation baseline 是负向的：当前静态 session augmentation 同时损伤 merged behavior 和 CVR。这并不否定数据侧 TH 增强方向，但说明在系统测试完整 policy family 之前，不应让新的 policy augmentation 替代原始增强 baseline。下一步应在 ShortVideoAD 上继续完成其他静态 policy 训练实验，并重点监控数据量、各层级 keep rate 和 target-conditioned 分布捷径。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。
