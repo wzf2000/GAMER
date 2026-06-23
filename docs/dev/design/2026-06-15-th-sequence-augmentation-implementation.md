@@ -746,12 +746,15 @@ For each new task/policy:
 6. CPU dataset construction and sample access.
 7. CLI exposure through `train_SMB_decoder --help`.
 
+Executed on ShortVideoAD:
+
+- `session` augmentation with `Qwen3TemporalHierarchicalMultiViewSoft`, result path `results/ShortVideoAD/smb_policy_decoder/Qwen3TemporalHierarchicalMultiViewSoft_aug_session/results-smb_explicit-original.json`.
+
 Not yet executed:
 
-- complete preprocessing on the real ShortVideoAD dataset;
 - a full collated batch forward pass;
 - a one-step GPU smoke test;
-- full training and recommendation-metric experiments.
+- full training and recommendation-metric experiments for all other static policies.
 
 ### Experiment Logging (Partly Implemented)
 
@@ -791,4 +794,18 @@ Time-Decayed Dropout
 → Curriculum only if static views are effective
 ```
 
-The next step is to run all six static policies from the first and second batches on ShortVideoAD, while monitoring dataset growth, keep rates by level, and target-conditioned distribution shortcuts. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
+The first completed ShortVideoAD policy run is `session` augmentation on `Qwen3TemporalHierarchicalMultiViewSoft`. Its merged behavior result is:
+
+| Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| MultiViewSoft, no data augmentation | 0.0496 | 0.1508 | 0.2218 | 0.0239 | 0.0780 | 0.1212 | 0.0657 | 0.0796 |
+| MultiViewSoft + session augmentation | 0.0432 | 0.1386 | 0.2043 | 0.0205 | 0.0701 | 0.1096 | 0.0589 | 0.0717 |
+
+The CVR target-behavior result is also lower:
+
+| Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| MultiViewSoft, no data augmentation | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
+| MultiViewSoft + session augmentation | 0.0381 | 0.1256 | 0.1915 | 0.0294 | 0.0958 | 0.1481 | 0.0684 | 0.0858 |
+
+The first result is negative: session augmentation in its current static form hurts both merged behavior and CVR. This does not invalidate the full data-side direction, but it means sequence augmentation should not be mixed into the final model until the policy family is tested systematically. The next step is to run the remaining static policies on ShortVideoAD while monitoring dataset growth, keep rates by level, and target-conditioned distribution shortcuts. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.

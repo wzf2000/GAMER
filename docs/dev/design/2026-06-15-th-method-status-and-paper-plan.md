@@ -45,13 +45,13 @@ Consequently, the zero-relation-bias model is still substantially different from
 |---|---|---|---|
 | TH Base | FixedBias / FixedZero | Implemented and evaluated | Current best result; effectively TH without scalar relation bias |
 | Relation Bias | Factorized | Implemented and evaluated | Learnable relation-bias main-line candidate |
-| Relation Bias | FixedSoft | Implemented, pending result | Fixed weak hierarchy prior |
+| Relation Bias | FixedSoft | Implemented and evaluated | Fixed weak hierarchy prior; no stable gain over TH Base |
 | Relation Bias | FactorizedSoft | Implemented and evaluated | Learnable weak-prior initialization; does not outperform Factorized/FixedBias |
-| Relation Bias | FactorizedScale | Implemented, pending result | Fixed scale controlling relation-bias strength |
+| Relation Bias | FactorizedScale | Implemented and evaluated | Best current relation-bias extension on several CVR coverage metrics |
 | Relation Bias | FactorizedAlpha | Implemented, pending result | Per-layer learnable alpha |
 | Relation Bias | Naive trainable table | Profiled | Expected to be dropped because of backward cost |
 | Multi-View | Hard MultiView | Implemented and evaluated | Clearly weaker than TH Base/relation-bias variants; structured ablation |
-| Multi-View | Soft MultiView | Implemented, pending result | Finite soft penalties instead of hard masks |
+| Multi-View | Soft MultiView | Implemented and evaluated | Improves Hard MultiView on merged metrics but remains weaker on CVR |
 | Multi-View | Gated MultiView | Implemented, pending result | Learnable per-head view mixture |
 | Objective | Behavior-level auxiliary objectives | Not implemented | Future TH supervision |
 | Data | Existing ratio augmentation | Implemented and used | User-independent and time-independent; needs redesign |
@@ -89,13 +89,13 @@ Factorized bias learns query/key level factors and computes their low-rank dot p
 
 It is the strongest current method-story candidate, although its zero-init result is slightly below TH Base.
 
-### Soft Prior, Fixed Scale, And Learnable Alpha (Implemented, Pending Evaluation, High Priority)
+### Soft Prior, Fixed Scale, And Learnable Alpha (Partly Evaluated, High Priority)
 
 - FixedSoft and FactorizedSoft initialize a weak shallow-to-deep hierarchy prior with scale `0.05`.
 - FactorizedScale multiplies relation bias by a fixed `0.1`.
 - FactorizedAlpha learns a per-layer scalar initialized to `0.1`.
 
-These variants test whether the original Factorized result was hurt by an overly strong or poorly initialized logit perturbation.
+The latest results show that soft prior initialization is not consistently helpful. FactorizedScale is more promising: it improves CVR `HR@5/R@5/N@5` over TH Base, although it still loses on `HR@1/R@1/HR@10/N@10`. This suggests that relation-bias strength control is useful, but not yet sufficient for a stable main-model win.
 
 Learned alpha values should be recorded per layer for interpretation.
 
@@ -116,11 +116,11 @@ Hard MultiView assigns heads to temporal, same-level, upward, and downward views
 
 It should remain an important structured ablation, not the current default main model.
 
-### Soft MultiView (Implemented, Pending Evaluation)
+### Soft MultiView (Implemented and Evaluated)
 
 Soft MultiView replaces negative-infinity blocks with finite negative penalties and uses a uniform mixture over views. It tests whether hard masking explains MultiView's weaker performance.
 
-The soft-bias scale requires later ablation.
+The latest result confirms that soft penalties improve over Hard MultiView on merged behavior, where Soft MultiView is best on `HR@5/N@5`. However, it remains weaker than TH Base on the CVR target behavior. The soft-bias scale may still deserve ablation, but Soft MultiView is currently a structured ablation rather than the final model line.
 
 ### Gated MultiView (Implemented, Pending Evaluation, Preferred Over Dynamic Gating)
 
@@ -277,19 +277,17 @@ This may improve robustness but complicates caching, resuming, and early stoppin
 
 ### Stage 1: Finish Implemented Model Experiments (Current Priority)
 
-1. FixedSoft.
-2. FactorizedSoft.
-3. FactorizedScale.
-4. FactorizedAlpha.
-5. MultiViewSoft.
-6. MultiViewGated.
+1. FactorizedAlpha.
+2. MultiViewGated.
+3. Factorized rank ablation under the scaled setting.
+4. Optional Soft MultiView scale ablation.
 
 Record conversion, merged, per-behavior metrics, training time, memory, learned alpha, and learned view gates.
 
 ### Stage 2: Select The Final Model Line (After Pending Results)
 
-- If FactorizedAlpha or FactorizedSoft reaches or exceeds TH Base, use it as the main model.
-- If all relation-bias extensions remain below TH Base, define the main contribution as behavior-aware replacement TH attention rather than scalar relation bias.
+- If FactorizedAlpha reaches or exceeds TH Base, use it as the relation-bias main model.
+- If relation-bias extensions remain mixed or below TH Base, define the main contribution as behavior-aware replacement TH attention rather than scalar relation bias.
 - If Gated MultiView improves substantially, consider combining it with Factorized only after checking complexity and attribution.
 
 ### Stage 3: Implement The First Auxiliary Objective (Next Development Round)
@@ -323,13 +321,17 @@ The evaluation task is `smb_explicit_valid` behavior-specific next-item predicti
 | TH-FixedBias | 0.0490 | 0.1502 | 0.2227 | 0.0237 | 0.0778 | 0.1220 | 0.0656 | 0.0799 |
 | TH-FixedSoft | 0.0492 | 0.1497 | 0.2216 | 0.0236 | 0.0780 | 0.1221 | 0.0652 | 0.0795 |
 | TH-Factorized | 0.0487 | 0.1500 | 0.2220 | 0.0234 | 0.0781 | 0.1215 | 0.0655 | 0.0796 |
+| TH-FactorizedScale | 0.0482 | 0.1502 | 0.2221 | 0.0234 | 0.0779 | 0.1216 | 0.0654 | 0.0795 |
 | TH-FactorizedSoft | 0.0486 | 0.1494 | 0.2199 | 0.0229 | 0.0773 | 0.1203 | 0.0649 | 0.0787 |
 | TH-MultiView | 0.0463 | 0.1478 | 0.2162 | 0.0219 | 0.0760 | 0.1179 | 0.0632 | 0.0766 |
+| TH-MultiViewSoft | 0.0496 | 0.1508 | 0.2218 | 0.0239 | 0.0780 | 0.1212 | 0.0657 | 0.0796 |
 
-TH-FixedBias is best on merged `HR@5/HR@10/R@1/N@5/N@10`. TH-FixedSoft is only slightly better on `HR@1` and `R@10`; TH-Factorized is only slightly better on `R@5`. The overall ranking is:
+TH-MultiViewSoft is best on merged `HR@1/HR@5/R@1/N@5`, while TH-FixedBias remains best on `HR@10/N@10` and TH-FixedSoft is narrowly best on `R@10`. The differences among the top variants are small, but the result changes the earlier interpretation of MultiView: hard partitioning is weak, while soft view penalties are viable for merged behavior.
+
+The overall merged ranking is now:
 
 ```text
-FixedBias > FixedSoft ~= Factorized > FactorizedSoft > MultiView
+FixedBias ~= MultiViewSoft ~= FactorizedScale ~= Factorized > FixedSoft > FactorizedSoft > Hard MultiView
 ```
 
 Relative to TH-FixedBias:
@@ -337,28 +339,32 @@ Relative to TH-FixedBias:
 | Model | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | TH-Factorized | -0.64% | -0.12% | -0.31% | -1.34% | +0.40% | -0.41% | -0.08% | -0.34% |
+| TH-FactorizedScale | -1.65% | +0.02% | -0.29% | -1.47% | +0.13% | -0.38% | -0.17% | -0.50% |
 | TH-FactorizedSoft | -0.99% | -0.55% | -1.26% | -3.37% | -0.62% | -1.44% | -1.08% | -1.50% |
 | TH-FixedSoft | +0.29% | -0.33% | -0.50% | -0.67% | +0.35% | +0.03% | -0.48% | -0.46% |
 | TH-MultiView | -5.56% | -1.56% | -2.93% | -7.89% | -2.30% | -3.43% | -3.56% | -4.07% |
+| TH-MultiViewSoft | +1.24% | +0.39% | -0.40% | +0.92% | +0.34% | -0.72% | +0.26% | -0.32% |
 
 ### Conversion / CVR Behavior
 
 | Model | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | TH-FixedBias | 0.0438 | 0.1368 | 0.2068 | 0.0348 | 0.1052 | 0.1597 | 0.0756 | 0.0936 |
+| TH-FactorizedScale | 0.0428 | 0.1371 | 0.2046 | 0.0340 | 0.1062 | 0.1586 | 0.0758 | 0.0932 |
 | TH-FactorizedSoft | 0.0427 | 0.1358 | 0.2045 | 0.0324 | 0.1054 | 0.1600 | 0.0748 | 0.0926 |
 | TH-Factorized | 0.0419 | 0.1354 | 0.2044 | 0.0331 | 0.1052 | 0.1588 | 0.0747 | 0.0924 |
 | TH-FixedSoft | 0.0405 | 0.1338 | 0.2048 | 0.0320 | 0.1044 | 0.1588 | 0.0735 | 0.0916 |
 | TH-MultiView | 0.0394 | 0.1345 | 0.2018 | 0.0309 | 0.1028 | 0.1556 | 0.0723 | 0.0898 |
+| TH-MultiViewSoft | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
 
-TH-FixedBias is still the most stable CVR model. FactorizedSoft is slightly better on `R@5/R@10`, but it is weaker on `HR@1/R@1/NDCG`, suggesting better candidate coverage rather than better top-rank ordering.
+TH-FixedBias is still the most stable CVR model. FactorizedScale is slightly better on `HR@5/R@5/N@5`, and FactorizedSoft is slightly better on `R@10`, but both are weaker on top-rank quality and/or `N@10`. This suggests that controlled relation bias can improve candidate coverage but has not yet improved the primary ordering quality.
 
 ### Interpretation
 
 1. TH-FixedBias gains are not from a scalar relation-bias value. The current FixedBias table is frozen zero, so the gain is better attributed to replacement-style TH attention, behavior Q/K/V, gating, and behavior-aware MoE.
-2. Factorized is close to FixedBias, so learnable relation bias remains a feasible extension, but it does not yet prove a stable advantage over TH Base.
-3. Soft prior is not consistently helpful. FixedSoft and FactorizedSoft do not outperform FixedBias, and FactorizedSoft is weaker than Factorized.
-4. Hard MultiView is clearly weaker. It remains interpretable, but strong view/head partitioning appears to reduce useful cross-level interaction.
+2. Factorized and FactorizedScale are close to FixedBias, so learnable relation bias remains a feasible extension, but it does not yet prove a stable advantage over TH Base.
+3. Soft prior is not consistently helpful. FixedSoft and FactorizedSoft do not outperform FixedBias; scale control is more promising than soft-prior initialization.
+4. Hard MultiView is clearly weaker, but Soft MultiView recovers much of the loss and is strong on merged behavior. This supports soft view constraints over hard head partitioning.
 
 ### Method-Line Impact
 
@@ -368,9 +374,9 @@ The safer paper main line is now:
 TH Base / FixedBias
 ```
 
-Learnable Factorized Relation Bias should be framed as an extension/ablation unless a later Alpha/Scale result clearly exceeds FixedBias.
+Learnable Factorized Relation Bias should be framed as an extension/ablation unless a later Alpha result clearly exceeds FixedBias. FactorizedScale is the strongest current relation-bias extension, but its gain is metric-specific.
 
-MultiView should be downgraded to a structured ablation showing that forced temporal/same/up/down decomposition is weaker than free causal TH attention.
+Hard MultiView should be downgraded to a structured ablation. Soft MultiView should remain as a stronger structured-view comparison because it improves merged behavior without hard visibility cuts.
 
 ## Paper-Writing Guidance
 
@@ -392,12 +398,14 @@ Current evidence supports:
 
 - replacement TH attention improves over old added-cross-level GAMER,
 - behavior-aware Q/K/V helps both conversion and merged behavior,
-- soft relation modeling currently outperforms hard MultiView.
+- controlled relation bias can improve coverage-oriented metrics, but not yet the full ranking profile.
+- soft MultiView improves hard MultiView and is competitive on merged behavior.
 
 Claims still requiring experiments:
 
 - learnable relation bias always outperforms TH Base,
 - soft hierarchy prior is beneficial,
+- controlled relation bias or gated view mixture can stably beat TH Base,
 - gated MultiView outperforms hard MultiView,
 - TH-aware auxiliary objectives and augmentation add further gains.
 
@@ -410,7 +418,7 @@ TH Base
 + controlled learnable Factorized Relation Bias
 ```
 
-The latest ShortVideoAD results show that `FixedSoft`, `Factorized`, `FactorizedSoft`, and `MultiView` do not stably outperform TH-FixedBias. The final model should therefore prioritize `TH Base / FixedBias`. `FactorizedAlpha` is still worth testing, but unless it clearly exceeds FixedBias, it should be treated as a relation-bias extension rather than the main model.
+The latest ShortVideoAD results show that `FixedSoft`, `Factorized`, `FactorizedScale`, `FactorizedSoft`, `MultiView`, and `MultiViewSoft` do not stably outperform TH-FixedBias on the CVR target behavior. The final model should therefore prioritize `TH Base / FixedBias`. `FactorizedScale` and `MultiViewSoft` are worth retaining as stronger extensions than their unscaled/hard counterparts, while `FactorizedAlpha` and `Gated MultiView` remain the most informative pending model-side experiments.
 
 The data-side design should move beyond a user-independent random ratio schedule toward:
 

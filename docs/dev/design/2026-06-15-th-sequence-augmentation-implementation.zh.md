@@ -746,12 +746,15 @@ tests/datasets/session_behavior/test_policy_augmented_dataset.py
 6. CPU 上的数据集构造和取样。
 7. `train_SMB_decoder --help` 的 CLI 参数暴露检查。
 
+已在 ShortVideoAD 上执行：
+
+- `Qwen3TemporalHierarchicalMultiViewSoft` 搭配 `session` augmentation，结果路径为 `results/ShortVideoAD/smb_policy_decoder/Qwen3TemporalHierarchicalMultiViewSoft_aug_session/results-smb_explicit-original.json`。
+
 尚未执行：
 
-- 真实 ShortVideoAD 数据的完整预处理。
 - Collator 后的完整 batch 前向。
 - One-step GPU smoke test。
-- 完整训练和推荐指标实验。
+- 其他静态 policy 的完整训练和推荐指标实验。
 
 ### 实验日志（部分实现）
 
@@ -791,4 +794,18 @@ Time-Decayed Dropout
 → 仅在静态视图有效后考虑 Curriculum
 ```
 
-下一步应在 ShortVideoAD 上分别完成第一批和第二批共六种静态 policy 的训练实验，并重点监控数据量、各层级 keep rate 和 target-conditioned 分布捷径。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。
+目前第一个完成的 ShortVideoAD policy run 是在 `Qwen3TemporalHierarchicalMultiViewSoft` 上使用 `session` augmentation。其 merged behavior 结果为：
+
+| Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| MultiViewSoft, no data augmentation | 0.0496 | 0.1508 | 0.2218 | 0.0239 | 0.0780 | 0.1212 | 0.0657 | 0.0796 |
+| MultiViewSoft + session augmentation | 0.0432 | 0.1386 | 0.2043 | 0.0205 | 0.0701 | 0.1096 | 0.0589 | 0.0717 |
+
+CVR 目标行为结果同样下降：
+
+| Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| MultiViewSoft, no data augmentation | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
+| MultiViewSoft + session augmentation | 0.0381 | 0.1256 | 0.1915 | 0.0294 | 0.0958 | 0.1481 | 0.0684 | 0.0858 |
+
+第一个结果是负向的：当前静态 session augmentation 同时损伤 merged behavior 和 CVR。这并不否定数据侧 TH 增强方向，但说明在系统测试完整 policy family 之前，不应把 sequence augmentation 混入最终模型。下一步应在 ShortVideoAD 上继续完成其他静态 policy 训练实验，并重点监控数据量、各层级 keep rate 和 target-conditioned 分布捷径。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。
