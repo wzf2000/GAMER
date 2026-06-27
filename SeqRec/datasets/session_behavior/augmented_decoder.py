@@ -71,6 +71,7 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
                 "Augmentation policy must be initialized before cache lookup."
             )
         cache_payload = {
+            "protocol": "full_sequence_v1",
             "policy": self.augmentation_policy.cache_config(),
             "views": self.augmentation_views,
             "seed": self.augmentation_seed,
@@ -278,15 +279,20 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
 
     def _build_sample(
         self,
-        history: BehaviorSequence,
-        target_item: str,
-        target_behavior: str,
-        target_session_id: int,
-        target_time: float,
+        sequence: BehaviorSequence,
     ) -> dict[str, str | list[int] | list[float]]:
-        all_behaviors = history.behaviors + [target_behavior]
-        all_session_ids = history.session_ids + [target_session_id]
-        all_times = history.times + [target_time]
+        if len(sequence.items) < 2:
+            raise ValueError(
+                "Full-sequence decoder samples require at least two interactions."
+            )
+        history = BehaviorSequence(
+            items=sequence.items[:-1],
+            behaviors=sequence.behaviors[:-1],
+            session_ids=sequence.session_ids[:-1],
+            times=sequence.times[:-1],
+        )
+        target_item = sequence.items[-1]
+        target_behavior = sequence.behaviors[-1]
         return {
             "item": self.get_behavior_item(
                 target_item,
@@ -297,15 +303,15 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
                 history.behaviors,
             ),
             "session_ids": self._generate_session_ids(
-                all_session_ids
+                sequence.session_ids
             ),
             "extended_session_ids": (
                 self._generate_extended_session_ids(
-                    all_session_ids
+                    sequence.session_ids
                 )
             ),
-            "actions": self._generate_actions(all_behaviors),
-            "time": self._generate_times(all_times),
+            "actions": self._generate_actions(sequence.behaviors),
+            "time": self._generate_times(sequence.times),
             "behavior": target_behavior,
         }
 
@@ -342,11 +348,11 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
             behaviors = self.history_behaviors[uid][:position]
             session_ids = self.session[uid][:position]
             times = self.time[uid][:position]
-            history = BehaviorSequence(
-                items=items[:-1],
-                behaviors=behaviors[:-1],
-                session_ids=session_ids[:-1],
-                times=times[:-1],
+            sequence = BehaviorSequence(
+                items=items,
+                behaviors=behaviors,
+                session_ids=session_ids,
+                times=times,
             )
             context = AugmentationContext(
                 uid=uid,
@@ -358,56 +364,50 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
             )
             seen_views: set[tuple[int, ...]] = set()
             if not self.augmentation_drop_original:
-                original_indices = tuple(range(len(history.items)))
+                original_indices = tuple(range(len(sequence.items)))
                 seen_views.add(original_indices)
-                inter_data.append(self._build_sample(
-                    history,
-                    items[-1],
-                    behaviors[-1],
-                    session_ids[-1],
-                    times[-1],
-                ))
+                inter_data.append(self._build_sample(sequence))
                 view_counts["original"] = (
                     view_counts.get("original", 0) + 1
                 )
-                input_lengths.append(len(history.items))
-                output_lengths.append(len(history.items))
+                input_lengths.append(len(sequence.items))
+                output_lengths.append(len(sequence.items))
 
             for view_id in range(self.augmentation_views):
                 views = self.augmentation_policy.generate_views(
-                    history,
+                    sequence,
                     context,
                     self._view_rng(uid, view_id),
                 )
                 for view in views:
                     indices = tuple(view.keep_indices)
                     if any(
-                        index < 0 or index >= len(history.items)
+                        index < 0 or index >= len(sequence.items)
                         for index in indices
                     ):
                         raise ValueError(
-                            f"Policy {view.name} returned an invalid history index."
+                            f"Policy {view.name} returned an invalid sequence index."
                         )
                     if list(indices) != sorted(set(indices)):
                         raise ValueError(
                             f"Policy {view.name} must return sorted unique indices."
                         )
                     policy_view_count += 1
-                    if len(indices) == len(history.items):
+                    if len(indices) == len(sequence.items):
                         unchanged_policy_views += 1
                     age = np.maximum(
                         context.target_time
-                        - np.asarray(history.times, dtype=float),
+                        - np.asarray(sequence.times, dtype=float),
                         0.0,
                     )
                     time_buckets = np.digitize(age, bins=[48.0, 336.0])
-                    for index, behavior in enumerate(history.behaviors):
+                    for index, behavior in enumerate(sequence.behaviors):
                         level = self.behavior_level[behavior]
                         input_level_counts[level] += 1
                         input_time_bucket_counts[time_buckets[index]] += 1
                     for index in indices:
                         level = self.behavior_level[
-                            history.behaviors[index]
+                            sequence.behaviors[index]
                         ]
                         output_level_counts[level] += 1
                         output_time_bucket_counts[
@@ -416,22 +416,16 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
                     if indices in seen_views:
                         continue
                     seen_views.add(indices)
-                    augmented_history = history.select(list(indices))
-                    if not augmented_history.items:
+                    augmented_sequence = sequence.select(list(indices))
+                    if len(augmented_sequence.items) < 2:
                         continue
-                    inter_data.append(self._build_sample(
-                        augmented_history,
-                        items[-1],
-                        behaviors[-1],
-                        session_ids[-1],
-                        times[-1],
-                    ))
+                    inter_data.append(self._build_sample(augmented_sequence))
                     view_counts[view.name] = (
                         view_counts.get(view.name, 0) + 1
                     )
-                    input_lengths.append(len(history.items))
+                    input_lengths.append(len(sequence.items))
                     output_lengths.append(
-                        len(augmented_history.items)
+                        len(augmented_sequence.items)
                     )
 
         mean_input = (
