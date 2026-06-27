@@ -8,6 +8,30 @@ from SeqRec.datasets.session_behavior import (
     SMBExplicitDataset,
     SMBPolicyAugmentedDatasetForDecoder,
 )
+from SeqRec.datasets.session_behavior.augmentation_policies import (
+    AugmentedView,
+)
+
+
+class DropTailPolicy:
+    name = "drop_tail"
+
+    def generate_views(self, sequence, context, rng):
+        return [
+            AugmentedView(
+                name=self.name,
+                keep_indices=list(range(len(sequence.items) - 1)),
+                metadata={},
+            )
+        ]
+
+    def cache_config(self):
+        return {"name": self.name}
+
+
+class DropTailPolicyDataset(SMBPolicyAugmentedDatasetForDecoder):
+    def _build_policy(self):
+        return DropTailPolicy()
 
 
 class PolicyAugmentedDatasetTest(unittest.TestCase):
@@ -196,6 +220,37 @@ class PolicyAugmentedDatasetTest(unittest.TestCase):
 
             self.assertEqual(statistics.level_counts, (2, 1, 1))
             self.assertEqual(statistics.total_interactions, 4)
+
+    def test_policy_views_are_built_from_full_sequences(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self._build_dataset_files(root)
+
+            dataset = DropTailPolicyDataset(
+                dataset="TinySMB",
+                data_path=str(root),
+                max_his_len=100,
+                index_file=".index.json",
+                mode="train",
+                sequence_augmentation="drop_tail",
+                augmentation_views=1,
+                augmentation_seed=7,
+                augmentation_drop_original=False,
+            )
+
+            self.assertEqual(len(dataset.inter_data), 2)
+            original_sample = dataset.inter_data[0]
+            augmented_sample = dataset.inter_data[1]
+            self.assertEqual(original_sample["behavior"], "conversion")
+            self.assertEqual(augmented_sample["behavior"], "click")
+            self.assertEqual(
+                augmented_sample["item"],
+                "<behavior_click><item_2>",
+            )
+            self.assertEqual(
+                augmented_sample["inters"],
+                "<behavior_pxs><item_0><behavior_pxs><item_1>",
+            )
 
 
 if __name__ == "__main__":
