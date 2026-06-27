@@ -37,20 +37,68 @@ The main limitation is architectural rather than informational:
 
 Most static strategies are therefore straightforward after a small policy-layer refactor.
 
+## Decoder Pretraining Semantics (Design Correction, Pending Code Alignment)
+
+The intended training unit for `smb_explicit_decoder` is a full causal sequence, not a single fixed target. The existing `SMBExplicitDatasetForDecoder` stores each training sample as:
+
+```text
+inters = sequence[:-1]
+item = sequence[-1]
+```
+
+but `DecoderOnlyCollator` concatenates `input_ids + labels` and, for decoder-response datasets, does not mask the `input_ids` portion during training. Therefore the actual loss is causal LM shift loss over the full sequence:
+
+```text
+sequence[:-1] + sequence[-1]
+```
+
+The original `smb_explicit_decoder_4` augmentation should be interpreted as full-sequence augmentation:
+
+```text
+original full sequence
++ 4 ratio-indexed full-sequence dropout views
+```
+
+Each view is then represented with the legacy `inters=view[:-1]`, `item=view[-1]` schema only to reuse the existing collator and evaluation code.
+
+The current policy dataset implementation deviates from this intended protocol. It first fixes `sequence[-1]` as a prediction target, applies policy dropout only to `sequence[:-1]`, and then appends the fixed target back. This produces:
+
+```text
+policy(history) + original_tail
+```
+
+rather than:
+
+```text
+policy(full_sequence)
+```
+
+Consequently, current policy-augmentation runs should be treated as history-only semantic-dropout ablations, not as the final policy version aligned with the original decoder augmentation. The code should be updated so every policy generates views over the full training sequence. Each generated view is then split back into `inters=view[:-1]` and `item=view[-1]` for compatibility.
+
+Design requirements for the aligned protocol:
+
+- Always include the original full sequence unless `augmentation_drop_original` is explicitly set.
+- Apply augmentation policies to `items[:valid_pos]`, `behaviors[:valid_pos]`, `session_ids[:valid_pos]`, and `times[:valid_pos]`.
+- Keep chronological order and aligned fields unchanged after filtering.
+- Require each emitted view to contain at least two interactions so it can be split into prefix and tail.
+- Preserve protected behavior levels according to each policy, but do not globally force the original last interaction to remain the tail unless that is part of a named policy.
+- Keep validation and test datasets unchanged: evaluation remains `history -> candidate target`.
+- Change cache identity when switching from history-only policy views to full-sequence policy views.
+
 ## Implementation Status Summary (Living)
 
 | Scheme or component | Implementation | Verification | Next role |
 | --- | --- | --- | --- |
 | Shared policy interface and structured sequence | Implemented | Unit tests, compileall, and flake8 passed | Foundation for further policies |
-| Unified decoder dataset | Implemented | Synthetic loader and sample-schema tests passed | Keep as the common entry |
+| Unified decoder dataset | Implemented, needs full-sequence alignment | Synthetic loader and sample-schema tests passed for the history-only implementation | Keep as the common entry after protocol correction |
 | Explicit arguments, cache key, and `smb_policy_decoder` | Implemented | CLI, cache isolation, and legacy task parsing verified | Continue using |
-| Time-Decayed Behavior Dropout | Implemented | Determinism, recency protection, and level protection verified | First experiment batch |
-| Session-Aware Dropout | Implemented | Session atomicity and minimum-history protection verified | First experiment batch |
-| Dataset-Level Fixed Proportion | Implemented | Soft cap and top-level protection verified | Control experiment |
+| Time-Decayed Behavior Dropout | Implemented, needs full-sequence dataset alignment | Determinism, recency protection, and level protection verified | Re-run after alignment |
+| Session-Aware Dropout | Implemented, needs full-sequence dataset alignment | Session atomicity and minimum-history protection verified | Re-run after alignment |
+| Dataset-Level Fixed Proportion | Implemented, needs full-sequence dataset alignment | Soft cap and top-level protection verified | Control experiment after alignment |
 | Training-prefix behavior statistics | Implemented | Verified to use only `history[:valid_pos]` | Supplies global priors |
-| User-Adaptive Ratio | Implemented | Zero-target fallback and training-prefix prior verified | Second experiment batch |
-| Target-Conditioned Augmentation | Implemented | Same-level and precursor restoration verified | Second batch under a known-target protocol |
-| Multi-View Sequence Augmentation | Implemented | Semantic view generation and dataset deduplication verified | Second experiment batch |
+| User-Adaptive Ratio | Implemented, needs full-sequence dataset alignment | Zero-target fallback and training-prefix prior verified | Re-run after alignment |
+| Target-Conditioned Augmentation | Implemented, needs protocol review under full-sequence views | Same-level and precursor restoration verified for history-only target anchoring | Re-evaluate as tail-conditioned augmentation |
+| Multi-View Sequence Augmentation | Implemented, needs full-sequence dataset alignment | Semantic view generation and dataset deduplication verified | Re-run after alignment |
 | Curriculum Augmentation | Not implemented | Not verified | Deferred |
 
 ## Shared Architecture (Implemented And Verified)
@@ -122,13 +170,13 @@ It inherits from `SMBExplicitDatasetForDecoder`, so the existing decoder-only co
 
 Responsibilities:
 
-1. Construct the causal history and prediction target.
+1. Construct the full causal training sequence for each user prefix.
 2. Build a deterministic RNG from user, split, and optional view id.
 3. Call the selected augmentation policy.
 4. Validate returned indices.
-5. Assemble the existing sample schema:
+5. Split each emitted full-sequence view into the existing decoder schema:
    `item`, `inters`, `session_ids`, `extended_session_ids`, `actions`, `time`, and `behavior`.
-6. Emit the original full-history view when configured.
+6. Emit the original full-sequence view when configured.
 
 The policy should not construct tokenizer strings or token-level metadata.
 
@@ -215,14 +263,14 @@ This avoids stale cache reuse when a policy parameter changes.
 Default protocol:
 
 ```text
-train: augmented history
+train: augmented full training sequence
 valid: original history
 test: original history
 ```
 
 This isolates augmentation as a training intervention.
 
-`smb_policy_decoder` now follows the default protocol above. The following separate robustness protocol is not yet integrated into the policy dataset:
+The intended `smb_policy_decoder` protocol is the full-sequence training protocol above. The current implementation still uses a history-only policy view and should be corrected before interpreting policy results as final. The following separate robustness protocol is not yet integrated into the policy dataset:
 
 ```text
 train: augmented or original history
@@ -239,7 +287,7 @@ Directly reuse:
 
 - `times`;
 - `behavior_level`;
-- target-behavior preservation;
+- protected-level preservation;
 - deterministic RNG;
 - existing full-history plus augmented-view behavior.
 
@@ -253,7 +301,7 @@ Add:
 TimeDecayDropoutPolicy
 ```
 
-For each historical interaction:
+For each interaction in the full training sequence:
 
 ```text
 p_drop(i) = severity * level_weight(level_i) * age_weight(delta_t_i)
@@ -272,14 +320,13 @@ age_weight = 1 - exp(-delta_t / tau)
 level_weight(l) = 1 / (l + 1)
 ```
 
-Thus recent interactions have near-zero age weight, old low-level actions are most likely to be removed, and target-level history is protected or assigned a very small weight.
+Thus recent interactions have near-zero age weight, old low-level actions are most likely to be removed, and protected high-level interactions are preserved or assigned a very small weight.
 
 ### Required Safeguards
 
-- Always preserve the prediction target.
-- Preserve at least `min_history_items`.
+- Preserve at least the minimum number of interactions required to form a decoder sample.
 - Preserve the most recent `min_recent_items`.
-- Optionally preserve all historical target-level interactions.
+- Optionally preserve all target-level interactions.
 - Clamp probabilities to `[0, max_drop_probability]`.
 - Handle equal timestamps and zero time spans.
 
@@ -301,7 +348,7 @@ time_decay_preserve_target_level = true
 - aligned fields remain aligned;
 - fixed seed produces identical views;
 - no future timestamp is used;
-- target and required recent items are preserved;
+- required recent and protected-level items are preserved;
 - zero-span timestamps do not fail.
 
 ## Session-Aware Dropout (Implemented And Verified, First Experiments)
@@ -318,7 +365,7 @@ Add:
 SessionAwareDropoutPolicy
 ```
 
-First group historical indices by session. Compute session-level features using only that session:
+First group full-sequence indices by session. Compute session-level features using only that session:
 
 ```text
 recency
@@ -475,17 +522,17 @@ Only overrepresented levels are downsampled.
 - output approaches, but is not forced to equal, the configured distribution;
 - short histories are protected.
 
-## Target-Conditioned Augmentation (Implemented And Verified, Target-Aware Protocol Required)
+## Tail-Conditioned Augmentation (Implemented As Target-Conditioned, Needs Protocol Review)
 
 ### Feasibility
 
-For decoder training, the target behavior is already known while constructing each sample, so no model change is needed. The policy can use:
+Under the full-sequence decoder protocol, augmentation does not have a separate fixed prediction target. The original sequence tail can still be used as an anchor for a named tail-conditioned policy, so no model change is needed. The policy can use:
 
 ```text
 context.target_level
 ```
 
-However, the current `SMBExplicitDatasetForDecoder` creates one training target per user at the split boundary. This gives limited target-level diversity compared with datasets that create a target at every position.
+Here `target_level` should be read as the original sequence-tail behavior level, not as a fixed single-token training label.
 
 ### Policy
 
@@ -503,7 +550,7 @@ TargetConditionedPolicy(base_policy=time_decay)
 
 The current implementation supports only `time_decay` as the base policy. Other base-policy combinations are not implemented.
 
-It modifies level-preservation weights according to the target:
+It modifies level-preservation weights according to the anchor behavior:
 
 ```text
 same-level evidence
@@ -512,13 +559,13 @@ upward-path evidence
 general temporal evidence
 ```
 
-For a high-level target, retain recent lower-level precursors. For a shallow target, favor same-level and recent temporal evidence.
+For a high-level anchor, retain recent lower-level precursors. For a shallow anchor, favor same-level and recent temporal evidence.
 
 ### Leakage Constraint
 
-Using target behavior is valid only if the same behavior prompt or target type is known at inference/evaluation. If the production task requires predicting the behavior type itself, this augmentation would leak target information.
+Using the sequence-tail behavior as an augmentation condition is valid for training-time data generation, but it changes the augmentation distribution. If the policy is meant to mirror behavior-specific inference, the anchor behavior must correspond to a known behavior prompt. If the production task requires predicting behavior type itself, strongly target-conditioned retention patterns can still create distribution shortcuts.
 
-The first experiment should therefore stay within behavior-specific next-item prediction, where the target behavior is part of the task definition.
+This policy should be reported as a stronger augmentation prior rather than as the default data-side protocol. It also needs distribution diagnostics before being used as the main augmentation.
 
 ### Distribution Shortcut Risk
 
@@ -540,7 +587,7 @@ The number or type of retained interactions must not uniquely reveal the target 
 
 ### Feasibility
 
-The current decoder dataset already emits multiple augmented sequences per user. Replace ratio-indexed views with named semantic policies.
+The current original decoder dataset already emits multiple full-sequence augmented views per user. The policy dataset should keep this protocol and replace ratio-indexed full-sequence views with named semantic full-sequence policies.
 
 ### Policy
 
@@ -562,14 +609,14 @@ session_subsampled
 
 Recommended first view set:
 
-1. `full`: unchanged causal history.
+1. `full`: unchanged full training sequence.
 2. `recent`: time-decayed or fixed recent window.
 3. `hierarchy`: preserve target-level, same-level, and one-level-below evidence.
 4. `session`: session-aware subsample.
 
 Do not enable every possible view initially.
 
-The dataset provides the optional original view separately. The policy currently generates:
+The dataset provides the optional original full-sequence view separately. The policy currently generates history-only views and should be changed to generate full-sequence views:
 
 ```text
 multi_view_recent
@@ -606,7 +653,7 @@ This prevents attributing an improvement to the wrong component.
 
 ### Tests
 
-- each configured view has the declared semantics;
+- each configured full-sequence view has the declared semantics;
 - the full view is unchanged;
 - no duplicate view is emitted when two policies produce the same keep indices;
 - maximum views per user is enforced;
@@ -727,9 +774,9 @@ Every policy must satisfy:
 
 - chronological order is unchanged;
 - all aligned fields have equal length;
-- all kept indices belong to the causal history;
-- prediction target is never inserted into history;
-- minimum history constraints are respected;
+- all kept indices belong to the causal training prefix;
+- each emitted training view has at least two interactions;
+- minimum sequence-length constraints are respected;
 - fixed seeds are reproducible;
 - no validation/test interaction contributes to training statistics;
 - cache keys change when behavior changes.
@@ -794,7 +841,7 @@ Time-Decayed Dropout
 → Curriculum only if static views are effective
 ```
 
-The first completed ShortVideoAD policy run is `session` augmentation on `Qwen3TemporalHierarchicalMultiViewSoft`, specifically `smb_policy_decoder` with `--sequence_augmentation session` and the `aug_session` run suffix. It is compared against the same backbone under the original `smb_explicit_decoder_4` task, which uses the original four-view/four-times explicit decoder sequence augmentation rather than no augmentation. The merged behavior result is:
+The completed ShortVideoAD policy runs were produced by the current history-only policy implementation. They are useful diagnostics, but they are not aligned with the original `smb_explicit_decoder_4` full-sequence augmentation protocol. The first completed run was `session` augmentation on `Qwen3TemporalHierarchicalMultiViewSoft`, specifically `smb_policy_decoder` with `--sequence_augmentation session` and the `aug_session` run suffix. It is compared against the same backbone under the original `smb_explicit_decoder_4` task, which uses the original four-view/four-times explicit decoder full-sequence augmentation rather than no augmentation. The merged behavior result is:
 
 | Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -808,4 +855,4 @@ The CVR target-behavior result is also lower:
 | MultiViewSoft + original 4x augmentation (`smb_explicit_decoder_4`) | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
 | MultiViewSoft + policy session augmentation (`smb_policy_decoder`, `sequence_augmentation=session`) | 0.0381 | 0.1256 | 0.1915 | 0.0294 | 0.0958 | 0.1481 | 0.0684 | 0.0858 |
 
-The first policy result is negative relative to the original 4x explicit-decoder augmentation baseline: session augmentation in its current static form hurts both merged behavior and CVR. This does not invalidate the full data-side direction, but it means the new policy augmentation should not replace the original augmentation baseline until the policy family is tested systematically. The next step is to run the remaining static policies on ShortVideoAD while monitoring dataset growth, keep rates by level, and target-conditioned distribution shortcuts. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
+The first policy result is negative relative to the original 4x explicit-decoder augmentation baseline, but this should now be interpreted mainly as a protocol-mismatch warning. The current policy dataset applies semantic dropout to `history` and appends the original tail, whereas the original baseline applies dropout to the full training sequence. The next step is therefore not to continue interpreting the current policy results as final, but to correct `smb_policy_decoder` to full-sequence policy views, verify dataset statistics against `smb_explicit_decoder_4`, and then rerun the policy family. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.

@@ -37,20 +37,68 @@
 
 因此，多数静态增强方案在增加轻量 policy 层后都比较容易实现。
 
+## Decoder 预训练语义（设计修正，待代码对齐）
+
+`smb_explicit_decoder` 的预期训练单元是完整 causal sequence，而不是一个固定单 target。现有 `SMBExplicitDatasetForDecoder` 会把每个训练样本存成：
+
+```text
+inters = sequence[:-1]
+item = sequence[-1]
+```
+
+但 `DecoderOnlyCollator` 会拼接 `input_ids + labels`，并且对 decoder-response dataset 训练时不会 mask `input_ids` 部分。因此实际 loss 是在完整序列上做 causal LM shift loss：
+
+```text
+sequence[:-1] + sequence[-1]
+```
+
+原始 `smb_explicit_decoder_4` augmentation 应解释为 full-sequence augmentation：
+
+```text
+原始完整序列
++ 4 个按 ratio 生成的完整序列 dropout 视图
+```
+
+每个视图再用旧 schema 表示成 `inters=view[:-1]`、`item=view[-1]`，只是为了复用现有 collator 和 evaluation 代码。
+
+当前 policy dataset 实现偏离了这个协议。它先固定 `sequence[-1]` 作为预测 target，只对 `sequence[:-1]` 做 policy dropout，然后再把固定 target 拼回去。实际得到的是：
+
+```text
+policy(history) + original_tail
+```
+
+而不是：
+
+```text
+policy(full_sequence)
+```
+
+因此，当前 policy augmentation 实验应视为 history-only semantic dropout 消融，而不是与原始 decoder augmentation 完全对齐的最终 policy 版本。后续代码应改为让每个 policy 直接在完整训练序列上生成视图。每个生成视图再拆回 `inters=view[:-1]` 和 `item=view[-1]` 以保持兼容。
+
+对齐后的协议要求：
+
+- 除非显式设置 `augmentation_drop_original`，否则始终包含原始完整序列。
+- 增强 policy 作用于 `items[:valid_pos]`、`behaviors[:valid_pos]`、`session_ids[:valid_pos]` 和 `times[:valid_pos]`。
+- 过滤后保持原始时间顺序和所有对齐字段长度一致。
+- 每个输出视图至少包含两个交互，这样才能拆成 prefix 和 tail。
+- 按各 policy 的定义保护指定行为层级，但不要全局强制原始最后一个交互仍然作为尾部，除非这是某个具名 policy 的设计。
+- Valid/test Dataset 保持不变：评测仍然是 `history -> candidate target`。
+- 从 history-only policy view 切换到 full-sequence policy view 时必须改变 cache 标识。
+
 ## 实现状态总览（持续更新）
 
 | 方案或组件 | 实现状态 | 验证状态 | 后续定位 |
 | --- | --- | --- | --- |
 | 共享 Policy 接口与结构化序列 | 已实现 | 已通过单元测试、compileall 和 flake8 | 作为后续策略扩展基础 |
-| 统一 Decoder Dataset | 已实现 | 已通过 synthetic loader 和样本 schema 测试 | 保持统一入口 |
+| 统一 Decoder Dataset | 已实现，但需要 full-sequence 对齐 | 已通过 history-only 实现的 synthetic loader 和样本 schema 测试 | 协议修正后继续作为统一入口 |
 | 显式参数、cache key 和 `smb_policy_decoder` | 已实现 | 已验证 CLI、cache 隔离和旧 task 解析兼容 | 继续沿用 |
-| Time-Decayed Behavior Dropout | 已实现 | 已验证确定性、近期保护和层级保护 | 第一批实验 |
-| Session-Aware Dropout | 已实现 | 已验证 session 原子性和最小历史保护 | 第一批实验 |
-| Dataset-Level Fixed Proportion | 已实现 | 已验证 soft cap 和最高层保护 | 控制实验 |
+| Time-Decayed Behavior Dropout | 已实现，但需要 full-sequence dataset 对齐 | 已验证确定性、近期保护和层级保护 | 对齐后重新实验 |
+| Session-Aware Dropout | 已实现，但需要 full-sequence dataset 对齐 | 已验证 session 原子性和最小历史保护 | 对齐后重新实验 |
+| Dataset-Level Fixed Proportion | 已实现，但需要 full-sequence dataset 对齐 | 已验证 soft cap 和最高层保护 | 对齐后的控制实验 |
 | 训练前缀行为统计 | 已实现 | 已验证仅使用 `history[:valid_pos]` | 为全局先验提供基础 |
-| User-Adaptive Ratio | 已实现 | 已验证零 target 回退和训练前缀先验 | 第二批实验 |
-| Target-Conditioned Augmentation | 已实现 | 已验证 same-level/precursor 恢复 | 第二批实验，限制在已知 target behavior 协议 |
-| Multi-View Sequence Augmentation | 已实现 | 已验证语义视图生成和 Dataset 去重 | 第二批实验 |
+| User-Adaptive Ratio | 已实现，但需要 full-sequence dataset 对齐 | 已验证零 target 回退和训练前缀先验 | 对齐后重新实验 |
+| Target-Conditioned Augmentation | 已实现，但 full-sequence view 下需要重新审视协议 | 已验证 history-only target anchoring 下的 same-level/precursor 恢复 | 重新定义为 tail-conditioned augmentation |
+| Multi-View Sequence Augmentation | 已实现，但需要 full-sequence dataset 对齐 | 已验证语义视图生成和 Dataset 去重 | 对齐后重新实验 |
 | Curriculum Augmentation | 未实现 | 未验证 | 暂缓 |
 
 ## 共享实现架构（已实现并验证）
@@ -122,13 +170,13 @@ SMBPolicyAugmentedDatasetForDecoder
 
 该类负责：
 
-1. 构造因果历史和预测 target。
+1. 为每个用户 prefix 构造完整 causal 训练序列。
 2. 根据用户、split 和可选 view id 构造确定性 RNG。
 3. 调用所选 augmentation policy。
 4. 校验 policy 返回的索引。
-5. 组装现有样本 schema：
+5. 将每个输出的完整序列视图拆成现有 decoder schema：
    `item`、`inters`、`session_ids`、`extended_session_ids`、`actions`、`time` 和 `behavior`。
-6. 根据配置决定是否额外输出完整历史视图。
+6. 根据配置决定是否额外输出原始完整序列视图。
 
 Policy 不负责 tokenizer 字符串和 token-level metadata 的构造。
 
@@ -215,14 +263,14 @@ Dataset cache 文件名至少包含：
 默认协议建议为：
 
 ```text
-train：增强后的历史
+train：增强后的完整训练序列
 valid：原始历史
 test：原始历史
 ```
 
 这样才能将性能变化明确归因于训练增强。
 
-当前 `smb_policy_decoder` 已采用上述默认协议。以下独立鲁棒性协议尚未统一接入新 Policy Dataset：
+`smb_policy_decoder` 的目标协议应是上述 full-sequence 训练协议。当前实现仍是 history-only policy view，应先修正后再将 policy 结果解释为最终结论。以下独立鲁棒性协议尚未统一接入新 Policy Dataset：
 
 ```text
 train：增强或原始历史
@@ -239,7 +287,7 @@ valid/test：显式损坏后的历史
 
 - `times`；
 - `behavior_level`；
-- target behavior 保护逻辑；
+- protected level 保护逻辑；
 - 确定性 RNG；
 - 原始视图加增强视图的样本组织方式。
 
@@ -253,7 +301,7 @@ valid/test：显式损坏后的历史
 TimeDecayDropoutPolicy
 ```
 
-对每个历史交互计算：
+对完整训练序列中的每个交互计算：
 
 ```text
 p_drop(i) = severity * level_weight(level_i) * age_weight(delta_t_i)
@@ -272,14 +320,13 @@ age_weight = 1 - exp(-delta_t / tau)
 level_weight(l) = 1 / (l + 1)
 ```
 
-这样近期交互的 age weight 接近零，较早的浅层行为最容易删除，target-level 历史则完全保护或赋予很小的删除权重。
+这样近期交互的 age weight 接近零，较早的浅层行为最容易删除，受保护的高层行为则完全保留或赋予很小的删除权重。
 
 ### 必要保护条件
 
-- 永远保留预测 target。
-- 至少保留 `min_history_items` 个历史交互。
+- 至少保留足够构造 decoder 样本的交互数量。
 - 至少保留最近 `min_recent_items` 个交互。
-- 可选：保留全部历史 target-level 行为。
+- 可选：保留全部 target-level 行为。
 - 将概率限制在 `[0, max_drop_probability]`。
 - 正确处理时间戳相同和时间跨度为零的情况。
 
@@ -301,7 +348,7 @@ time_decay_preserve_target_level = true
 - 所有对齐字段保持一致。
 - 相同 seed 产生相同视图。
 - 不使用 target 之后的时间戳。
-- target 和要求保留的近期交互不被删除。
+- 要求保留的近期交互和 protected-level 交互不被删除。
 - 时间跨度为零时不报错。
 
 ## Session-Aware Dropout（已实现并验证，第一批实验）
@@ -318,7 +365,7 @@ time_decay_preserve_target_level = true
 SessionAwareDropoutPolicy
 ```
 
-先按 session 对历史索引分组，并只基于该 session 计算：
+先按 session 对完整序列索引分组，并只基于该 session 计算：
 
 ```text
 recency
@@ -475,17 +522,19 @@ max_count_l = ceil(history_length * target_share_l * tolerance)
 - 输出分布向目标分布靠近，但不被强制完全一致。
 - 短历史受到保护。
 
-## Target-Conditioned Augmentation（已实现并验证，需遵守 target-aware 协议）
+## Tail-Conditioned Augmentation（当前以 Target-Conditioned 实现，需重新审视协议）
 
 ### 可行性
 
-Decoder 训练在构造每个样本时已经知道 target behavior，因此无需修改模型，Policy 可以直接使用：
+在 full-sequence decoder 协议下，augmentation 不再默认存在一个单独固定的训练 target。序列尾部行为仍可作为某些 policy 的 anchor，但这应是显式 policy 选择，而不是 Dataset 的默认语义。
+
+如果采用 tail-conditioned policy，可以使用：
 
 ```text
 context.target_level
 ```
 
-但当前 `SMBExplicitDatasetForDecoder` 每个用户只在 split 边界构造一个训练 target，相比“每个位置都构造 target”的 dataset，其 target-level 多样性有限。
+这里的 `target_level` 更准确地说是原始序列尾部行为层级。
 
 ### Policy 设计
 
@@ -503,7 +552,7 @@ TargetConditionedPolicy(base_policy=time_decay)
 
 当前版本仅支持 `time_decay` 作为 base policy。其他 base policy 组合尚未实现。
 
-它根据 target 调整以下关系的保留权重：
+它根据 anchor behavior 调整以下关系的保留权重：
 
 ```text
 same-level evidence
@@ -512,13 +561,13 @@ upward-path evidence
 general temporal evidence
 ```
 
-对于高层 target，更多保留近期低层前置信号；对于浅层 target，更多保留 same-level 和近期 temporal evidence。
+对于高层 anchor，更多保留近期低层前置信号；对于浅层 anchor，更多保留 same-level 和近期 temporal evidence。
 
 ### 泄漏约束
 
-只有当推理和评测时已知 behavior prompt 或目标行为类型时，使用 target behavior 才是合法的。如果实际任务还需要预测行为类型，该增强会泄漏 target 信息。
+使用序列尾部行为作为增强条件在训练数据生成中是可行的，但它会改变增强分布。如果该 policy 希望模拟 behavior-specific inference，则 anchor behavior 必须对应已知 behavior prompt。如果实际任务还需要预测行为类型，强 target-conditioned 的保留模式仍可能产生分布捷径。
 
-第一轮实验应限定在 behavior-specific next-item prediction，即 target behavior 本身属于任务定义。
+该策略应作为更强的增强先验单独报告，而不是默认数据侧协议。作为主增强前，需要先完成分布诊断。
 
 ### 分布捷径风险
 
@@ -540,7 +589,7 @@ general temporal evidence
 
 ### 可行性
 
-当前 decoder dataset 已经能够为每个用户输出多条增强序列，因此只需将基于 ratio 的无语义视图替换为具名语义 policy。
+原始 decoder dataset 已经能够为每个用户输出多条完整增强序列，因此 policy dataset 应保留这个协议，将基于 ratio 的 full-sequence 视图替换为具名语义 full-sequence policy。
 
 ### Policy 设计
 
@@ -562,14 +611,14 @@ session_subsampled
 
 第一版推荐四类视图：
 
-1. `full`：不修改的因果历史。
+1. `full`：不修改的完整训练序列。
 2. `recent`：time-decayed 或固定近期窗口。
 3. `hierarchy`：重点保留 target-level、same-level 和前一层 evidence。
 4. `session`：session-aware 子采样。
 
 第一轮不要同时启用所有可能视图。
 
-当前实现由 Dataset 单独保留可选 original view，Policy 生成：
+Dataset 单独保留可选原始完整序列视图。当前实现生成的是 history-only 视图，应改为生成 full-sequence 视图：
 
 ```text
 multi_view_recent
@@ -606,7 +655,7 @@ view_weights
 
 ### 测试重点
 
-- 每个 view 符合声明的语义。
+- 每个 full-sequence view 符合声明的语义。
 - Full view 完全不变。
 - 两个 policy 产生相同 keep indices 时不重复输出。
 - 每用户最大 view 数得到限制。
@@ -727,9 +776,9 @@ tests/datasets/session_behavior/test_policy_augmented_dataset.py
 
 - 原始时间顺序不变。
 - 所有对齐字段长度一致。
-- 所有保留索引都来自因果历史。
-- 预测 target 不会被插回历史。
-- 满足最小历史约束。
+- 所有保留索引都来自因果训练 prefix。
+- 每个输出训练视图至少包含两个交互。
+- 满足最小序列长度约束。
 - 固定 seed 可复现。
 - Valid/test 交互不参与训练统计。
 - 影响行为的参数变化后 cache key 必须变化。
@@ -794,7 +843,7 @@ Time-Decayed Dropout
 → 仅在静态视图有效后考虑 Curriculum
 ```
 
-目前第一个完成的 ShortVideoAD policy run 是在 `Qwen3TemporalHierarchicalMultiViewSoft` 上使用 `session` augmentation，具体为 `smb_policy_decoder` 加 `--sequence_augmentation session`，并使用 `aug_session` run suffix。这里对比的 baseline 是同一 backbone 在原始 `smb_explicit_decoder_4` 任务下的结果，也就是原始 explicit decoder 的 4 倍序列增强方案，并不是无增强。其 merged behavior 结果为：
+当前已完成的 ShortVideoAD policy runs 来自现有 history-only policy 实现。它们可以作为诊断结果，但尚未与原始 `smb_explicit_decoder_4` 的 full-sequence augmentation 协议对齐。第一个完成的 run 是在 `Qwen3TemporalHierarchicalMultiViewSoft` 上使用 `session` augmentation，具体为 `smb_policy_decoder` 加 `--sequence_augmentation session`，并使用 `aug_session` run suffix。这里对比的 baseline 是同一 backbone 在原始 `smb_explicit_decoder_4` 任务下的结果，也就是原始 explicit decoder 的 4 倍 full-sequence 序列增强方案，并不是无增强。其 merged behavior 结果为：
 
 | Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -808,4 +857,4 @@ CVR 目标行为结果同样下降：
 | MultiViewSoft + 原始 4x augmentation（`smb_explicit_decoder_4`） | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
 | MultiViewSoft + policy session augmentation（`smb_policy_decoder`, `sequence_augmentation=session`） | 0.0381 | 0.1256 | 0.1915 | 0.0294 | 0.0958 | 0.1481 | 0.0684 | 0.0858 |
 
-第一个 policy 结果相对原始 4x explicit-decoder augmentation baseline 是负向的：当前静态 session augmentation 同时损伤 merged behavior 和 CVR。这并不否定数据侧 TH 增强方向，但说明在系统测试完整 policy family 之前，不应让新的 policy augmentation 替代原始增强 baseline。下一步应在 ShortVideoAD 上继续完成其他静态 policy 训练实验，并重点监控数据量、各层级 keep rate 和 target-conditioned 分布捷径。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。
+第一个 policy 结果相对原始 4x explicit-decoder augmentation baseline 是负向的，但现在更应解释为协议不一致的警告。当前 policy dataset 对 `history` 做语义 dropout 后再拼回原始尾部，而原始 baseline 是对完整训练序列做 dropout。下一步不应继续把当前 policy 结果作为最终结论，而应先将 `smb_policy_decoder` 修正为 full-sequence policy views，验证其数据统计与 `smb_explicit_decoder_4` 对齐后，再重新运行完整 policy family。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。
