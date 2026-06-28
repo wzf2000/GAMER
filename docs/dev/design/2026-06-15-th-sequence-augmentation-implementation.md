@@ -80,7 +80,7 @@ Design requirements for the aligned protocol:
 - Always include the original full sequence unless `augmentation_drop_original` is explicitly set.
 - Apply augmentation policies to `items[:valid_pos]`, `behaviors[:valid_pos]`, `session_ids[:valid_pos]`, and `times[:valid_pos]`.
 - Keep chronological order and aligned fields unchanged after filtering.
-- Require each emitted view to contain at least two interactions so it can be split into prefix and tail.
+- Require each emitted view to contain at least one interaction. A one-interaction view is represented as `inters=""` and `item=view[-1]`, matching the original decoder behavior; empty policy views are skipped.
 - Preserve protected behavior levels according to each policy, but do not globally force the original last interaction to remain the tail unless that is part of a named policy.
 - Keep validation and test datasets unchanged: evaluation remains `history -> candidate target`.
 - Change cache identity when switching from history-only policy views to full-sequence policy views.
@@ -775,7 +775,7 @@ Every policy must satisfy:
 - chronological order is unchanged;
 - all aligned fields have equal length;
 - all kept indices belong to the causal training prefix;
-- each emitted training view has at least two interactions;
+- each emitted training view has at least one interaction, and empty policy views are skipped;
 - minimum sequence-length constraints are respected;
 - fixed seeds are reproducible;
 - no validation/test interaction contributes to training statistics;

@@ -80,7 +80,7 @@ policy(full_sequence)
 - 除非显式设置 `augmentation_drop_original`，否则始终包含原始完整序列。
 - 增强 policy 作用于 `items[:valid_pos]`、`behaviors[:valid_pos]`、`session_ids[:valid_pos]` 和 `times[:valid_pos]`。
 - 过滤后保持原始时间顺序和所有对齐字段长度一致。
-- 每个输出视图至少包含两个交互，这样才能拆成 prefix 和 tail。
+- 每个输出视图至少包含一个交互。单交互视图表示为 `inters=""` 和 `item=view[-1]`，与原始 decoder 行为一致；policy 生成的空视图直接跳过。
 - 按各 policy 的定义保护指定行为层级，但不要全局强制原始最后一个交互仍然作为尾部，除非这是某个具名 policy 的设计。
 - Valid/test Dataset 保持不变：评测仍然是 `history -> candidate target`。
 - 从 history-only policy view 切换到 full-sequence policy view 时必须改变 cache 标识。
@@ -777,7 +777,7 @@ tests/datasets/session_behavior/test_policy_augmented_dataset.py
 - 原始时间顺序不变。
 - 所有对齐字段长度一致。
 - 所有保留索引都来自因果训练 prefix。
-- 每个输出训练视图至少包含两个交互。
+- 每个输出训练视图至少包含一个交互，policy 生成的空视图会被跳过。
 - 满足最小序列长度约束。
 - 固定 seed 可复现。
 - Valid/test 交互不参与训练统计。
