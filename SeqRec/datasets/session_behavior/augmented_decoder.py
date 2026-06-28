@@ -281,9 +281,9 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
         self,
         sequence: BehaviorSequence,
     ) -> dict[str, str | list[int] | list[float]]:
-        if len(sequence.items) < 2:
+        if not sequence.items:
             raise ValueError(
-                "Full-sequence decoder samples require at least two interactions."
+                "Full-sequence decoder samples require at least one interaction."
             )
         history = BehaviorSequence(
             items=sequence.items[:-1],
@@ -417,7 +417,7 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
                         continue
                     seen_views.add(indices)
                     augmented_sequence = sequence.select(list(indices))
-                    if len(augmented_sequence.items) < 2:
+                    if not augmented_sequence.items:
                         continue
                     inter_data.append(self._build_sample(augmented_sequence))
                     view_counts[view.name] = (
