@@ -10,6 +10,7 @@ from SeqRec.datasets.session_behavior import (
 )
 from SeqRec.datasets.session_behavior.augmentation_policies import (
     AugmentedView,
+    BehaviorSequence,
 )
 
 
@@ -251,6 +252,35 @@ class PolicyAugmentedDatasetTest(unittest.TestCase):
                 augmented_sample["inters"],
                 "<behavior_pxs><item_0><behavior_pxs><item_1>",
             )
+
+    def test_single_interaction_training_sequence_is_valid(self):
+        sequence = BehaviorSequence(
+            items=["<item_0>"],
+            behaviors=["pxs"],
+            session_ids=[0],
+            times=[0.0],
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self._build_dataset_files(root)
+            dataset = DropTailPolicyDataset(
+                dataset="TinySMB",
+                data_path=str(root),
+                max_his_len=100,
+                index_file=".index.json",
+                mode="train",
+                sequence_augmentation="drop_tail",
+                augmentation_views=1,
+                augmentation_seed=7,
+                augmentation_drop_original=True,
+            )
+
+            sample = dataset._build_sample(sequence)
+
+        self.assertEqual(sample["inters"], "")
+        self.assertEqual(sample["item"], "<behavior_pxs><item_0>")
+        self.assertEqual(sample["behavior"], "pxs")
 
 
 if __name__ == "__main__":
