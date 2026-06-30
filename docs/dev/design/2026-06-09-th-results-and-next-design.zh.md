@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前已经完成 ShortVideoAD `smb_explicit_decoder_4` 上已实现 TH 结构变体的测试：
+当前已经完成 ShortVideoAD `smb_explicit_decoder_4` 上已实现 TH 结构变体的测试。本文档现在统一使用 `smb_explicit` test-set 结果，不再使用此前的验证集对比。
 
 - `Qwen3TemporalHierarchicalFixedBias`
 - `Qwen3TemporalHierarchicalFactorized`
@@ -18,48 +18,48 @@
 
 ### Conversion / CVR 目标行为结果
 
-旧 `GAMER (SID)` 与三个 TH 版本对比：
+旧 `GAMER (SID)` 与 TH 版本对比：
 
 | Model | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | Old GAMER SID | 0.0394 | 0.1280 | 0.1944 | 0.0292 | 0.0966 | 0.1478 | 0.0687 | 0.0856 |
-| FixedBias | **0.0438** | **0.1368** | **0.2068** | **0.0348** | **0.1052** | **0.1597** | **0.0756** | **0.0936** |
-| Factorized | 0.0419 | 0.1354 | 0.2044 | 0.0331 | 0.1052 | 0.1588 | 0.0747 | 0.0924 |
-| FactorizedScale | 0.0428 | **0.1371** | 0.2046 | 0.0340 | **0.1062** | 0.1586 | **0.0758** | 0.0932 |
-| FactorizedSoft | 0.0427 | 0.1358 | 0.2045 | 0.0324 | 0.1054 | **0.1600** | 0.0748 | 0.0926 |
-| FixedSoft | 0.0405 | 0.1338 | 0.2048 | 0.0320 | 0.1044 | 0.1588 | 0.0735 | 0.0916 |
-| MultiView | 0.0394 | 0.1345 | 0.2018 | 0.0309 | 0.1028 | 0.1556 | 0.0723 | 0.0898 |
-| MultiViewSoft | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
+| FixedBias | 0.0390 | 0.1283 | 0.1974 | 0.0290 | 0.0963 | 0.1507 | 0.0693 | 0.0873 |
+| FixedSoft | **0.0435** | **0.1349** | 0.1981 | 0.0326 | 0.1007 | 0.1513 | **0.0735** | 0.0900 |
+| Factorized | 0.0409 | 0.1342 | **0.2042** | 0.0302 | **0.1011** | **0.1565** | 0.0721 | **0.0902** |
+| FactorizedScale | 0.0393 | 0.1331 | 0.1987 | 0.0301 | 0.0988 | 0.1514 | 0.0706 | 0.0877 |
+| FactorizedSoft | 0.0385 | 0.1274 | 0.1947 | 0.0294 | 0.0972 | 0.1503 | 0.0690 | 0.0867 |
+| MultiView | 0.0381 | 0.1283 | 0.1949 | 0.0275 | 0.0958 | 0.1461 | 0.0678 | 0.0845 |
+| MultiViewSoft | 0.0427 | 0.1274 | 0.1958 | **0.0331** | 0.0966 | 0.1504 | 0.0708 | 0.0885 |
 
 观察：
 
-- 已测试的 TH 结构变体在大多数 CVR 指标上都超过旧 GAMER SID。
-- FixedBias 仍是目标行为上最稳的模型，尤其在靠前排序质量（`HR@1`、`R@1`、`N@10`）上更强。
-- FactorizedScale 在 `HR@5`、`R@5` 和 `N@5` 上是最强 relation-bias 扩展，说明控制 relation-bias 强度比单纯 soft prior 更值得保留。
-- FactorizedSoft 只在 `R@10` 上最好，更像是扩大候选覆盖，而不是提升靠前排序。
-- Soft MultiView 明显优于 Hard MultiView，但在 CVR 目标行为上仍弱于 FixedBias。
+- 修正后的 test-set 对比比此前验证集结论更复杂。
+- FixedSoft 在靠前 CVR 指标（`HR@1/HR@5/N@5`）上最强，如果重点是早期排序，它比 FixedBias 更适合作为最终候选。
+- Factorized 在更深 CVR 指标（`HR@10/R@5/R@10/N@10`）上最强，是当前最值得保留的 relation-bias 主候选。
+- FixedBias 仍是干净的 TH base，但不应再被描述为 CVR 目标行为上的最稳最终模型。
+- Soft MultiView 明显优于 Hard MultiView，但作为主模型线仍弱于 FixedSoft/Factorized。
 
 ### Merged behavior-specific 结果
 
-旧 `GAMER (SID)` 与三个 TH 版本对比：
+旧 `GAMER (SID)` 与 TH 版本对比：
 
 | Model | HR@5 | HR@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|
 | Old GAMER SID | 0.1443 | 0.2129 | 0.0621 | 0.0753 |
-| FixedBias | 0.1502 | **0.2227** | 0.0656 | **0.0799** |
-| Factorized | 0.1500 | 0.2220 | 0.0655 | 0.0796 |
-| FactorizedScale | 0.1502 | 0.2221 | 0.0654 | 0.0795 |
-| FactorizedSoft | 0.1494 | 0.2199 | 0.0649 | 0.0787 |
-| FixedSoft | 0.1497 | 0.2216 | 0.0652 | 0.0795 |
-| MultiView | 0.1478 | 0.2162 | 0.0632 | 0.0766 |
-| MultiViewSoft | **0.1508** | 0.2218 | **0.0657** | 0.0796 |
+| FixedBias | 0.1444 | 0.2116 | 0.0620 | 0.0750 |
+| FixedSoft | **0.1450** | **0.2121** | **0.0628** | **0.0756** |
+| Factorized | 0.1430 | 0.2117 | 0.0614 | 0.0746 |
+| FactorizedScale | 0.1432 | 0.2113 | 0.0614 | 0.0745 |
+| FactorizedSoft | 0.1434 | 0.2099 | 0.0615 | 0.0744 |
+| MultiView | 0.1391 | 0.2062 | 0.0595 | 0.0723 |
+| MultiViewSoft | 0.1418 | 0.2102 | 0.0609 | 0.0742 |
 
 观察：
 
-- 大多数 TH 变体在 merged task 上都超过旧 GAMER SID。
-- MultiViewSoft 在 merged `HR@5` 和 `N@5` 上最好，说明 soft view penalty 明显优于 hard head partition。
-- FixedBias 仍在 merged `HR@10` 和 `N@10` 上最好，因此仍是最稳妥的整体排序模型。
-- Factorized 和 FactorizedScale 与 FixedBias 非常接近；relation-bias control 改变了指标取舍，但没有形成稳定全面优势。
+- FixedSoft 在四个 reported merged behavior 指标上都是最强版本。
+- FixedBias 和 Factorized 仍然接近，但在 merged test-set 对比下都没有超过 FixedSoft。
+- MultiViewSoft 仍明显优于 Hard MultiView，但 soft-view line 已经不是 merged behavior 上最强候选。
+- 因此 test-set 排序更支持：fixed soft hierarchy prior 负责 merged behavior，factorized relation bias 负责 CVR depth。
 
 ## 对三个方向的解释
 
@@ -107,12 +107,12 @@ bias(q_level, k_level, head)
 
 它保留了 learnable temporal-hierarchical relation modeling 的方法卖点，并且 avoids naive trainable table 的极慢 backward。
 
-当前略弱于 FixedBias，同时 FactorizedScale 在部分 CVR 覆盖指标上更强，可能说明：
+当前 Factorized 在更深 CVR 指标上更强、但 merged behavior 更弱，可能说明：
 
 - TH Q/K/V embedding 已经足够强，额外 logit bias 边际收益有限。
 - zero-init factorized bias 需要更好的初始化或正则。
 - 直接作用在 attention logits 上的 bias 可能会轻微扰动已经有效的 attention 分布。
-- bias 强度很关键；固定 scale 比当前 soft prior 初始化更有效。
+- bias 强度很关键，但当前固定 scale 版本在 test set 上并没有稳定优于未缩放的 factorized 版本。
 - rank=4 不一定是最优。
 
 ### MultiView 代表什么
@@ -128,28 +128,29 @@ MultiView 将 head 分成：
 
 但它使用 hard mask，限制了不同 head 的可见范围，因此自由度低于 relation-bias 系列。当前结果显示 Hard MultiView 有效但明显偏弱。
 
-Soft MultiView 对这个问题有一定缓解。它在 merged `HR@5/N@5` 上最好，但在 CVR 目标行为上仍弱于 FixedBias。因此 MultiView 更适合作为有解释性的结构化对照，而当前 soft 版本还不足以替代 TH Base 成为最终主模型。
+Soft MultiView 对这个问题有一定缓解，但修正后的 test-set 结果显示，它在 merged behavior 上弱于 FixedSoft，在 CVR depth 上弱于 Factorized。因此 MultiView 更适合作为有解释性的结构化对照，而当前 soft 版本还不足以替代 relation-bias 系列成为最终主模型。
 
 ## 如果最终模型要强调 TH 特色，建议基于哪个继续改
 
-如果最终模型既要突出 TH 特色又要忠实于当前结果，建议以 `FixedBias / TH Base` 作为默认主模型，并将可控 relation bias 作为扩展。
+如果最终模型既要突出 TH 特色又要忠实于当前 test-set 结果，建议把 `TH Base` 作为基础消融，并根据论文重点在 `FixedSoft` 和 `Factorized` 中选择最终变体。
 
 理由：
 
-- FixedBias 在目标 CVR 行为和 merged 高 rank 指标上仍最稳。
-- 它的 scalar table 为零，因此当前证据支持的核心主张应是 behavior-aware replacement TH attention，而不是非零 scalar relation bias。
-- FactorizedScale 是当前最好的 relation-bias 扩展，应保留为主要 relation-bias 消融/候选，但还没有稳定超过 TH Base。
-- MultiViewSoft 说明 soft view constraint 优于 hard mask，但 CVR 结果仍弱于 FixedBias。
+- FixedSoft 是当前最好的 merged behavior 和靠前 CVR 模型。
+- Factorized 是当前最好的更深 CVR 排序和覆盖模型。
+- FixedBias 的 scalar table 为零，因此仍需要作为干净的 TH base。
+- MultiViewSoft 说明 soft view constraint 优于 hard mask，但结果仍弱于最好的 relation-bias/prior 版本。
 
 推荐论文定位：
 
 ```text
-主模型：TH Base / FixedBias
-Relation-bias 扩展：带 scale control 的 Factorized Temporal-Hierarchical Relation Bias
+主模型候选：TH-FixedSoft 和 TH-Factorized
+基础消融：TH Base / FixedBias
+Relation-bias 扩展：Factorized Temporal-Hierarchical Relation Bias
 结构化消融：Soft/Hard Multi-View Temporal-Hierarchical Attention
 ```
 
-论文仍可将 relation control 描述为 TH-aware enhancement，但最新指标不支持把它作为唯一核心贡献。
+论文可以将 relation control 和 soft hierarchy prior 都描述为 TH-aware enhancement，但最新 test 指标不支持把 Hard MultiView 或 FixedBias-only 作为最终故事。
 
 ## 后续改进方向
 
@@ -278,16 +279,17 @@ L = L_next_token + lambda_level * L_next_behavior_level
 
 ## 推荐实验优先级
 
-1. Factorized relation bias 的 learnable alpha，并记录每层 alpha。
-2. Factorized rank 消融：1/2/4/8，优先在 scaled setting 下做。
-3. Gated MultiView，因为 Soft MultiView 已经在 merged 指标上显著优于 Hard MultiView。
-4. 行为层级辅助目标。
-5. attention/bias 可视化诊断。
-6. 在模型侧 baseline 固定后再系统测试 sequence augmentation。
+1. 根据目标指标优先级，在 FixedSoft 和 Factorized 之间确定最终 test-set 主变体。
+2. Factorized relation bias 的 learnable alpha，并记录每层 alpha。
+3. Factorized rank 消融：1/2/4/8，优先在 scaled 或 alpha-controlled setting 下做。
+4. Gated MultiView，因为 Soft MultiView 优于 Hard MultiView，但还不够强。
+5. 行为层级辅助目标。
+6. attention/bias 可视化诊断。
+7. 在模型侧 baseline 固定后再系统测试 sequence augmentation。
 
 ## 当前建议结论
 
-如果只看现有指标，FixedBias / TH Base 仍是最稳妥的最终模型。
+如果 merged behavior 和靠前 CVR 最重要，FixedSoft 是当前最稳的最终模型。如果 CVR depth/coverage 更重要，Factorized 是当前最强最终候选。
 
 如果最终设计要强调 Temporal-Hierarchical modeling，目前最有支撑的说法应是：
 
@@ -298,4 +300,4 @@ Temporal-Hierarchical Attention
 + optional controlled relation/view bias
 ```
 
-除非后续 FactorizedAlpha 或 Gated MultiView 明显超过 FixedBias，否则 FixedBias 应作为主模型。FactorizedScale 是当前最值得保留的 relation-bias 扩展；MultiViewSoft 是有价值的结构化视角消融，说明 soft constraint 比 hard partition 更合理。
+FixedBias 应作为基础消融，而不是默认最终主模型。Factorized 是当前最值得保留的 relation-bias 扩展；FixedSoft 是最强 fixed-prior 版本；MultiViewSoft 是有价值的结构化视角消融，说明 soft constraint 比 hard partition 更合理。

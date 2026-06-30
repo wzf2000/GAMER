@@ -61,7 +61,7 @@ sequence[:-1] + sequence[-1]
 
 每个视图再用旧 schema 表示成 `inters=view[:-1]`、`item=view[-1]`，只是为了复用现有 collator 和 evaluation 代码。
 
-当前 policy dataset 实现偏离了这个协议。它先固定 `sequence[-1]` 作为预测 target，只对 `sequence[:-1]` 做 policy dropout，然后再把固定 target 拼回去。实际得到的是：
+早期 policy dataset 实现偏离了这个协议。它先固定 `sequence[-1]` 作为预测 target，只对 `sequence[:-1]` 做 policy dropout，然后再把固定 target 拼回去。实际得到的是：
 
 ```text
 policy(history) + original_tail
@@ -73,7 +73,7 @@ policy(history) + original_tail
 policy(full_sequence)
 ```
 
-因此，当前 policy augmentation 实验应视为 history-only semantic dropout 消融，而不是与原始 decoder augmentation 完全对齐的最终 policy 版本。后续代码应改为让每个 policy 直接在完整训练序列上生成视图。每个生成视图再拆回 `inters=view[:-1]` 和 `item=view[-1]` 以保持兼容。
+因此，基于该版本完成的 policy augmentation 实验应视为 history-only semantic dropout 诊断，而不是与原始 decoder augmentation 完全对齐的最终 policy 版本。当前实现已经更新为让每个 policy 直接在完整训练序列上生成视图。每个生成视图再拆回 `inters=view[:-1]` 和 `item=view[-1]` 以保持兼容。
 
 对齐后的协议要求：
 
@@ -90,15 +90,15 @@ policy(full_sequence)
 | 方案或组件 | 实现状态 | 验证状态 | 后续定位 |
 | --- | --- | --- | --- |
 | 共享 Policy 接口与结构化序列 | 已实现 | 已通过单元测试、compileall 和 flake8 | 作为后续策略扩展基础 |
-| 统一 Decoder Dataset | 已实现，但需要 full-sequence 对齐 | 已通过 history-only 实现的 synthetic loader 和样本 schema 测试 | 协议修正后继续作为统一入口 |
+| 统一 Decoder Dataset | 已实现并完成 full-sequence 对齐 | 已通过 synthetic loader、样本 schema、compileall 和 flake8 验证 | 作为 policy augmentation 的统一入口 |
 | 显式参数、cache key 和 `smb_policy_decoder` | 已实现 | 已验证 CLI、cache 隔离和旧 task 解析兼容 | 继续沿用 |
-| Time-Decayed Behavior Dropout | 已实现，但需要 full-sequence dataset 对齐 | 已验证确定性、近期保护和层级保护 | 对齐后重新实验 |
-| Session-Aware Dropout | 已实现，但需要 full-sequence dataset 对齐 | 已验证 session 原子性和最小历史保护 | 对齐后重新实验 |
-| Dataset-Level Fixed Proportion | 已实现，但需要 full-sequence dataset 对齐 | 已验证 soft cap 和最高层保护 | 对齐后的控制实验 |
+| Time-Decayed Behavior Dropout | 已实现并完成 full-sequence 对齐 | 已验证确定性、近期保护、层级保护和 full-sequence dataset 行为 | 按修正协议重跑 |
+| Session-Aware Dropout | 已实现并完成 full-sequence 对齐 | 已验证 session 原子性、最小历史保护和 full-sequence dataset 行为 | 按修正协议重跑 |
+| Dataset-Level Fixed Proportion | 已实现并完成 full-sequence 对齐 | 已验证 soft cap、最高层保护和 full-sequence dataset 行为 | 修正协议下的控制实验 |
 | 训练前缀行为统计 | 已实现 | 已验证仅使用 `history[:valid_pos]` | 为全局先验提供基础 |
-| User-Adaptive Ratio | 已实现，但需要 full-sequence dataset 对齐 | 已验证零 target 回退和训练前缀先验 | 对齐后重新实验 |
-| Target-Conditioned Augmentation | 已实现，但 full-sequence view 下需要重新审视协议 | 已验证 history-only target anchoring 下的 same-level/precursor 恢复 | 重新定义为 tail-conditioned augmentation |
-| Multi-View Sequence Augmentation | 已实现，但需要 full-sequence dataset 对齐 | 已验证语义视图生成和 Dataset 去重 | 对齐后重新实验 |
+| User-Adaptive Ratio | 已实现并完成 full-sequence 对齐 | 已验证零 target 回退、训练前缀先验和 full-sequence dataset 行为 | 按修正协议重跑 |
+| Target-Conditioned Augmentation | 已实现为 tail-conditioned full-sequence policy | 已验证 same-level/precursor 恢复和 full-sequence dataset 行为 | 按修正协议重跑 |
+| Multi-View Sequence Augmentation | 已实现并完成 full-sequence 对齐 | 已验证语义视图生成、Dataset 去重和 full-sequence dataset 行为 | 按修正协议重跑 |
 | Curriculum Augmentation | 未实现 | 未验证 | 暂缓 |
 
 ## 共享实现架构（已实现并验证）
@@ -270,7 +270,7 @@ test：原始历史
 
 这样才能将性能变化明确归因于训练增强。
 
-`smb_policy_decoder` 的目标协议应是上述 full-sequence 训练协议。当前实现仍是 history-only policy view，应先修正后再将 policy 结果解释为最终结论。以下独立鲁棒性协议尚未统一接入新 Policy Dataset：
+`smb_policy_decoder` 的目标协议是上述 full-sequence 训练协议，当前实现已经按该协议对齐。早期 history-only policy 结果只应作为诊断。以下独立鲁棒性协议尚未统一接入新 Policy Dataset：
 
 ```text
 train：增强或原始历史
@@ -618,7 +618,7 @@ session_subsampled
 
 第一轮不要同时启用所有可能视图。
 
-Dataset 单独保留可选原始完整序列视图。当前实现生成的是 history-only 视图，应改为生成 full-sequence 视图：
+Dataset 单独保留可选原始完整序列视图。Policy 会生成 full-sequence 语义视图：
 
 ```text
 multi_view_recent
@@ -843,18 +843,30 @@ Time-Decayed Dropout
 → 仅在静态视图有效后考虑 Curriculum
 ```
 
-当前已完成的 ShortVideoAD policy runs 来自现有 history-only policy 实现。它们可以作为诊断结果，但尚未与原始 `smb_explicit_decoder_4` 的 full-sequence augmentation 协议对齐。第一个完成的 run 是在 `Qwen3TemporalHierarchicalMultiViewSoft` 上使用 `session` augmentation，具体为 `smb_policy_decoder` 加 `--sequence_augmentation session`，并使用 `aug_session` run suffix。这里对比的 baseline 是同一 backbone 在原始 `smb_explicit_decoder_4` 任务下的结果，也就是原始 explicit decoder 的 4 倍 full-sequence 序列增强方案，并不是无增强。其 merged behavior 结果为：
+当前已完成的 ShortVideoAD policy runs 来自早期 history-only policy 实现，但评测口径是 `smb_explicit` test set。它们可以作为诊断结果，但不能作为最终 full-sequence policy 结论。这里对比的 baseline 是同一 `Qwen3TemporalHierarchicalMultiViewSoft` backbone 在原始 `smb_explicit_decoder_4` 任务下的结果，也就是原始 explicit decoder 的 4 倍 full-sequence 序列增强方案，并不是无增强。
 
-| Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| MultiViewSoft + 原始 4x augmentation（`smb_explicit_decoder_4`） | 0.0496 | 0.1508 | 0.2218 | 0.0239 | 0.0780 | 0.1212 | 0.0657 | 0.0796 |
-| MultiViewSoft + policy session augmentation（`smb_policy_decoder`, `sequence_augmentation=session`） | 0.0432 | 0.1386 | 0.2043 | 0.0205 | 0.0701 | 0.1096 | 0.0589 | 0.0717 |
+Merged behavior test-set 结果：
 
-CVR 目标行为结果同样下降：
+| Model / Policy | HR@5 | HR@10 | N@5 | N@10 |
+|---|---:|---:|---:|---:|
+| MultiViewSoft + 原始 4x augmentation（`smb_explicit_decoder_4`） | 0.1418 | 0.2102 | 0.0609 | 0.0742 |
+| Policy dataset proportion | 0.1359 | 0.2009 | 0.0579 | 0.0703 |
+| Policy time decay | 0.1412 | 0.2093 | 0.0606 | 0.0737 |
+| Policy session | 0.1387 | 0.2057 | 0.0591 | 0.0721 |
+| Policy multi-view | 0.1411 | 0.2101 | 0.0606 | 0.0739 |
+| Policy target-conditioned | 0.1384 | 0.2052 | 0.0593 | 0.0721 |
+| Policy user-adaptive | 0.1397 | 0.2051 | 0.0596 | 0.0722 |
 
-| Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| MultiViewSoft + 原始 4x augmentation（`smb_explicit_decoder_4`） | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
-| MultiViewSoft + policy session augmentation（`smb_policy_decoder`, `sequence_augmentation=session`） | 0.0381 | 0.1256 | 0.1915 | 0.0294 | 0.0958 | 0.1481 | 0.0684 | 0.0858 |
+CVR 目标行为 test-set 结果：
 
-第一个 policy 结果相对原始 4x explicit-decoder augmentation baseline 是负向的，但现在更应解释为协议不一致的警告。当前 policy dataset 对 `history` 做语义 dropout 后再拼回原始尾部，而原始 baseline 是对完整训练序列做 dropout。下一步不应继续把当前 policy 结果作为最终结论，而应先将 `smb_policy_decoder` 修正为 full-sequence policy views，验证其数据统计与 `smb_explicit_decoder_4` 对齐后，再重新运行完整 policy family。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。
+| Model / Policy | HR@5 | HR@10 | N@5 | N@10 |
+|---|---:|---:|---:|---:|
+| MultiViewSoft + 原始 4x augmentation（`smb_explicit_decoder_4`） | 0.1274 | 0.1958 | 0.0708 | 0.0885 |
+| Policy dataset proportion | 0.1232 | 0.1903 | 0.0653 | 0.0823 |
+| Policy time decay | 0.1284 | 0.1951 | 0.0688 | 0.0858 |
+| Policy session | 0.1239 | 0.1914 | 0.0684 | 0.0860 |
+| Policy multi-view | 0.1281 | 0.1997 | 0.0714 | 0.0893 |
+| Policy target-conditioned | 0.1284 | 0.1931 | 0.0695 | 0.0857 |
+| Policy user-adaptive | 0.1255 | 0.1881 | 0.0676 | 0.0839 |
+
+在旧 history-only 协议下，没有 policy 能在 merged behavior 上稳定超过原始 4x explicit-decoder augmentation baseline。Multi-view policy 在 CVR 上最值得关注，因为它相对同 backbone baseline 提升了 `HR@10/N@5/N@10`；time decay 在 merged behavior 上最接近 baseline。由于当前代码已经修正为 full-sequence policy views，六种 policy 需要按新协议重跑后才能形成论文结论。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。

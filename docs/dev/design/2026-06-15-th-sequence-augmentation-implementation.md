@@ -61,7 +61,7 @@ original full sequence
 
 Each view is then represented with the legacy `inters=view[:-1]`, `item=view[-1]` schema only to reuse the existing collator and evaluation code.
 
-The current policy dataset implementation deviates from this intended protocol. It first fixes `sequence[-1]` as a prediction target, applies policy dropout only to `sequence[:-1]`, and then appends the fixed target back. This produces:
+The earlier policy dataset implementation deviated from this intended protocol. It first fixed `sequence[-1]` as a prediction target, applied policy dropout only to `sequence[:-1]`, and then appended the fixed target back. This produced:
 
 ```text
 policy(history) + original_tail
@@ -73,7 +73,7 @@ rather than:
 policy(full_sequence)
 ```
 
-Consequently, current policy-augmentation runs should be treated as history-only semantic-dropout ablations, not as the final policy version aligned with the original decoder augmentation. The code should be updated so every policy generates views over the full training sequence. Each generated view is then split back into `inters=view[:-1]` and `item=view[-1]` for compatibility.
+Consequently, the completed policy-augmentation runs from that version should be treated as history-only semantic-dropout diagnostics, not as the final policy version aligned with the original decoder augmentation. The implementation has since been updated so every policy generates views over the full training sequence. Each generated view is split back into `inters=view[:-1]` and `item=view[-1]` for compatibility.
 
 Design requirements for the aligned protocol:
 
@@ -90,15 +90,15 @@ Design requirements for the aligned protocol:
 | Scheme or component | Implementation | Verification | Next role |
 | --- | --- | --- | --- |
 | Shared policy interface and structured sequence | Implemented | Unit tests, compileall, and flake8 passed | Foundation for further policies |
-| Unified decoder dataset | Implemented, needs full-sequence alignment | Synthetic loader and sample-schema tests passed for the history-only implementation | Keep as the common entry after protocol correction |
+| Unified decoder dataset | Implemented and full-sequence aligned | Synthetic loader, sample-schema tests, compileall, and flake8 passed | Common entry for policy augmentation |
 | Explicit arguments, cache key, and `smb_policy_decoder` | Implemented | CLI, cache isolation, and legacy task parsing verified | Continue using |
-| Time-Decayed Behavior Dropout | Implemented, needs full-sequence dataset alignment | Determinism, recency protection, and level protection verified | Re-run after alignment |
-| Session-Aware Dropout | Implemented, needs full-sequence dataset alignment | Session atomicity and minimum-history protection verified | Re-run after alignment |
-| Dataset-Level Fixed Proportion | Implemented, needs full-sequence dataset alignment | Soft cap and top-level protection verified | Control experiment after alignment |
+| Time-Decayed Behavior Dropout | Implemented and full-sequence aligned | Determinism, recency protection, level protection, and full-sequence dataset behavior verified | Re-run under corrected protocol |
+| Session-Aware Dropout | Implemented and full-sequence aligned | Session atomicity, minimum-history protection, and full-sequence dataset behavior verified | Re-run under corrected protocol |
+| Dataset-Level Fixed Proportion | Implemented and full-sequence aligned | Soft cap, top-level protection, and full-sequence dataset behavior verified | Corrected-protocol control experiment |
 | Training-prefix behavior statistics | Implemented | Verified to use only `history[:valid_pos]` | Supplies global priors |
-| User-Adaptive Ratio | Implemented, needs full-sequence dataset alignment | Zero-target fallback and training-prefix prior verified | Re-run after alignment |
-| Target-Conditioned Augmentation | Implemented, needs protocol review under full-sequence views | Same-level and precursor restoration verified for history-only target anchoring | Re-evaluate as tail-conditioned augmentation |
-| Multi-View Sequence Augmentation | Implemented, needs full-sequence dataset alignment | Semantic view generation and dataset deduplication verified | Re-run after alignment |
+| User-Adaptive Ratio | Implemented and full-sequence aligned | Zero-target fallback, training-prefix prior, and full-sequence dataset behavior verified | Re-run under corrected protocol |
+| Target-Conditioned Augmentation | Implemented as tail-conditioned full-sequence policy | Same-level/precursor restoration and full-sequence dataset behavior verified | Re-run under corrected protocol |
+| Multi-View Sequence Augmentation | Implemented and full-sequence aligned | Semantic view generation, Dataset deduplication, and full-sequence dataset behavior verified | Re-run under corrected protocol |
 | Curriculum Augmentation | Not implemented | Not verified | Deferred |
 
 ## Shared Architecture (Implemented And Verified)
@@ -270,7 +270,7 @@ test: original history
 
 This isolates augmentation as a training intervention.
 
-The intended `smb_policy_decoder` protocol is the full-sequence training protocol above. The current implementation still uses a history-only policy view and should be corrected before interpreting policy results as final. The following separate robustness protocol is not yet integrated into the policy dataset:
+The intended `smb_policy_decoder` protocol is the full-sequence training protocol above, and the current implementation follows this protocol. Earlier history-only policy results should remain diagnostic only. The following separate robustness protocol is not yet integrated into the policy dataset:
 
 ```text
 train: augmented or original history
@@ -616,7 +616,7 @@ Recommended first view set:
 
 Do not enable every possible view initially.
 
-The dataset provides the optional original full-sequence view separately. The policy currently generates history-only views and should be changed to generate full-sequence views:
+The dataset provides the optional original full-sequence view separately. The policy generates full-sequence semantic views:
 
 ```text
 multi_view_recent
@@ -841,18 +841,30 @@ Time-Decayed Dropout
 → Curriculum only if static views are effective
 ```
 
-The completed ShortVideoAD policy runs were produced by the current history-only policy implementation. They are useful diagnostics, but they are not aligned with the original `smb_explicit_decoder_4` full-sequence augmentation protocol. The first completed run was `session` augmentation on `Qwen3TemporalHierarchicalMultiViewSoft`, specifically `smb_policy_decoder` with `--sequence_augmentation session` and the `aug_session` run suffix. It is compared against the same backbone under the original `smb_explicit_decoder_4` task, which uses the original four-view/four-times explicit decoder full-sequence augmentation rather than no augmentation. The merged behavior result is:
+The completed ShortVideoAD policy runs below were produced by the earlier history-only policy implementation, but are evaluated on the `smb_explicit` test set. They are useful diagnostics only and should not be used as final full-sequence policy conclusions. The baseline is the same `Qwen3TemporalHierarchicalMultiViewSoft` backbone under the original `smb_explicit_decoder_4` task, which uses the original four-view/four-times explicit decoder full-sequence augmentation rather than no augmentation.
 
-| Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| MultiViewSoft + original 4x augmentation (`smb_explicit_decoder_4`) | 0.0496 | 0.1508 | 0.2218 | 0.0239 | 0.0780 | 0.1212 | 0.0657 | 0.0796 |
-| MultiViewSoft + policy session augmentation (`smb_policy_decoder`, `sequence_augmentation=session`) | 0.0432 | 0.1386 | 0.2043 | 0.0205 | 0.0701 | 0.1096 | 0.0589 | 0.0717 |
+Merged behavior test-set results:
 
-The CVR target-behavior result is also lower:
+| Model / Policy | HR@5 | HR@10 | N@5 | N@10 |
+|---|---:|---:|---:|---:|
+| MultiViewSoft + original 4x augmentation (`smb_explicit_decoder_4`) | 0.1418 | 0.2102 | 0.0609 | 0.0742 |
+| Policy dataset proportion | 0.1359 | 0.2009 | 0.0579 | 0.0703 |
+| Policy time decay | 0.1412 | 0.2093 | 0.0606 | 0.0737 |
+| Policy session | 0.1387 | 0.2057 | 0.0591 | 0.0721 |
+| Policy multi-view | 0.1411 | 0.2101 | 0.0606 | 0.0739 |
+| Policy target-conditioned | 0.1384 | 0.2052 | 0.0593 | 0.0721 |
+| Policy user-adaptive | 0.1397 | 0.2051 | 0.0596 | 0.0722 |
 
-| Model / Policy | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| MultiViewSoft + original 4x augmentation (`smb_explicit_decoder_4`) | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
-| MultiViewSoft + policy session augmentation (`smb_policy_decoder`, `sequence_augmentation=session`) | 0.0381 | 0.1256 | 0.1915 | 0.0294 | 0.0958 | 0.1481 | 0.0684 | 0.0858 |
+CVR target-behavior test-set results:
 
-The first policy result is negative relative to the original 4x explicit-decoder augmentation baseline, but this should now be interpreted mainly as a protocol-mismatch warning. The current policy dataset applies semantic dropout to `history` and appends the original tail, whereas the original baseline applies dropout to the full training sequence. The next step is therefore not to continue interpreting the current policy results as final, but to correct `smb_policy_decoder` to full-sequence policy views, verify dataset statistics against `smb_explicit_decoder_4`, and then rerun the policy family. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
+| Model / Policy | HR@5 | HR@10 | N@5 | N@10 |
+|---|---:|---:|---:|---:|
+| MultiViewSoft + original 4x augmentation (`smb_explicit_decoder_4`) | 0.1274 | 0.1958 | 0.0708 | 0.0885 |
+| Policy dataset proportion | 0.1232 | 0.1903 | 0.0653 | 0.0823 |
+| Policy time decay | 0.1284 | 0.1951 | 0.0688 | 0.0858 |
+| Policy session | 0.1239 | 0.1914 | 0.0684 | 0.0860 |
+| Policy multi-view | 0.1281 | 0.1997 | 0.0714 | 0.0893 |
+| Policy target-conditioned | 0.1284 | 0.1931 | 0.0695 | 0.0857 |
+| Policy user-adaptive | 0.1255 | 0.1881 | 0.0676 | 0.0839 |
+
+Under the old history-only protocol, none of the policies stably beats the original 4x explicit-decoder augmentation baseline on merged behavior. Multi-view policy is the most promising diagnostic result for CVR because it improves `HR@10/N@5/N@10` against the same-backbone baseline, while time decay is close on merged behavior. Because the current code has been corrected to full-sequence policy views, the six policy variants should be rerun before making final paper claims. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.

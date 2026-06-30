@@ -2,7 +2,7 @@
 
 ## Background
 
-The current ShortVideoAD `smb_explicit_decoder_4` experiments have tested the implemented Temporal-Hierarchical structural variants:
+The current ShortVideoAD `smb_explicit_decoder_4` experiments have tested the implemented Temporal-Hierarchical structural variants. This document now uses the `smb_explicit` test-set results, not the earlier validation-set comparison.
 
 - `Qwen3TemporalHierarchicalFixedBias`
 - `Qwen3TemporalHierarchicalFactorized`
@@ -23,21 +23,21 @@ Comparison against the previous `GAMER (SID)`:
 | Model | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | Old GAMER SID | 0.0394 | 0.1280 | 0.1944 | 0.0292 | 0.0966 | 0.1478 | 0.0687 | 0.0856 |
-| FixedBias | **0.0438** | **0.1368** | **0.2068** | **0.0348** | **0.1052** | **0.1597** | **0.0756** | **0.0936** |
-| Factorized | 0.0419 | 0.1354 | 0.2044 | 0.0331 | 0.1052 | 0.1588 | 0.0747 | 0.0924 |
-| FactorizedScale | 0.0428 | **0.1371** | 0.2046 | 0.0340 | **0.1062** | 0.1586 | **0.0758** | 0.0932 |
-| FactorizedSoft | 0.0427 | 0.1358 | 0.2045 | 0.0324 | 0.1054 | **0.1600** | 0.0748 | 0.0926 |
-| FixedSoft | 0.0405 | 0.1338 | 0.2048 | 0.0320 | 0.1044 | 0.1588 | 0.0735 | 0.0916 |
-| MultiView | 0.0394 | 0.1345 | 0.2018 | 0.0309 | 0.1028 | 0.1556 | 0.0723 | 0.0898 |
-| MultiViewSoft | 0.0417 | 0.1354 | 0.2038 | 0.0328 | 0.1036 | 0.1577 | 0.0739 | 0.0918 |
+| FixedBias | 0.0390 | 0.1283 | 0.1974 | 0.0290 | 0.0963 | 0.1507 | 0.0693 | 0.0873 |
+| FixedSoft | **0.0435** | **0.1349** | 0.1981 | 0.0326 | 0.1007 | 0.1513 | **0.0735** | 0.0900 |
+| Factorized | 0.0409 | 0.1342 | **0.2042** | 0.0302 | **0.1011** | **0.1565** | 0.0721 | **0.0902** |
+| FactorizedScale | 0.0393 | 0.1331 | 0.1987 | 0.0301 | 0.0988 | 0.1514 | 0.0706 | 0.0877 |
+| FactorizedSoft | 0.0385 | 0.1274 | 0.1947 | 0.0294 | 0.0972 | 0.1503 | 0.0690 | 0.0867 |
+| MultiView | 0.0381 | 0.1283 | 0.1949 | 0.0275 | 0.0958 | 0.1461 | 0.0678 | 0.0845 |
+| MultiViewSoft | 0.0427 | 0.1274 | 0.1958 | **0.0331** | 0.0966 | 0.1504 | 0.0708 | 0.0885 |
 
 Observations:
 
-- All tested TH structural variants outperform the previous GAMER SID result on most CVR metrics.
-- FixedBias is still the most stable target-behavior model, especially on top-rank quality (`HR@1`, `R@1`, `N@10`).
-- FactorizedScale is the strongest relation-bias extension on `HR@5`, `R@5`, and `N@5`, suggesting that controlling relation-bias strength is more useful than a soft prior alone.
-- FactorizedSoft only wins on `R@10`, which looks more like broader candidate coverage than better top-rank ordering.
-- Soft MultiView improves over Hard MultiView, but remains below FixedBias on the CVR target behavior.
+- The corrected test-set comparison is more mixed than the earlier validation-set comparison.
+- FixedSoft is strongest on top-rank CVR metrics (`HR@1/HR@5/N@5`) and is a better final candidate than FixedBias if the target is early ranking.
+- Factorized is strongest on deeper CVR metrics (`HR@10/R@5/R@10/N@10`), making it the strongest relation-bias candidate for coverage and depth.
+- FixedBias remains the clean TH base, but it should no longer be described as the most stable final model on the CVR target behavior.
+- Soft MultiView improves over Hard MultiView, but remains below FixedSoft/Factorized as a main model line.
 
 ### Merged Behavior-Specific Task
 
@@ -46,20 +46,20 @@ Comparison against the previous `GAMER (SID)`:
 | Model | HR@5 | HR@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|
 | Old GAMER SID | 0.1443 | 0.2129 | 0.0621 | 0.0753 |
-| FixedBias | 0.1502 | **0.2227** | 0.0656 | **0.0799** |
-| Factorized | 0.1500 | 0.2220 | 0.0655 | 0.0796 |
-| FactorizedScale | 0.1502 | 0.2221 | 0.0654 | 0.0795 |
-| FactorizedSoft | 0.1494 | 0.2199 | 0.0649 | 0.0787 |
-| FixedSoft | 0.1497 | 0.2216 | 0.0652 | 0.0795 |
-| MultiView | 0.1478 | 0.2162 | 0.0632 | 0.0766 |
-| MultiViewSoft | **0.1508** | 0.2218 | **0.0657** | 0.0796 |
+| FixedBias | 0.1444 | 0.2116 | 0.0620 | 0.0750 |
+| FixedSoft | **0.1450** | **0.2121** | **0.0628** | **0.0756** |
+| Factorized | 0.1430 | 0.2117 | 0.0614 | 0.0746 |
+| FactorizedScale | 0.1432 | 0.2113 | 0.0614 | 0.0745 |
+| FactorizedSoft | 0.1434 | 0.2099 | 0.0615 | 0.0744 |
+| MultiView | 0.1391 | 0.2062 | 0.0595 | 0.0723 |
+| MultiViewSoft | 0.1418 | 0.2102 | 0.0609 | 0.0742 |
 
 Observations:
 
-- Most TH variants outperform old GAMER SID on the merged task.
-- MultiViewSoft is now best on merged `HR@5` and `N@5`, showing that soft view penalties are materially better than hard head partitioning.
-- FixedBias remains best on merged `HR@10` and `N@10`, so it is still the safest overall ranking model.
-- Factorized and FactorizedScale remain very close to FixedBias; relation-bias control changes the metric balance but does not produce a stable overall win.
+- FixedSoft is now the strongest merged-behavior variant on all four reported metrics.
+- FixedBias and Factorized remain close, but neither exceeds FixedSoft on the merged test-set comparison.
+- MultiViewSoft is still materially better than Hard MultiView, but the soft-view line is no longer the strongest merged-behavior candidate.
+- The test-set ranking therefore favors fixed soft hierarchy prior for merged behavior and factorized relation bias for CVR depth.
 
 ## Interpretation
 
@@ -107,12 +107,12 @@ bias(q_level, k_level, head)
 
 It preserves learnable temporal-hierarchical relation modeling while avoiding the extremely slow backward path of the naive trainable table.
 
-Its slight underperformance against FixedBias, together with the stronger FactorizedScale result on several CVR coverage metrics, may mean:
+Its improvement on deeper CVR metrics, together with weaker merged behavior, may mean:
 
 - TH Q/K/V embeddings already capture much of the hierarchy.
 - zero-init factorized bias needs a better prior or regularization.
 - a direct logit bias can mildly disturb an already effective attention distribution.
-- bias strength matters; a fixed scale helps more than the current soft-prior initialization.
+- bias strength matters, but the current fixed-scale variant is not uniformly better than the unscaled factorized version on the test set.
 - rank=4 may not be optimal.
 
 ### What MultiView Represents
@@ -126,28 +126,29 @@ MultiView splits heads into:
 
 It is the most interpretable structured version, directly corresponding to the two-dimensional temporal-hierarchical lattice. However, its hard masks restrict information flow, making it less flexible than relation-bias variants. Current results show Hard MultiView is effective but clearly weaker.
 
-Soft MultiView partially fixes this issue. It is best on merged `HR@5/N@5`, but it still trails FixedBias on the CVR target behavior. This means the MultiView story is useful as an interpretable structural comparison, but the current soft version is not yet strong enough to replace the TH Base as the final model.
+Soft MultiView partially fixes this issue, but the corrected test-set results show that it trails FixedSoft on merged behavior and Factorized on CVR depth. This means the MultiView story is useful as an interpretable structural comparison, but the current soft version is not yet strong enough to replace relation-bias variants as the final model.
 
 ## Recommended Main Direction
 
-If the final model needs to emphasize the TH contribution while staying faithful to the current results, the main line should use `FixedBias / TH Base` as the default model and keep controlled relation bias as an extension.
+If the final model needs to emphasize the TH contribution while staying faithful to the current test-set results, the main line should use `TH Base` as the base ablation and choose between `FixedSoft` and `Factorized` as the final variant depending on the paper focus.
 
 Reasons:
 
-- FixedBias is still the most stable model on the target CVR behavior and on high-rank merged metrics.
-- Its scalar table is zero, so the supported main claim should be behavior-aware replacement TH attention rather than nonzero scalar relation bias.
-- FactorizedScale is the best current relation-bias extension and should be kept as the main relation-bias ablation/candidate, but it does not stably beat TH Base.
-- MultiViewSoft shows that soft view constraints are better than hard masks, but its CVR result is still weaker than FixedBias.
+- FixedSoft is the best merged-behavior and most-top-rank CVR model.
+- Factorized is the best deeper CVR ranking and coverage model.
+- FixedBias remains necessary as the clean TH base because its scalar table is zero.
+- MultiViewSoft shows that soft view constraints are better than hard masks, but its result is still weaker than the best relation-bias/prior variants.
 
 Recommended paper positioning:
 
 ```text
-Main model: TH Base / FixedBias
-Relation-bias extension: Factorized Temporal-Hierarchical Relation Bias with scale control
+Main candidates: TH-FixedSoft and TH-Factorized
+Base ablation: TH Base / FixedBias
+Relation-bias extension: Factorized Temporal-Hierarchical Relation Bias
 Structured ablation: Soft/Hard Multi-View Temporal-Hierarchical Attention
 ```
 
-The paper can still describe relation control as a TH-aware enhancement, but the latest metrics do not support making it the only core contribution.
+The paper can describe relation control and soft hierarchy prior as TH-aware enhancements, but the latest test metrics do not support making hard MultiView or FixedBias-only the final story.
 
 ## Follow-Up Directions
 
@@ -225,16 +226,17 @@ These diagnostics are useful for proving that the model learns TH relations rath
 
 ## Recommended Priority
 
-1. Learnable alpha for Factorized relation bias; record alpha values by layer.
-2. Factorized rank ablation: `1/2/4/8`, preferably under the scaled setting.
-3. Gated MultiView, because Soft MultiView already improves Hard MultiView on merged metrics.
-4. Behavior-level auxiliary objective.
-5. Attention/bias visualization diagnostics.
-6. Sequence augmentation only after the model-side baseline is fixed.
+1. Decide the final test-set main variant between FixedSoft and Factorized according to target metric priority.
+2. Learnable alpha for Factorized relation bias; record alpha values by layer.
+3. Factorized rank ablation: `1/2/4/8`, preferably under the scaled or alpha-controlled setting.
+4. Gated MultiView, because Soft MultiView improves Hard MultiView but is not yet strong enough.
+5. Behavior-level auxiliary objective.
+6. Attention/bias visualization diagnostics.
+7. Sequence augmentation only after the model-side baseline is fixed.
 
 ## Current Recommendation
 
-If only metrics matter, FixedBias / TH Base remains the safest final model.
+If merged behavior and most top-rank CVR metrics matter most, FixedSoft is currently the safest final model. If CVR depth/coverage is the priority, Factorized is currently the strongest final candidate.
 
 If the final design needs to emphasize Temporal-Hierarchical modeling, the supported claim should be:
 
@@ -245,4 +247,4 @@ Temporal-Hierarchical Attention
 + optional controlled relation/view bias
 ```
 
-FixedBias should be treated as the main model unless a later FactorizedAlpha or Gated MultiView result clearly exceeds it. FactorizedScale is currently the most promising relation-bias extension; MultiViewSoft is a useful structured-view ablation showing that soft constraints are preferable to hard partitioning.
+FixedBias should be treated as the base ablation rather than the default final model. Factorized is currently the most promising relation-bias extension; FixedSoft is the strongest fixed-prior variant; MultiViewSoft is a useful structured-view ablation showing that soft constraints are preferable to hard partitioning.
