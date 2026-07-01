@@ -841,12 +841,21 @@ Time-Decayed Dropout
 → Curriculum only if static views are effective
 ```
 
-The completed ShortVideoAD policy runs below were produced by the earlier history-only policy implementation, but are evaluated on the `smb_explicit` test set. They are useful diagnostics only and should not be used as final full-sequence policy conclusions. The baseline is the same `Qwen3TemporalHierarchicalMultiViewSoft` backbone under the original `smb_explicit_decoder_4` task, which uses the original four-view/four-times explicit decoder full-sequence augmentation rather than no augmentation.
+The completed ShortVideoAD policy runs below were produced by the earlier history-only policy implementation, but are evaluated on the `smb_explicit` test set. They are useful diagnostics only and should not be used as final full-sequence policy conclusions. The primary comparison baseline is the same `Qwen3TemporalHierarchicalMultiViewSoft` backbone under the original `smb_explicit_decoder_4` task, which uses the original four-view/four-times explicit decoder full-sequence augmentation rather than no augmentation.
+
+Three additional references are included:
+
+- `Original GAMER / Old GAMER SID` comes from the earlier TH test-set results note and preserves the previously provided original GAMER numbers.
+- `END4Rec` comes from local `results/ShortVideoAD/smb_dis/END4Rec/result-smb_dis.json`.
+- `PBATransformer` comes from local `results/ShortVideoAD/smb_explicit/PBATransformer/results-smb_explicit_valid-original.json`; that file is a validation-set result, so it is included as a validation reference and should not be treated as a strict test-set comparison row.
 
 Merged behavior test-set results:
 
 | Model / Policy | HR@5 | HR@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|
+| END4Rec (local `smb_dis` baseline) | 0.0958 | 0.1457 | 0.0382 | 0.0466 |
+| PBATransformer (validation reference) | 0.1273 | 0.1894 | 0.0532 | 0.0650 |
+| Original GAMER / Old GAMER SID | 0.1443 | 0.2129 | 0.0621 | 0.0753 |
 | MultiViewSoft + original 4x augmentation (`smb_explicit_decoder_4`) | 0.1418 | 0.2102 | 0.0609 | 0.0742 |
 | Policy dataset proportion | 0.1359 | 0.2009 | 0.0579 | 0.0703 |
 | Policy time decay | 0.1412 | 0.2093 | 0.0606 | 0.0737 |
@@ -859,6 +868,9 @@ CVR target-behavior test-set results:
 
 | Model / Policy | HR@5 | HR@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|
+| END4Rec (local `smb_dis` baseline) | 0.0757 | 0.1207 | 0.0385 | 0.0493 |
+| PBATransformer (validation reference) | 0.1129 | 0.1710 | 0.0595 | 0.0744 |
+| Original GAMER / Old GAMER SID | 0.1280 | 0.1944 | 0.0687 | 0.0856 |
 | MultiViewSoft + original 4x augmentation (`smb_explicit_decoder_4`) | 0.1274 | 0.1958 | 0.0708 | 0.0885 |
 | Policy dataset proportion | 0.1232 | 0.1903 | 0.0653 | 0.0823 |
 | Policy time decay | 0.1284 | 0.1951 | 0.0688 | 0.0858 |
@@ -867,4 +879,4 @@ CVR target-behavior test-set results:
 | Policy target-conditioned | 0.1284 | 0.1931 | 0.0695 | 0.0857 |
 | Policy user-adaptive | 0.1255 | 0.1881 | 0.0676 | 0.0839 |
 
-Under the old history-only protocol, none of the policies stably beats the original 4x explicit-decoder augmentation baseline on merged behavior. Multi-view policy is the most promising diagnostic result for CVR because it improves `HR@10/N@5/N@10` against the same-backbone baseline, while time decay is close on merged behavior. Because the current code has been corrected to full-sequence policy views, the six policy variants should be rerun before making final paper claims. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
+Under the old history-only protocol, none of the policies stably beats the original 4x explicit-decoder augmentation baseline on merged behavior, and none exceeds the previously recorded Original GAMER / Old GAMER SID merged result. Multi-view policy is the most promising diagnostic result for CVR because it improves `HR@10/N@5/N@10` against the same-backbone baseline and is above the previously recorded Original GAMER / Old GAMER SID on `HR@10/N@5/N@10`; time decay is close to the same-backbone baseline on merged behavior. Because the current code has been corrected to full-sequence policy views, the six policy variants should be rerun before making final paper claims. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
