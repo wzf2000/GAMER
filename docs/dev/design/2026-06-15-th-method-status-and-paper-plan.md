@@ -43,15 +43,15 @@ Consequently, the zero-relation-bias model is still substantially different from
 
 | Category | Variant | Status | Current role |
 |---|---|---|---|
-| TH Base | FixedBias / FixedZero | Implemented and evaluated | Current best result; effectively TH without scalar relation bias |
+| TH Base | FixedBias / FixedZero | Implemented and evaluated | Clean TH base; effectively TH without scalar relation bias |
 | Relation Bias | Factorized | Implemented and evaluated | Learnable relation-bias main-line candidate |
-| Relation Bias | FixedSoft | Implemented and evaluated | Fixed weak hierarchy prior; no stable gain over TH Base |
-| Relation Bias | FactorizedSoft | Implemented and evaluated | Learnable weak-prior initialization; does not outperform Factorized/FixedBias |
+| Relation Bias | FixedSoft | Implemented and evaluated | Strongest new TH variant on merged behavior and most top-rank CVR metrics |
+| Relation Bias | FactorizedSoft | Implemented and evaluated | Learnable weak-prior initialization; does not outperform Factorized/FixedSoft |
 | Relation Bias | FactorizedScale | Implemented and evaluated | Best current relation-bias extension on several CVR coverage metrics |
 | Relation Bias | FactorizedAlpha | Implemented, pending result | Per-layer learnable alpha |
 | Relation Bias | Naive trainable table | Profiled | Expected to be dropped because of backward cost |
 | Multi-View | Hard MultiView | Implemented and evaluated | Clearly weaker than TH Base/relation-bias variants; structured ablation |
-| Multi-View | Soft MultiView | Implemented and evaluated | Improves Hard MultiView on merged metrics but remains weaker on CVR |
+| Multi-View | Soft MultiView | Implemented and evaluated | Improves Hard MultiView but remains weaker than FixedSoft/Factorized |
 | Multi-View | Gated MultiView | Implemented, pending result | Learnable per-head view mixture |
 | Objective | Behavior-level auxiliary objectives | Not implemented | Future TH supervision |
 | Data | Existing ratio augmentation | Implemented and used | User-independent and time-independent; needs redesign |
@@ -95,7 +95,7 @@ It is the strongest current method-story candidate, although its zero-init resul
 - FactorizedScale multiplies relation bias by a fixed `0.1`.
 - FactorizedAlpha learns a per-layer scalar initialized to `0.1`.
 
-The latest results show that soft prior initialization is not consistently helpful. FactorizedScale is more promising: it improves CVR `HR@5/R@5/N@5` over TH Base, although it still loses on `HR@1/R@1/HR@10/N@10`. This suggests that relation-bias strength control is useful, but not yet sufficient for a stable main-model win.
+The latest test-set results show that soft prior initialization is helpful for the fixed/frozen relation family: FixedSoft is strongest among new TH variants on merged behavior and most top-rank CVR metrics. The same conclusion does not hold for the factorized family, where FactorizedSoft is weaker than Factorized. This suggests that prior direction, prior strength, and parameterization must be tuned together.
 
 Learned alpha values should be recorded per layer for interpretation.
 
@@ -112,7 +112,7 @@ Decision:
 
 ### Hard MultiView (Implemented and Evaluated, Likely An Ablation)
 
-Hard MultiView assigns heads to temporal, same-level, upward, and downward views. It is interpretable and efficient, but hard visibility constraints reduce flexibility. It improves over old GAMER but is weaker than TH Base and Factorized.
+Hard MultiView assigns heads to temporal, same-level, upward, and downward views. It is interpretable and efficient, but hard visibility constraints reduce flexibility. Compared with Original GAMER, it is not consistently better, and it is weaker than the main FixedSoft/Factorized TH candidates.
 
 It should remain an important structured ablation, not the current default main model.
 
@@ -120,7 +120,7 @@ It should remain an important structured ablation, not the current default main 
 
 Soft MultiView replaces negative-infinity blocks with finite negative penalties and uses a uniform mixture over views. It tests whether hard masking explains MultiView's weaker performance.
 
-The latest result confirms that soft penalties improve over Hard MultiView on merged behavior, where Soft MultiView is best on `HR@5/N@5`. However, it remains weaker than TH Base on the CVR target behavior. The soft-bias scale may still deserve ablation, but Soft MultiView is currently a structured ablation rather than the final model line.
+The latest result confirms that soft penalties improve over Hard MultiView, especially on CVR top-rank behavior. However, Soft MultiView remains weaker than FixedSoft on merged behavior and weaker than Factorized on deeper CVR metrics. The soft-bias scale may still deserve ablation, but Soft MultiView is currently a structured ablation rather than the final model line.
 
 ### Gated MultiView (Implemented, Pending Evaluation, Preferred Over Dynamic Gating)
 
@@ -312,9 +312,43 @@ Result path:
 results/ShortVideoAD/smb_explicit_decoder_4/
 ```
 
-The evaluation task is `smb_explicit` behavior-specific next-item prediction on the test set. The tables below report test-set merged behavior and conversion/cvr behavior.
+The evaluation task is `smb_explicit` behavior-specific next-item prediction on the test set. The tables below report test-set merged behavior and conversion/cvr behavior. MBGen is included as the main published baseline, and Original GAMER / Old GAMER SID is included as the previous method reference.
 
-### Merged Behavior
+### Main Baseline Comparison
+
+Merged behavior is reported with the four shared metrics available for the major baselines:
+
+| Model | HR@5 | HR@10 | N@5 | N@10 |
+| --- | ---: | ---: | ---: | ---: |
+| MBGen (SID) | 0.1179 | 0.1774 | 0.0493 | 0.0603 |
+| Original GAMER / Old GAMER SID | 0.1443 | 0.2129 | 0.0621 | 0.0753 |
+| TH-FixedBias | 0.1444 | 0.2116 | 0.0620 | 0.0750 |
+| TH-FixedSoft | 0.1450 | 0.2121 | 0.0628 | 0.0756 |
+| TH-Factorized | 0.1430 | 0.2117 | 0.0614 | 0.0746 |
+| TH-FactorizedScale | 0.1432 | 0.2113 | 0.0614 | 0.0745 |
+| TH-FactorizedSoft | 0.1434 | 0.2099 | 0.0615 | 0.0744 |
+| TH-MultiView | 0.1391 | 0.2062 | 0.0595 | 0.0723 |
+| TH-MultiViewSoft | 0.1418 | 0.2102 | 0.0609 | 0.0742 |
+
+On merged behavior, all TH variants remain clearly above MBGen. Compared with Original GAMER, the result is more nuanced: TH-FixedSoft is the strongest new variant and slightly improves `HR@5/N@5/N@10`, but its `HR@10` is still slightly lower than Original GAMER. Therefore, the merged-behavior claim should be framed as competitive or slightly improved in top ranking, not as a broad win over the original GAMER line.
+
+CVR target-behavior comparison:
+
+| Model | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| MBGen (SID) | 0.0276 | 0.1012 | 0.1622 | 0.0202 | 0.0736 | 0.1205 | 0.0518 | 0.0673 |
+| Original GAMER / Old GAMER SID | 0.0394 | 0.1280 | 0.1944 | 0.0292 | 0.0966 | 0.1478 | 0.0687 | 0.0856 |
+| TH-FixedBias | 0.0390 | 0.1283 | 0.1974 | 0.0290 | 0.0963 | 0.1507 | 0.0693 | 0.0873 |
+| TH-FixedSoft | 0.0435 | 0.1349 | 0.1981 | 0.0326 | 0.1007 | 0.1513 | 0.0735 | 0.0900 |
+| TH-Factorized | 0.0409 | 0.1342 | 0.2042 | 0.0302 | 0.1011 | 0.1565 | 0.0721 | 0.0902 |
+| TH-FactorizedScale | 0.0393 | 0.1331 | 0.1987 | 0.0301 | 0.0988 | 0.1514 | 0.0706 | 0.0877 |
+| TH-FactorizedSoft | 0.0385 | 0.1274 | 0.1947 | 0.0294 | 0.0972 | 0.1503 | 0.0690 | 0.0867 |
+| TH-MultiView | 0.0381 | 0.1283 | 0.1949 | 0.0275 | 0.0958 | 0.1461 | 0.0678 | 0.0845 |
+| TH-MultiViewSoft | 0.0427 | 0.1274 | 0.1958 | 0.0331 | 0.0966 | 0.1504 | 0.0708 | 0.0885 |
+
+On the CVR target behavior, the new TH variants provide a clearer improvement over both MBGen and Original GAMER. TH-FixedSoft is best on most top-rank CVR metrics, while TH-Factorized is best on deeper ranking and coverage metrics. This is the strongest evidence that the Temporal-Hierarchical redesign improves the target behavior rather than only changing the merged-behavior tradeoff.
+
+### TH Variant Details: Merged Behavior
 
 | Model | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -326,7 +360,7 @@ The evaluation task is `smb_explicit` behavior-specific next-item prediction on 
 | TH-MultiView | 0.0439 | 0.1391 | 0.2062 | 0.0210 | 0.0709 | 0.1105 | 0.0595 | 0.0723 |
 | TH-MultiViewSoft | 0.0460 | 0.1418 | 0.2102 | 0.0220 | 0.0718 | 0.1130 | 0.0609 | 0.0742 |
 
-TH-FixedSoft is now the strongest merged-behavior variant across the reported test metrics. TH-FixedBias remains a close and stable TH base, while hard MultiView is clearly weaker and MultiViewSoft only partially recovers the hard partition loss.
+Within the new TH variants, TH-FixedSoft is the strongest merged-behavior variant across the reported test metrics. TH-FixedBias remains a close and stable TH base, while hard MultiView is clearly weaker and MultiViewSoft only partially recovers the hard partition loss.
 
 The overall merged ranking is now:
 
@@ -345,7 +379,7 @@ Relative to TH-FixedBias:
 | TH-MultiView | -5.56% | -3.62% | -2.55% | -5.46% | -3.12% | -2.70% | -4.09% | -3.59% |
 | TH-MultiViewSoft | -1.11% | -1.80% | -0.63% | -0.99% | -1.80% | -0.50% | -1.80% | -1.11% |
 
-### Conversion / CVR Behavior
+### TH Variant Details: Conversion / CVR Behavior
 
 | Model | HR@1 | HR@5 | HR@10 | R@1 | R@5 | R@10 | N@5 | N@10 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -357,12 +391,12 @@ Relative to TH-FixedBias:
 | TH-MultiView | 0.0381 | 0.1283 | 0.1949 | 0.0275 | 0.0958 | 0.1461 | 0.0678 | 0.0845 |
 | TH-MultiViewSoft | 0.0427 | 0.1274 | 0.1958 | 0.0331 | 0.0966 | 0.1504 | 0.0708 | 0.0885 |
 
-CVR test results change the previous conclusion. TH-FixedSoft is strongest on most top-rank CVR metrics (`HR@1/HR@5/N@5`), while TH-Factorized is strongest on the deeper coverage/ranking metrics `HR@10/R@5/R@10/N@10`. TH-MultiViewSoft has the highest `R@1`, but its remaining CVR metrics are weaker. TH-FixedBias remains a strong base, but it is no longer the best CVR target-behavior model under the corrected test-set comparison.
+CVR test results change the previous conclusion. TH-FixedSoft is strongest on most top-rank CVR metrics (`HR@1/HR@5/N@5`), while TH-Factorized is strongest on the deeper coverage/ranking metrics `HR@10/R@5/R@10/N@10`. TH-MultiViewSoft has the highest `R@1`, but its remaining CVR metrics are weaker. TH-FixedBias remains a strong base, but it is no longer the best CVR target-behavior model under the corrected test-set comparison. Relative to Original GAMER, TH-FixedSoft gives a broad top-rank CVR gain, and TH-Factorized gives the clearest deeper-rank CVR gain.
 
 ### Interpretation
 
 1. TH-FixedBias gains are not from a scalar relation-bias value. The current FixedBias table is frozen zero, so the gain is better attributed to replacement-style TH attention, behavior Q/K/V, gating, and behavior-aware MoE.
-2. Learnable relation bias is useful on the CVR target behavior. Factorized improves the deeper CVR metrics, while FixedSoft improves most top-rank CVR metrics and merged behavior.
+2. Learnable relation bias is useful on the CVR target behavior. Factorized improves the deeper CVR metrics, while FixedSoft improves most top-rank CVR metrics and merged behavior. Against Original GAMER, the most reliable improvement appears on CVR, not on every merged-behavior metric.
 3. Soft prior is helpful for the frozen/fixed relation family, but not consistently helpful for the factorized family. This suggests that prior strength and parameterization should be tuned together.
 4. Hard MultiView is clearly weaker. Soft MultiView recovers part of the loss, especially on top-rank CVR metrics, but it is still not competitive with FixedSoft or Factorized as the main model.
 
@@ -375,7 +409,7 @@ TH Base
 + fixed soft hierarchy prior or factorized relation bias
 ```
 
-TH-FixedBias should be kept as the base ablation, not the final default. TH-FixedSoft is the strongest merged-behavior and most-top-rank CVR candidate, while TH-Factorized is the strongest candidate for deeper CVR ranking and coverage. The final paper choice should depend on whether the primary target is merged behavior or conversion-specific ranking.
+TH-FixedBias should be kept as the base ablation, not the final default. TH-FixedSoft is the strongest merged-behavior and most-top-rank CVR candidate among the new TH variants, while TH-Factorized is the strongest candidate for deeper CVR ranking and coverage. After adding Original GAMER to the comparison, the final paper claim should emphasize target-behavior CVR gains and present merged behavior as competitive with small improvements on selected metrics.
 
 Hard MultiView should be downgraded to a structured ablation. Soft MultiView should remain as a stronger structured-view comparison because it improves merged behavior without hard visibility cuts.
 
@@ -402,6 +436,7 @@ Current test-set evidence supports:
 - controlled relation bias can improve CVR ranking and coverage,
 - fixed soft hierarchy prior can improve merged behavior and most top-rank CVR metrics,
 - soft MultiView improves hard MultiView but is not yet the strongest model line.
+- compared with MBGen, the TH variants show large gains on both merged behavior and CVR; compared with Original GAMER, the most robust gains are on CVR.
 
 Claims still requiring experiments:
 
@@ -421,7 +456,7 @@ TH Base
 + Factorized relation bias for CVR depth/coverage
 ```
 
-The latest ShortVideoAD test-set results show that `TH-FixedSoft` is best on merged behavior and most top-rank CVR metrics, while `TH-Factorized` is best on deeper CVR metrics. `TH-FixedBias` should remain the clean TH base ablation because its scalar relation bias is frozen zero, but it should no longer be described as the best final variant. `TH-MultiViewSoft` remains a useful structured-view ablation, and hard MultiView should be treated mainly as evidence that rigid view partitioning is too restrictive.
+The latest ShortVideoAD test-set results show that `TH-FixedSoft` is best among new TH variants on merged behavior and most top-rank CVR metrics, while `TH-Factorized` is best on deeper CVR metrics. Compared with MBGen, these variants are clearly stronger. Compared with Original GAMER, the improvement is clear on CVR but mixed on merged behavior, where FixedSoft slightly improves `HR@5/N@5/N@10` while trailing on `HR@10`. `TH-FixedBias` should remain the clean TH base ablation because its scalar relation bias is frozen zero, but it should no longer be described as the best final variant. `TH-MultiViewSoft` remains a useful structured-view ablation, and hard MultiView should be treated mainly as evidence that rigid view partitioning is too restrictive.
 
 The data-side design should move beyond a user-independent random ratio schedule toward:
 
