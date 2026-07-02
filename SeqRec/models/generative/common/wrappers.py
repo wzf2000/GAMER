@@ -10,6 +10,8 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
         self.model = model_cls(config)
         self.vocab_size = config.vocab_size
         self.lm_head = torch.nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        if hasattr(self, "init_auxiliary_heads"):
+            self.init_auxiliary_heads(config)
         self.post_init()
         self.init_temperature()
 
@@ -64,6 +66,16 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
         loss = None
         if labels is not None:
             loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **extra_kwargs)
+            if hasattr(self, "compute_auxiliary_loss"):
+                auxiliary_loss = self.compute_auxiliary_loss(
+                    hidden_states=hidden_states,
+                    labels=labels,
+                    model_kwargs=model_kwargs,
+                    extra_kwargs=extra_kwargs,
+                    wrapper_kwargs=wrapper_kwargs,
+                )
+                if auxiliary_loss is not None:
+                    loss = loss + auxiliary_loss
 
         return CausalLMOutputWithPast(
             loss=loss,
