@@ -841,42 +841,40 @@ Time-Decayed Dropout
 → Curriculum only if static views are effective
 ```
 
-The completed ShortVideoAD policy runs below were produced by the earlier history-only policy implementation, but are evaluated on the `smb_explicit` test set. They are useful diagnostics only and should not be used as final full-sequence policy conclusions. The primary comparison baseline is the same `Qwen3TemporalHierarchicalMultiViewSoft` backbone under the original `smb_explicit_decoder_4` task, which uses the original four-view/four-times explicit decoder full-sequence augmentation rather than no augmentation.
+The current ShortVideoAD policy results below use the corrected full-sequence policy implementation and are evaluated on the `smb_explicit` test set. The primary comparison baseline is the same `Qwen3TemporalHierarchicalMultiViewSoft` backbone under the original `smb_explicit_decoder_4` task, which uses the original four-view/four-times explicit decoder full-sequence augmentation rather than no augmentation.
 
-Three additional references are included:
+Additional test-set references:
 
-- `Original GAMER / Old GAMER SID` comes from the earlier TH test-set results note and preserves the previously provided original GAMER numbers.
+- `Original GAMER / Old GAMER SID` preserves the previously provided original GAMER test-set numbers.
 - `END4Rec` comes from local `results/ShortVideoAD/smb_dis/END4Rec/result-smb_dis.json`.
-- `PBATransformer` comes from local `results/ShortVideoAD/smb_explicit/PBATransformer/results-smb_explicit_valid-original.json`; that file is a validation-set result, so it is included as a validation reference and should not be treated as a strict test-set comparison row.
+- `MBGen` comes from the local MBGen test-set result under `results/ShortVideoAD/smb_explicit/`.
 
 Merged behavior test-set results:
 
 | Model / Policy | HR@5 | HR@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|
 | END4Rec (local `smb_dis` baseline) | 0.0958 | 0.1457 | 0.0382 | 0.0466 |
-| PBATransformer (validation reference) | 0.1273 | 0.1894 | 0.0532 | 0.0650 |
+| MBGen | 0.1129 | 0.1696 | 0.0461 | 0.0564 |
 | Original GAMER / Old GAMER SID | 0.1443 | 0.2129 | 0.0621 | 0.0753 |
 | MultiViewSoft + original 4x augmentation (`smb_explicit_decoder_4`) | 0.1418 | 0.2102 | 0.0609 | 0.0742 |
-| Policy dataset proportion | 0.1359 | 0.2009 | 0.0579 | 0.0703 |
-| Policy time decay | 0.1412 | 0.2093 | 0.0606 | 0.0737 |
-| Policy session | 0.1387 | 0.2057 | 0.0591 | 0.0721 |
-| Policy multi-view | 0.1411 | 0.2101 | 0.0606 | 0.0739 |
-| Policy target-conditioned | 0.1384 | 0.2052 | 0.0593 | 0.0721 |
-| Policy user-adaptive | 0.1397 | 0.2051 | 0.0596 | 0.0722 |
+| Full-sequence policy dataset proportion | 0.1365 | 0.2009 | 0.0580 | 0.0702 |
+| Full-sequence policy session | 0.1390 | 0.2064 | 0.0592 | 0.0722 |
+| Full-sequence policy multi-view | 0.1421 | 0.2101 | 0.0609 | 0.0740 |
+| Full-sequence policy target-conditioned | 0.1373 | 0.2027 | 0.0586 | 0.0711 |
+| Full-sequence policy user-adaptive | 0.1379 | 0.2038 | 0.0592 | 0.0718 |
 
 CVR target-behavior test-set results:
 
 | Model / Policy | HR@5 | HR@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|
 | END4Rec (local `smb_dis` baseline) | 0.0757 | 0.1207 | 0.0385 | 0.0493 |
-| PBATransformer (validation reference) | 0.1129 | 0.1710 | 0.0595 | 0.0744 |
+| MBGen | 0.0985 | 0.1576 | 0.0491 | 0.0637 |
 | Original GAMER / Old GAMER SID | 0.1280 | 0.1944 | 0.0687 | 0.0856 |
 | MultiViewSoft + original 4x augmentation (`smb_explicit_decoder_4`) | 0.1274 | 0.1958 | 0.0708 | 0.0885 |
-| Policy dataset proportion | 0.1232 | 0.1903 | 0.0653 | 0.0823 |
-| Policy time decay | 0.1284 | 0.1951 | 0.0688 | 0.0858 |
-| Policy session | 0.1239 | 0.1914 | 0.0684 | 0.0860 |
-| Policy multi-view | 0.1281 | 0.1997 | 0.0714 | 0.0893 |
-| Policy target-conditioned | 0.1284 | 0.1931 | 0.0695 | 0.0857 |
-| Policy user-adaptive | 0.1255 | 0.1881 | 0.0676 | 0.0839 |
+| Full-sequence policy dataset proportion | 0.1249 | 0.1929 | 0.0668 | 0.0838 |
+| Full-sequence policy session | 0.1268 | 0.1930 | 0.0676 | 0.0847 |
+| Full-sequence policy multi-view | 0.1316 | 0.1935 | 0.0709 | 0.0869 |
+| Full-sequence policy target-conditioned | 0.1265 | 0.1917 | 0.0674 | 0.0840 |
+| Full-sequence policy user-adaptive | 0.1244 | 0.1880 | 0.0679 | 0.0845 |
 
-Under the old history-only protocol, none of the policies stably beats the original 4x explicit-decoder augmentation baseline on merged behavior, and none exceeds the previously recorded Original GAMER / Old GAMER SID merged result. Multi-view policy is the most promising diagnostic result for CVR because it improves `HR@10/N@5/N@10` against the same-backbone baseline and is above the previously recorded Original GAMER / Old GAMER SID on `HR@10/N@5/N@10`; time decay is close to the same-backbone baseline on merged behavior. Because the current code has been corrected to full-sequence policy views, the six policy variants should be rerun before making final paper claims. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
+Under the corrected full-sequence protocol, the policy variants are clearly above END4Rec and MBGen, but they do not stably beat the original 4x explicit-decoder augmentation baseline. Full-sequence multi-view is the strongest policy variant: it essentially matches the original 4x baseline on merged behavior (`HR@5/N@5` slightly higher or tied, `HR@10/N@10` slightly lower) and improves CVR `HR@5/N@5`, but it still trails the original 4x baseline on CVR `HR@10/N@10`. Dataset-level proportion, session, target-conditioned, and user-adaptive policies are weaker than the original 4x baseline on most reported metrics. Therefore, the current conclusion is that semantic policy augmentation is not yet a replacement for the naive 4x ratio augmentation; multi-view policy is the only promising direction worth refining. The earlier history-only policy runs should be treated only as diagnostic history. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.

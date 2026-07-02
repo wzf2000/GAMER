@@ -843,42 +843,40 @@ Time-Decayed Dropout
 → 仅在静态视图有效后考虑 Curriculum
 ```
 
-当前已完成的 ShortVideoAD policy runs 来自早期 history-only policy 实现，但评测口径是 `smb_explicit` test set。它们可以作为诊断结果，但不能作为最终 full-sequence policy 结论。表中主要对比 baseline 是同一 `Qwen3TemporalHierarchicalMultiViewSoft` backbone 在原始 `smb_explicit_decoder_4` 任务下的结果，也就是原始 explicit decoder 的 4 倍 full-sequence 序列增强方案，并不是无增强。
+当前已完成的 ShortVideoAD policy runs 使用修正后的 full-sequence policy 实现，并在 `smb_explicit` test set 上评测。表中主要对比 baseline 是同一 `Qwen3TemporalHierarchicalMultiViewSoft` backbone 在原始 `smb_explicit_decoder_4` 任务下的结果，也就是原始 explicit decoder 的 4 倍 full-sequence 序列增强方案，并不是无增强。
 
-同时补充三个外部参照：
+同时补充三个 test-set 参照：
 
-- `Original GAMER / Old GAMER SID` 来自此前 TH test-set 结果记录，用于对齐用户给过的原始 GAMER 数值。
+- `Original GAMER / Old GAMER SID` 保留此前给过的原始 GAMER test-set 数值。
 - `END4Rec` 来自本地 `results/ShortVideoAD/smb_dis/END4Rec/result-smb_dis.json`。
-- `PBATransformer` 来自本地 `results/ShortVideoAD/smb_explicit/PBATransformer/results-smb_explicit_valid-original.json`，该文件是 validation-set 结果，因此只作为 validation reference，不和 test-set 行做严格结论比较。
+- `MBGen` 来自 `results/ShortVideoAD/smb_explicit/` 下的本地 MBGen test-set 结果。
 
 Merged behavior test-set 结果：
 
 | Model / Policy | HR@5 | HR@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|
 | END4Rec（本地 `smb_dis` baseline） | 0.0958 | 0.1457 | 0.0382 | 0.0466 |
-| PBATransformer（validation reference） | 0.1273 | 0.1894 | 0.0532 | 0.0650 |
+| MBGen | 0.1129 | 0.1696 | 0.0461 | 0.0564 |
 | Original GAMER / Old GAMER SID | 0.1443 | 0.2129 | 0.0621 | 0.0753 |
 | MultiViewSoft + 原始 4x augmentation（`smb_explicit_decoder_4`） | 0.1418 | 0.2102 | 0.0609 | 0.0742 |
-| Policy dataset proportion | 0.1359 | 0.2009 | 0.0579 | 0.0703 |
-| Policy time decay | 0.1412 | 0.2093 | 0.0606 | 0.0737 |
-| Policy session | 0.1387 | 0.2057 | 0.0591 | 0.0721 |
-| Policy multi-view | 0.1411 | 0.2101 | 0.0606 | 0.0739 |
-| Policy target-conditioned | 0.1384 | 0.2052 | 0.0593 | 0.0721 |
-| Policy user-adaptive | 0.1397 | 0.2051 | 0.0596 | 0.0722 |
+| Full-sequence policy dataset proportion | 0.1365 | 0.2009 | 0.0580 | 0.0702 |
+| Full-sequence policy session | 0.1390 | 0.2064 | 0.0592 | 0.0722 |
+| Full-sequence policy multi-view | 0.1421 | 0.2101 | 0.0609 | 0.0740 |
+| Full-sequence policy target-conditioned | 0.1373 | 0.2027 | 0.0586 | 0.0711 |
+| Full-sequence policy user-adaptive | 0.1379 | 0.2038 | 0.0592 | 0.0718 |
 
 CVR 目标行为 test-set 结果：
 
 | Model / Policy | HR@5 | HR@10 | N@5 | N@10 |
 |---|---:|---:|---:|---:|
 | END4Rec（本地 `smb_dis` baseline） | 0.0757 | 0.1207 | 0.0385 | 0.0493 |
-| PBATransformer（validation reference） | 0.1129 | 0.1710 | 0.0595 | 0.0744 |
+| MBGen | 0.0985 | 0.1576 | 0.0491 | 0.0637 |
 | Original GAMER / Old GAMER SID | 0.1280 | 0.1944 | 0.0687 | 0.0856 |
 | MultiViewSoft + 原始 4x augmentation（`smb_explicit_decoder_4`） | 0.1274 | 0.1958 | 0.0708 | 0.0885 |
-| Policy dataset proportion | 0.1232 | 0.1903 | 0.0653 | 0.0823 |
-| Policy time decay | 0.1284 | 0.1951 | 0.0688 | 0.0858 |
-| Policy session | 0.1239 | 0.1914 | 0.0684 | 0.0860 |
-| Policy multi-view | 0.1281 | 0.1997 | 0.0714 | 0.0893 |
-| Policy target-conditioned | 0.1284 | 0.1931 | 0.0695 | 0.0857 |
-| Policy user-adaptive | 0.1255 | 0.1881 | 0.0676 | 0.0839 |
+| Full-sequence policy dataset proportion | 0.1249 | 0.1929 | 0.0668 | 0.0838 |
+| Full-sequence policy session | 0.1268 | 0.1930 | 0.0676 | 0.0847 |
+| Full-sequence policy multi-view | 0.1316 | 0.1935 | 0.0709 | 0.0869 |
+| Full-sequence policy target-conditioned | 0.1265 | 0.1917 | 0.0674 | 0.0840 |
+| Full-sequence policy user-adaptive | 0.1244 | 0.1880 | 0.0679 | 0.0845 |
 
-在旧 history-only 协议下，没有 policy 能在 merged behavior 上稳定超过原始 4x explicit-decoder augmentation baseline，也没有超过此前记录的 Original GAMER / Old GAMER SID merged 结果。Multi-view policy 在 CVR 上最值得关注，因为它相对同 backbone baseline 提升了 `HR@10/N@5/N@10`，且 `HR@10/N@5/N@10` 高于此前记录的 Original GAMER / Old GAMER SID；time decay 在 merged behavior 上最接近同 backbone baseline。由于当前代码已经修正为 full-sequence policy views，六种 policy 需要按新协议重跑后才能形成论文结论。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。
+在修正后的 full-sequence 协议下，policy variants 明显强于 END4Rec 和 MBGen，但没有稳定超过原始 4x explicit-decoder augmentation baseline。Full-sequence multi-view 是当前最强 policy 版本：在 merged behavior 上基本追平原始 4x baseline（`HR@5/N@5` 略高或持平，`HR@10/N@10` 略低），并提升 CVR `HR@5/N@5`，但在 CVR `HR@10/N@10` 上仍低于原始 4x baseline。Dataset-level proportion、session、target-conditioned 和 user-adaptive 在多数指标上都弱于原始 4x baseline。因此当前结论是：语义 policy augmentation 还不能替代 naive 4x ratio augmentation；multi-view policy 是唯一值得继续细化的方向。早期 history-only policy runs 只应作为历史诊断。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。
