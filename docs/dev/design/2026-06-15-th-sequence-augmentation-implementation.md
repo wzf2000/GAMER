@@ -877,4 +877,14 @@ CVR target-behavior test-set results:
 | Full-sequence policy target-conditioned | 0.1265 | 0.1917 | 0.0674 | 0.0840 |
 | Full-sequence policy user-adaptive | 0.1244 | 0.1880 | 0.0679 | 0.0845 |
 
-Under the corrected full-sequence protocol, the policy variants are clearly above END4Rec and MBGen, but they do not stably beat the original 4x explicit-decoder augmentation baseline. Full-sequence multi-view is the strongest policy variant: it essentially matches the original 4x baseline on merged behavior (`HR@5/N@5` slightly higher or tied, `HR@10/N@10` slightly lower) and improves CVR `HR@5/N@5`, but it still trails the original 4x baseline on CVR `HR@10/N@10`. Dataset-level proportion, session, target-conditioned, and user-adaptive policies are weaker than the original 4x baseline on most reported metrics. Therefore, the current conclusion is that semantic policy augmentation is not yet a replacement for the naive 4x ratio augmentation; multi-view policy is the only promising direction worth refining. The earlier history-only policy runs should be treated only as diagnostic history. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
+Under the corrected full-sequence protocol, the policy variants are clearly above END4Rec and MBGen, but they do not stably beat the original 4x explicit-decoder augmentation baseline. Full-sequence multi-view is the strongest policy variant: it essentially matches the original 4x baseline on merged behavior (`HR@5/N@5` slightly higher or tied, `HR@10/N@10` slightly lower) and improves CVR `HR@5/N@5`, but it still trails the original 4x baseline on CVR `HR@10/N@10`. Dataset-level proportion, session, target-conditioned, and user-adaptive policies are weaker than the original 4x baseline on most reported metrics. Therefore, the current conclusion is that semantic policy augmentation is not yet a replacement for the naive 4x ratio augmentation; multi-view policy is the only promising direction worth refining. The earlier history-only policy runs should be treated only as diagnostic history.
+
+The implemented next variant tests hybrid multi-view augmentation instead of pure semantic replacement:
+
+```text
+original full sequence
++ random ratio views from the original 4x decoder protocol
++ semantic multi-view views
+```
+
+The motivation is CVR-first: pure multi-view improves `HR@5/N@5`, suggesting better early candidate quality, but loses `HR@10/N@10`, suggesting weaker coverage. Random ratio views should preserve the coverage benefit of the naive baseline, while semantic multi-view adds TH-aware structure. This is available as the opt-in `--multi_view_random_ratio_views N` argument for `sequence_augmentation=multi_view`, so previous pure-policy runs remain reproducible. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.

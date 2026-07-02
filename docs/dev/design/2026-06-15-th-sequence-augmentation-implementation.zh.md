@@ -879,4 +879,14 @@ CVR 目标行为 test-set 结果：
 | Full-sequence policy target-conditioned | 0.1265 | 0.1917 | 0.0674 | 0.0840 |
 | Full-sequence policy user-adaptive | 0.1244 | 0.1880 | 0.0679 | 0.0845 |
 
-在修正后的 full-sequence 协议下，policy variants 明显强于 END4Rec 和 MBGen，但没有稳定超过原始 4x explicit-decoder augmentation baseline。Full-sequence multi-view 是当前最强 policy 版本：在 merged behavior 上基本追平原始 4x baseline（`HR@5/N@5` 略高或持平，`HR@10/N@10` 略低），并提升 CVR `HR@5/N@5`，但在 CVR `HR@10/N@10` 上仍低于原始 4x baseline。Dataset-level proportion、session、target-conditioned 和 user-adaptive 在多数指标上都弱于原始 4x baseline。因此当前结论是：语义 policy augmentation 还不能替代 naive 4x ratio augmentation；multi-view policy 是唯一值得继续细化的方向。早期 history-only policy runs 只应作为历史诊断。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。
+在修正后的 full-sequence 协议下，policy variants 明显强于 END4Rec 和 MBGen，但没有稳定超过原始 4x explicit-decoder augmentation baseline。Full-sequence multi-view 是当前最强 policy 版本：在 merged behavior 上基本追平原始 4x baseline（`HR@5/N@5` 略高或持平，`HR@10/N@10` 略低），并提升 CVR `HR@5/N@5`，但在 CVR `HR@10/N@10` 上仍低于原始 4x baseline。Dataset-level proportion、session、target-conditioned 和 user-adaptive 在多数指标上都弱于原始 4x baseline。因此当前结论是：语义 policy augmentation 还不能替代 naive 4x ratio augmentation；multi-view policy 是唯一值得继续细化的方向。早期 history-only policy runs 只应作为历史诊断。
+
+当前已落地的下一步变体是测试 hybrid multi-view augmentation，而不是继续用纯语义 policy 替代原始增强：
+
+```text
+原始完整序列
++ 原始 4x decoder 协议中的 random ratio views
++ semantic multi-view views
+```
+
+动机应以 CVR 为主：纯 multi-view 提升 `HR@5/N@5`，说明靠前候选质量更好；但降低 `HR@10/N@10`，说明覆盖不足。Random ratio views 应保留 naive baseline 的覆盖优势，semantic multi-view 则补充 TH-aware 结构先验。该方案通过 `sequence_augmentation=multi_view` 下的显式参数 `--multi_view_random_ratio_views N` 启用，因此此前 pure-policy 结果仍可复现。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。
