@@ -222,6 +222,80 @@ class PolicyAugmentedDatasetTest(unittest.TestCase):
             self.assertEqual(statistics.level_counts, (2, 1, 1))
             self.assertEqual(statistics.total_interactions, 4)
 
+    def test_multi_view_can_include_random_ratio_views(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self._build_dataset_files(root)
+
+            common_config = {
+                "sequence_augmentation": "multi_view",
+                "augmentation_views": 1,
+                "augmentation_seed": 7,
+                "augmentation_drop_original": False,
+            }
+            pure_train_data, _ = load_SMB_datasets(
+                dataset="TinySMB",
+                data_path=str(root),
+                max_his_len=100,
+                index_file=".index.json",
+                tasks="smb_policy_decoder",
+                sequence_augmentation_config={
+                    **common_config,
+                    "augmentation_config": {},
+                },
+            )
+            hybrid_train_data, _ = load_SMB_datasets(
+                dataset="TinySMB",
+                data_path=str(root),
+                max_his_len=100,
+                index_file=".index.json",
+                tasks="smb_policy_decoder",
+                sequence_augmentation_config={
+                    **common_config,
+                    "augmentation_config": {
+                        "multi_view_random_ratio_views": 2,
+                    },
+                },
+            )
+
+            pure_dataset = pure_train_data.datasets[0]
+            hybrid_dataset = hybrid_train_data.datasets[0]
+            self.assertEqual(
+                hybrid_dataset._multi_view_random_ratio_views(),
+                2,
+            )
+            self.assertEqual(
+                len(pure_dataset._generate_random_ratio_views(
+                    BehaviorSequence(
+                        items=["a", "b", "c", "d"],
+                        behaviors=["pxs", "pxs", "click", "conversion"],
+                        session_ids=[0, 0, 1, 1],
+                        times=[0.0, 1.0, 2.0, 3.0],
+                    ),
+                    pure_dataset._view_rng("u1", 1_000_000),
+                )),
+                0,
+            )
+            random_ratio_views = hybrid_dataset._generate_random_ratio_views(
+                BehaviorSequence(
+                    items=["a", "b", "c", "d"],
+                    behaviors=["pxs", "pxs", "click", "conversion"],
+                    session_ids=[0, 0, 1, 1],
+                    times=[0.0, 1.0, 2.0, 3.0],
+                ),
+                hybrid_dataset._view_rng("u1", 1_000_000),
+            )
+            self.assertEqual(
+                [name for name, _ in random_ratio_views],
+                [
+                    "multi_view_random_ratio_1_of_2",
+                    "multi_view_random_ratio_2_of_2",
+                ],
+            )
+            self.assertTrue(
+                all(indices for _, indices in random_ratio_views),
+            )
+
     def test_policy_views_are_built_from_full_sequences(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
