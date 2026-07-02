@@ -56,6 +56,7 @@ class DatasetArgs:
     multi_view_disable_recent: bool = False
     multi_view_disable_hierarchy: bool = False
     multi_view_disable_session: bool = False
+    multi_view_random_ratio_views: int = 0
 
 
 @dataclass
@@ -148,6 +149,7 @@ ARGUMENT_HELP = {
     "multi_view_disable_recent": "Disable the recent-history semantic view",
     "multi_view_disable_hierarchy": "Disable the hierarchy-evidence semantic view",
     "multi_view_disable_session": "Disable the session-subsampled semantic view",
+    "multi_view_random_ratio_views": "Add original decoder-style random ratio views to multi-view augmentation",
     "optim": "The name of the optimizer",
     "epochs": "Number of training epochs",
     "num_train_epochs": "HF Trainer-compatible number of training epochs. Overrides --epochs when set.",

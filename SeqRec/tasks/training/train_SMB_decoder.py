@@ -55,6 +55,7 @@ class TrainSMBDecoder(BaseGenerativeTrainTask):
                 "multi_view_disable_recent": data_args.multi_view_disable_recent,
                 "multi_view_disable_hierarchy": data_args.multi_view_disable_hierarchy,
                 "multi_view_disable_session": data_args.multi_view_disable_session,
+                "multi_view_random_ratio_views": data_args.multi_view_random_ratio_views,
             },
         }
         return load_SMB_datasets(

@@ -73,6 +73,9 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
         cache_payload = {
             "protocol": "full_sequence_v1",
             "policy": self.augmentation_policy.cache_config(),
+            "multi_view_random_ratio_views": (
+                self._multi_view_random_ratio_views()
+            ),
             "views": self.augmentation_views,
             "seed": self.augmentation_seed,
             "drop_original": self.augmentation_drop_original,
@@ -264,6 +267,69 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
             f"{self.sequence_augmentation}."
         )
 
+    def _multi_view_random_ratio_views(self) -> int:
+        if self.sequence_augmentation != "multi_view":
+            return 0
+        view_count = int(self.augmentation_config.get(
+            "multi_view_random_ratio_views",
+            0,
+        ))
+        if view_count < 0:
+            raise ValueError(
+                "multi_view_random_ratio_views must be greater than or equal to 0."
+            )
+        return view_count
+
+    def _generate_random_ratio_views(
+        self,
+        sequence: BehaviorSequence,
+        rng: np.random.Generator,
+    ) -> list[tuple[str, tuple[int, ...]]]:
+        view_count = self._multi_view_random_ratio_views()
+        if view_count == 0:
+            return []
+
+        behavior_indices = {
+            behavior: [
+                index
+                for index, current_behavior in enumerate(sequence.behaviors)
+                if current_behavior == behavior
+            ]
+            for behavior in self.behavior_level
+        }
+        views = []
+        for view_index, ratio in enumerate(
+            np.arange(1, view_count + 1) / view_count,
+            start=1,
+        ):
+            drop_indices: list[int] = []
+            for behavior, level in self.behavior_level.items():
+                if behavior == self.target_behavior:
+                    continue
+                indices = behavior_indices.get(behavior, [])
+                if not indices:
+                    continue
+                behavior_ratio = ratio / (level + 1)
+                drop_count = int(len(indices) * behavior_ratio)
+                if drop_count > 0:
+                    drop_indices.extend(
+                        rng.choice(
+                            indices,
+                            drop_count,
+                            replace=False,
+                        ).tolist()
+                    )
+            keep_mask = np.ones(len(sequence.items), dtype=bool)
+            keep_mask[drop_indices] = False
+            keep_indices = tuple(np.flatnonzero(keep_mask).tolist())
+            if not keep_indices and sequence.items:
+                keep_indices = (len(sequence.items) - 1,)
+            views.append((
+                f"multi_view_random_ratio_{view_index}_of_{view_count}",
+                keep_indices,
+            ))
+        return views
+
     def _view_rng(
         self,
         uid: str,
@@ -372,6 +438,40 @@ class SMBPolicyAugmentedDatasetForDecoder(SMBExplicitDatasetForDecoder):
                 )
                 input_lengths.append(len(sequence.items))
                 output_lengths.append(len(sequence.items))
+
+            for view_name, indices in self._generate_random_ratio_views(
+                sequence,
+                self._view_rng(uid, 1_000_000),
+            ):
+                policy_view_count += 1
+                if len(indices) == len(sequence.items):
+                    unchanged_policy_views += 1
+                age = np.maximum(
+                    context.target_time
+                    - np.asarray(sequence.times, dtype=float),
+                    0.0,
+                )
+                time_buckets = np.digitize(age, bins=[48.0, 336.0])
+                for index, behavior in enumerate(sequence.behaviors):
+                    level = self.behavior_level[behavior]
+                    input_level_counts[level] += 1
+                    input_time_bucket_counts[time_buckets[index]] += 1
+                for index in indices:
+                    level = self.behavior_level[
+                        sequence.behaviors[index]
+                    ]
+                    output_level_counts[level] += 1
+                    output_time_bucket_counts[time_buckets[index]] += 1
+                if indices in seen_views:
+                    continue
+                seen_views.add(indices)
+                augmented_sequence = sequence.select(list(indices))
+                if not augmented_sequence.items:
+                    continue
+                inter_data.append(self._build_sample(augmented_sequence))
+                view_counts[view_name] = view_counts.get(view_name, 0) + 1
+                input_lengths.append(len(sequence.items))
+                output_lengths.append(len(augmented_sequence.items))
 
             for view_id in range(self.augmentation_views):
                 views = self.augmentation_policy.generate_views(
