@@ -227,6 +227,26 @@ MultiView 的优点是结构清楚、可解释性强；缺点是 hard mask 限�
 
 soft prior 的含义是：对低层级 query 关注高层级 key 施加负 bias，使信息流更偏向“浅层行为证据支持深层行为预测”。这是一种方向性层级先验，需要实验验证是否会损失高层级行为反向辅助低层级行为的能力。
 
+### 6. Auxiliary Objectives 和 Relation Regularization
+
+当前已实现两个 opt-in 训练增强项，默认均关闭，不影响已有模型配置：
+
+1. Next behavior-level prediction：
+
+```text
+L = L_next_token + lambda_level * L_next_level
+```
+
+实现方式是在“下一个 token 是 behavior token”的位置，用当前位置 hidden state 预测下一个行为层级。该目标补充了当前 decoder 训练中的监督空缺：behavior token 会作为上下文输入，但在主 LM labels 中被 mask 掉。
+
+2. Relation regularization：
+
+```text
+L_relation = MSE(relation_bias, relation_prior)
+```
+
+当前 prior 支持 `soft` 或 `zero`，第一批实验使用与 FixedSoft/FactorizedSoft 一致的 soft hierarchy prior。该正则只在 relation-bias 参数可训练时生效，因此 frozen fixed-table 配置不会改变原有行为。
+
 ## Profiling 修正
 
 最初的 trainable table 版本虽然概念简单，但 profiling 显示不可用于长序列训练：
@@ -259,12 +279,16 @@ level_pair_bias[query_level, key_level]
 - `Qwen3TemporalHierarchicalMultiView`: head-partitioned multi-view hard mask。
 - `Qwen3TemporalHierarchicalFixedSoft`: fixed soft hierarchy prior，scale=0.05。
 - `Qwen3TemporalHierarchicalFactorizedSoft`: learnable factorized relation bias with soft prior init，scale=0.05。
+- `Qwen3TemporalHierarchicalMultiViewSoftLevelAux`: Soft MultiView + next behavior-level auxiliary loss。
+- `Qwen3TemporalHierarchicalFixedSoftLevelAux`: FixedSoft + next behavior-level auxiliary loss。
+- `Qwen3TemporalHierarchicalFactorizedSoftReg`: FactorizedSoft + soft-prior relation regularization。
+- `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg`: FactorizedSoft + next behavior-level auxiliary loss + soft-prior relation regularization。
 - `Qwen3TemporalHierarchical`: 保留为兼容入口，当前等价于 factorized zero-init。
 
 ## 后续开放问题
 
 - zero fixed bias 版本很强，说明 TH 基础结构已经有效；是否需要 scalar relation bias 取决于 soft/factorized 进一步实验。
-- factorized 是否需要更好的初始化、rank、正则或学习率策略。
+- factorized 是否需要更好的初始化、rank、relation regularization 或学习率策略。
 - MultiView 的 hard partition 是否应改成 soft gating 或可学习 view fusion。
-- 是否需要 level auxiliary loss 进一步强化层级感知。
+- level auxiliary loss 是否能强化层级感知且不损伤 item generation。
 - 是否要对不同目标行为层级分别选择不同 TH 策略。

@@ -69,7 +69,7 @@ TH attention 的共同基础组件包括：
 | Multi-View | Hard MultiView | 已实现、已实验 | 明显弱于 TH Base/relation-bias 系列；结构化消融 |
 | Multi-View | Soft MultiView | 已实现、已实验 | 优于 Hard MultiView，但仍弱于 FixedSoft/Factorized |
 | Multi-View | Gated MultiView | 已实现、待实验 | 每个 head 学习 view mixture |
-| Objective | Behavior-level auxiliary objectives | 待实现 | 后续增强 TH supervision |
+| Objective | Level auxiliary objective / relation regularization | 已实现、待实验 | 可选 TH supervision 和 relation-bias control |
 | Data | Existing ratio augmentation | 已实现、已使用 | 用户无关、时间无关，需重新设计 |
 
 ## Relation-Bias 方案（主线候选，部分待实验）
@@ -297,27 +297,60 @@ gate = f(query_hidden, query_level, layer)
 
 但动态 gate 会增加复杂度，建议只在 static gated 结果明确有效后实现。
 
-## 辅助 Objectives（待实现，后续重点考虑）
+## 辅助 Objectives 与正则（已实现，待实验）
 
-辅助目标尚未实现。原则是继续以 next-token generation 为主目标，仅添加轻量 TH supervision。
+辅助目标目前已经以 opt-in config 形式实现。原则仍然是以 next-token generation 为主目标；所有新增 loss 默认关闭，只有配置中的权重大于 `0` 时才生效。
 
-### 方案 A：Next Behavior Level Prediction（优先考虑）
+### 方案 A：Next Behavior Level Prediction（已实现）
 
 ```text
 L = L_next_token + lambda_level * L_next_level
 ```
 
-在 behavior token 或 item-level hidden state 上预测下一个行为层级。
+当前实现是在“下一个 token 是 behavior token”的位置，用当前位置 hidden state 预测下一个行为层级。这样可以补上当前 decoder loss 的监督空缺：behavior token 会作为上下文输入，但主 LM loss 中这些 token 被 mask 掉，不会直接预测 behavior token。
 
-优点：
+配置字段：
 
-- 标签来自现有行为序列，不需要额外标注。
-- 直接强化层级转移意识。
-- 实现成本相对最低。
+- `th_level_auxiliary_loss_weight`: 大于 `0` 时启用 level head。
+- `th_level_auxiliary_position`: 当前为 `next_behavior_token`。
+- `th_level_auxiliary_ignore_index`: 默认 `-100`。
+- `th_level_auxiliary_head_bias`: level head 是否使用 bias。
 
-建议优先级：最高。
+新增配置：
 
-### 方案 B：Behavior Transition Type Prediction（后续考虑）
+- `Qwen3TemporalHierarchicalMultiViewSoftLevelAux`
+- `Qwen3TemporalHierarchicalFixedSoftLevelAux`
+- `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg`
+
+建议初始权重：`0.05`。
+
+### 方案 B：Relation-Bias Regularization（已实现）
+
+Relation regularization 对有效的 learned relation-bias matrix 和目标先验之间加入弱 MSE 约束：
+
+```text
+L = L_next_token
+  + lambda_level * L_next_level
+  + lambda_relation * MSE(relation_bias, relation_prior)
+```
+
+当前第一版 prior 使用与 FixedSoft/FactorizedSoft 一致的 soft hierarchy prior。该正则只在 relation-bias 模块存在可训练 relation 参数时产生贡献，因此 frozen fixed-table 配置不会因为该实现而改变原有行为。
+
+配置字段：
+
+- `th_relation_regularization_weight`: 大于 `0` 时启用 regularizer。
+- `th_relation_regularization_target`: `soft` 或 `zero`。
+- `th_relation_regularization_soft_scale`: soft prior 的 scale。
+- `th_relation_regularization_include_special_level`: level `0` 是否参与 MSE。
+
+新增配置：
+
+- `Qwen3TemporalHierarchicalFactorizedSoftReg`
+- `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg`
+
+建议初始权重：`0.01`。
+
+### 方案 C：Behavior Transition Type Prediction（后续考虑）
 
 预测相邻或 query-key pair 的 relation：
 
@@ -333,7 +366,7 @@ same / up / down / temporal-mixed
 
 风险是 pair 数量大，不建议对所有 token pair 做 dense classification。可只在 item/behavior token 位置采样少量 pair。
 
-### 方案 C：Conversion / Upward Progression Objective（后续考虑）
+### 方案 D：Conversion / Upward Progression Objective（后续考虑）
 
 给定浅层行为交互，预测同一 item 是否在后续达到更深行为：
 
@@ -354,16 +387,7 @@ L_upward = BCE(progress_to_deeper_level)
 
 建议作为第二阶段 objective，不作为第一个辅助目标。
 
-### 方案 D：Relation-Bias Regularization（可选，依赖主模型结果）
-
-对 Factorized learned relation matrix 加弱约束：
-
-- 与 soft prior 的距离。
-- 层间一致性。
-- 低秩/稀疏性。
-- 对称或单调性约束。
-
-建议先通过可视化观察 learned matrix，再决定是否需要正则，避免过早强加错误先验。
+后续 relation-side 扩展可以继续考虑层间一致性、低秩/稀疏性、单调性约束或 sampled relation-type supervision。仍不建议直接做 dense pair classification。
 
 ## 序列增强现状（已实现，但需要重新设计）
 
@@ -670,15 +694,9 @@ late: aggressive sparse-history views
 - 如果 relation-bias 扩展仍表现为局部提升或整体弱于 TH Base：主模型采用 TH Base，并将核心贡献定义为 behavior-aware replacement TH attention，而不是 scalar relation bias。
 - 如果 Gated MultiView 明显提升：可考虑与 Factorized 组合，但应先验证复杂度和可解释性收益。
 
-### 第三阶段：实现第一个辅助 Objective（下一轮开发）
+### 第三阶段：评估已实现的辅助目标与正则
 
-优先实现 next behavior level prediction：
-
-```text
-L = L_next_token + lambda_level * L_next_level
-```
-
-建议先测试 `lambda_level=0.05/0.1`。
+针对 `Qwen3TemporalHierarchicalMultiViewSoftLevelAux`、`Qwen3TemporalHierarchicalFixedSoftLevelAux`、`Qwen3TemporalHierarchicalFactorizedSoftReg` 和 `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg` 做定向消融。初始建议使用 `lambda_level=0.05` 和 `lambda_relation=0.01`；只有第一轮结果出现明确方向性时再继续调权重。
 
 ### 第四阶段：重新设计序列增强（后续重点）
 

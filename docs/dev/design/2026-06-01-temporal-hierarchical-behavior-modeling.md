@@ -274,6 +274,10 @@ Config mapping:
 - `Qwen3TemporalHierarchicalFixedBias`: fixed table relation bias, with `th_relation_bias_type="table"` and `th_relation_bias_trainable=false`.
 - `Qwen3TemporalHierarchicalFactorized`: learnable low-rank relation bias, with `th_relation_bias_type="factorized"` and `th_relation_bias_rank=4`.
 - `Qwen3TemporalHierarchicalMultiView`: head-partitioned multi-view temporal/same/up/down attention.
+- `Qwen3TemporalHierarchicalMultiViewSoftLevelAux`: Soft MultiView plus next behavior-level auxiliary loss.
+- `Qwen3TemporalHierarchicalFixedSoftLevelAux`: FixedSoft plus next behavior-level auxiliary loss.
+- `Qwen3TemporalHierarchicalFactorizedSoftReg`: FactorizedSoft plus soft-prior relation regularization.
+- `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg`: FactorizedSoft plus both next behavior-level auxiliary loss and soft-prior relation regularization.
 - `Qwen3TemporalHierarchical` remains a compatibility alias for the factorized version.
 
 ### 2. Multi-View Cross-Level Attention Heads
@@ -355,6 +359,12 @@ L = L_next_token + lambda_level * L_next_level
 ```
 
 Use a small `lambda_level` and predict the behavior token/level at behavior-token positions only. This is cheap, uses existing labels, and directly improves behavior-hierarchy awareness.
+
+Implementation update:
+
+- Next behavior-level prediction is implemented as an opt-in TH auxiliary head. It predicts the next behavior level from the current hidden state when the next token is a behavior token. The default loss weight is `0`, so existing configs are unchanged.
+- Relation regularization is implemented as an opt-in MSE penalty from the effective learned relation-bias matrix to a soft or zero prior. It only contributes when relation-bias parameters are trainable.
+- Initial experiment configs include `Qwen3TemporalHierarchicalMultiViewSoftLevelAux`, `Qwen3TemporalHierarchicalFixedSoftLevelAux`, `Qwen3TemporalHierarchicalFactorizedSoftReg`, and `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg`.
 
 ### 5. Level-Aware Generation Prompting
 

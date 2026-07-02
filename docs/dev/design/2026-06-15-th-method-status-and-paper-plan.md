@@ -53,7 +53,7 @@ Consequently, the zero-relation-bias model is still substantially different from
 | Multi-View | Hard MultiView | Implemented and evaluated | Clearly weaker than TH Base/relation-bias variants; structured ablation |
 | Multi-View | Soft MultiView | Implemented and evaluated | Improves Hard MultiView but remains weaker than FixedSoft/Factorized |
 | Multi-View | Gated MultiView | Implemented, pending result | Learnable per-head view mixture |
-| Objective | Behavior-level auxiliary objectives | Not implemented | Future TH supervision |
+| Objective | Level auxiliary objective / relation regularization | Implemented, pending evaluation | Optional TH supervision and relation-bias control |
 | Data | Existing ratio augmentation | Implemented and used | User-independent and time-independent; needs redesign |
 
 ## Relation-Bias Family (Main-Line Candidate, Partly Pending)
@@ -128,19 +128,58 @@ Gated MultiView learns a softmax view mixture for each head. Gates are initializ
 
 It preserves interpretability while allowing heads to revise their assigned view. The current gate is static per head; query-, level-, or user-conditioned dynamic gates should only be considered if this static gated variant is clearly beneficial.
 
-## Auxiliary Objectives (Not Implemented, Future Focus)
+## Auxiliary Objectives And Regularization (Implemented, Pending Evaluation)
 
-Auxiliary objectives are not yet implemented. Next-token generation should remain primary.
+Auxiliary objectives are now implemented as opt-in config features. Next-token generation remains the primary loss; all added terms are disabled by default unless their config weights are positive.
 
-### Next Behavior-Level Prediction (High Priority)
+### Next Behavior-Level Prediction (Implemented)
 
 ```text
 L = L_next_token + lambda_level * L_next_level
 ```
 
-Predict the next behavior level at behavior-token or item-level positions. This uses existing labels and directly strengthens hierarchy awareness.
+The implemented objective predicts the next behavior level from the current hidden state when the next token is a behavior token. This fills the current decoder loss gap: behavior tokens are visible as context, but they are masked out of the main LM labels.
 
-Recommended as the first auxiliary objective.
+Config fields:
+
+- `th_level_auxiliary_loss_weight`: enables the auxiliary head when greater than `0`.
+- `th_level_auxiliary_position`: currently `next_behavior_token`.
+- `th_level_auxiliary_ignore_index`: default `-100`.
+- `th_level_auxiliary_head_bias`: whether the level head uses bias.
+
+Added configs:
+
+- `Qwen3TemporalHierarchicalMultiViewSoftLevelAux`
+- `Qwen3TemporalHierarchicalFixedSoftLevelAux`
+- `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg`
+
+Recommended initial weight: `0.05`.
+
+### Relation Regularization (Implemented)
+
+Relation regularization adds a weak MSE penalty between the effective learned relation-bias matrix and a target prior:
+
+```text
+L = L_next_token
+  + lambda_level * L_next_level
+  + lambda_relation * MSE(relation_bias, relation_prior)
+```
+
+The first implemented prior is the same soft hierarchy prior used by FixedSoft/FactorizedSoft. The regularizer only contributes when a relation-bias module has trainable relation parameters, so frozen fixed-table configs remain effectively unchanged.
+
+Config fields:
+
+- `th_relation_regularization_weight`: enables the regularizer when greater than `0`.
+- `th_relation_regularization_target`: `soft` or `zero`.
+- `th_relation_regularization_soft_scale`: scale for the soft prior.
+- `th_relation_regularization_include_special_level`: whether level `0` participates in the MSE.
+
+Added configs:
+
+- `Qwen3TemporalHierarchicalFactorizedSoftReg`
+- `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg`
+
+Recommended initial weight: `0.01`.
 
 ### Behavior Transition-Type Prediction (Future Consideration)
 
@@ -158,9 +197,7 @@ Given a shallow interaction, predict whether the same item reaches a deeper leve
 
 This directly matches conversion modeling but requires careful window and censoring definitions. It should be considered after next-level prediction.
 
-### Relation Regularization (Optional, Dependent On Main-Model Results)
-
-Potential regularizers include distance to a soft prior, layer consistency, low-rank penalties, or monotonic constraints. These should only be added after learned relation matrices are inspected.
+Future relation-side extensions include layer consistency, low-rank penalties, monotonic constraints, or sampled relation-type supervision. Dense pair classification should still be avoided.
 
 ## Existing Sequence Augmentation (Implemented, Redesign Needed)
 
@@ -290,9 +327,9 @@ Record conversion, merged, per-behavior metrics, training time, memory, learned 
 - If relation-bias extensions remain mixed or below TH Base, define the main contribution as behavior-aware replacement TH attention rather than scalar relation bias.
 - If Gated MultiView improves substantially, consider combining it with Factorized only after checking complexity and attribution.
 
-### Stage 3: Implement The First Auxiliary Objective (Next Development Round)
+### Stage 3: Evaluate Implemented Auxiliary Objectives And Regularization
 
-Implement next behavior-level prediction first, with initial weights `0.05` and `0.1`.
+Run targeted ablations for `Qwen3TemporalHierarchicalMultiViewSoftLevelAux`, `Qwen3TemporalHierarchicalFixedSoftLevelAux`, `Qwen3TemporalHierarchicalFactorizedSoftReg`, and `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg`. Start from `lambda_level=0.05` and `lambda_relation=0.01`; only tune these weights if the first run shows a clear directional signal.
 
 ### Stage 4: Redesign Sequence Augmentation (Future Focus)
 
