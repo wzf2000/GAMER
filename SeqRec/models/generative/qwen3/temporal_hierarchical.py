@@ -1,6 +1,7 @@
 from typing import Callable, Optional, Tuple, Unpack
 
 import torch
+import torch.nn.functional as F
 from loguru import logger
 from torch import nn
 from transformers.activations import ACT2FN
@@ -291,6 +292,72 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
             return relation_bias * self.th_relation_bias_alpha.to(relation_bias.dtype)
         return relation_bias * self.th_relation_bias_scale
 
+    def _relation_bias_has_trainable_parameters(self) -> bool:
+        if not getattr(self, "use_relation_bias", False):
+            return False
+        if getattr(self, "th_relation_bias_type", "table") == "factorized":
+            return (
+                self.level_query_bias_factor.requires_grad
+                or self.level_key_bias_factor.requires_grad
+                or (
+                    getattr(self, "th_relation_bias_learnable_scale", False)
+                    and self.th_relation_bias_alpha.requires_grad
+                )
+            )
+        return (
+            isinstance(self.level_pair_bias, nn.Parameter)
+            and self.level_pair_bias.requires_grad
+        ) or (
+            getattr(self, "th_relation_bias_learnable_scale", False)
+            and self.th_relation_bias_alpha.requires_grad
+        )
+
+    def _dense_level_pair_bias(self) -> torch.Tensor:
+        if getattr(self, "th_relation_bias_type", "table") == "factorized":
+            pair_bias = torch.einsum(
+                "qhr,khr->qkh",
+                self.level_query_bias_factor,
+                self.level_key_bias_factor,
+            )
+        else:
+            pair_bias = self.level_pair_bias
+        return self._apply_relation_bias_scale(pair_bias.float())
+
+    def _relation_regularization_target(self, pair_bias: torch.Tensor) -> torch.Tensor:
+        target_type = getattr(self.config, "th_relation_regularization_target", "soft")
+        if target_type == "zero":
+            return torch.zeros_like(pair_bias)
+        if target_type != "soft":
+            raise ValueError(
+                "th_relation_regularization_target must be 'soft' or 'zero'."
+            )
+        scale = float(getattr(
+            self.config,
+            "th_relation_regularization_soft_scale",
+            getattr(self.config, "th_relation_bias_soft_scale", 0.1),
+        ))
+        levels = torch.arange(
+            self.config.num_behavior + 1,
+            dtype=pair_bias.dtype,
+            device=pair_bias.device,
+        )
+        target = (levels[:, None] - levels[None, :]).clamp(max=0.0) * scale
+        return target[:, :, None].expand_as(pair_bias)
+
+    def compute_relation_regularization_loss(self) -> torch.Tensor | None:
+        if not self._relation_bias_has_trainable_parameters():
+            return None
+        pair_bias = self._dense_level_pair_bias()
+        target = self._relation_regularization_target(pair_bias).detach()
+        if not bool(getattr(
+            self.config,
+            "th_relation_regularization_include_special_level",
+            False,
+        )):
+            pair_bias = pair_bias[1:, 1:, :]
+            target = target[1:, 1:, :]
+        return F.mse_loss(pair_bias, target)
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -533,6 +600,23 @@ class Qwen3TemporalHierarchicalModel(Qwen3DecoderModelBase):
             self.cached_action_indices = torch.cat([self.cached_action_indices, action_indices], dim=1)
         return self.cached_action_indices
 
+    def compute_relation_regularization_loss(self) -> torch.Tensor | None:
+        relation_regularization_weight = float(
+            getattr(self.config, "th_relation_regularization_weight", 0.0)
+        )
+        if relation_regularization_weight <= 0.0:
+            return None
+        relation_losses = []
+        for decoder_layer in self.layers:
+            if not getattr(decoder_layer, "is_temporal_hierarchical", False):
+                continue
+            relation_loss = decoder_layer.self_attn.compute_relation_regularization_loss()
+            if relation_loss is not None:
+                relation_losses.append(relation_loss)
+        if not relation_losses:
+            return None
+        return torch.stack(relation_losses).mean() * relation_regularization_weight
+
     @can_return_tuple
     def forward(
         self,
@@ -620,6 +704,104 @@ class Qwen3TemporalHierarchicalWithTemperature(CustomCausalLMWrapperMixin, Qwen3
     def __init__(self, config: Qwen3MoeConfig):
         super(Qwen3ForCausalLM, self).__init__(config)
         self.init_custom_causal_lm(config, Qwen3TemporalHierarchicalModel)
+
+    def init_auxiliary_heads(self, config: Qwen3MoeConfig):
+        self.th_level_auxiliary_loss_weight = float(
+            getattr(config, "th_level_auxiliary_loss_weight", 0.0)
+        )
+        self.th_level_auxiliary_position = getattr(
+            config,
+            "th_level_auxiliary_position",
+            "next_behavior_token",
+        )
+        self.th_level_auxiliary_ignore_index = int(
+            getattr(config, "th_level_auxiliary_ignore_index", -100)
+        )
+        self.th_level_auxiliary_head_bias = bool(
+            getattr(config, "th_level_auxiliary_head_bias", True)
+        )
+        if self.th_level_auxiliary_position != "next_behavior_token":
+            raise ValueError(
+                "th_level_auxiliary_position must be 'next_behavior_token'."
+            )
+        self.use_th_level_auxiliary = (
+            self.th_level_auxiliary_loss_weight > 0.0
+            and getattr(config, "num_behavior", 0) > 0
+        )
+        if self.use_th_level_auxiliary:
+            self.level_head = nn.Linear(
+                config.hidden_size,
+                config.num_behavior + 1,
+                bias=self.th_level_auxiliary_head_bias,
+            )
+
+    def _build_next_behavior_level_labels(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: torch.Tensor | None,
+    ) -> torch.LongTensor:
+        shifted_input_ids = input_ids[:, 1:]
+        level_labels = torch.full(
+            shifted_input_ids.shape,
+            self.th_level_auxiliary_ignore_index,
+            dtype=torch.long,
+            device=input_ids.device,
+        )
+        for behavior_token, behavior_index in self.config.behavior_maps.items():
+            level_labels[shifted_input_ids == int(behavior_token)] = (
+                int(behavior_index) + 1
+            )
+
+        if attention_mask is not None:
+            valid_positions = (
+                attention_mask[:, :-1].bool()
+                & attention_mask[:, 1:].bool()
+            )
+            level_labels = level_labels.masked_fill(
+                ~valid_positions,
+                self.th_level_auxiliary_ignore_index,
+            )
+        return level_labels
+
+    def compute_auxiliary_loss(
+        self,
+        *,
+        hidden_states: torch.FloatTensor,
+        labels: torch.LongTensor,
+        model_kwargs: dict,
+        extra_kwargs: dict,
+        wrapper_kwargs: dict,
+    ) -> torch.Tensor | None:
+        auxiliary_losses = []
+        input_ids = model_kwargs.get("input_ids")
+        if (
+            getattr(self, "use_th_level_auxiliary", False)
+            and input_ids is not None
+            and input_ids.shape[1] >= 2
+        ):
+            attention_mask = model_kwargs.get("attention_mask")
+            level_labels = self._build_next_behavior_level_labels(
+                input_ids,
+                attention_mask,
+            )
+            if (level_labels != self.th_level_auxiliary_ignore_index).any():
+                level_logits = self.level_head(hidden_states[:, :-1, :])
+                level_loss = F.cross_entropy(
+                    level_logits.reshape(-1, level_logits.shape[-1]).float(),
+                    level_labels.reshape(-1),
+                    ignore_index=self.th_level_auxiliary_ignore_index,
+                )
+                auxiliary_losses.append(
+                    level_loss * self.th_level_auxiliary_loss_weight
+                )
+
+        relation_loss = self.model.compute_relation_regularization_loss()
+        if relation_loss is not None:
+            auxiliary_losses.append(relation_loss)
+
+        if not auxiliary_losses:
+            return None
+        return torch.stack(auxiliary_losses).sum()
 
     @can_return_tuple
     def forward(
