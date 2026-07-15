@@ -366,6 +366,12 @@ Implementation update:
 - Relation regularization is implemented as an opt-in MSE penalty from the effective learned relation-bias matrix to a soft or zero prior. It only contributes when relation-bias parameters are trainable.
 - Initial experiment configs include `Qwen3TemporalHierarchicalMultiViewSoftLevelAux`, `Qwen3TemporalHierarchicalFixedSoftLevelAux`, `Qwen3TemporalHierarchicalFactorizedSoftReg`, and `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg`.
 
+First ShortVideoAD test-set result:
+
+- Relation regularization is the stronger objective-side direction. `FactorizedSoftReg` improves all reported CVR metrics over `FactorizedSoft`, including `HR@5 +2.41%`, `HR@10 +1.29%`, `N@5 +1.71%`, and `N@10 +1.30%`, although merged behavior decreases slightly.
+- The current LevelAux objective is mixed. On MultiViewSoft it improves CVR `HR@5/R@5` and most merged metrics, but lowers CVR `R@10/N@10`; adding it on top of RelationReg similarly improves merged behavior while weakening CVR recall/NDCG relative to RelationReg alone.
+- The current priority is RelationReg with multi-seed and weight verification. LevelAux remains an ablation unless a lower weight or high-level/target-aware transition target removes the CVR conflict.
+
 ### 5. Level-Aware Generation Prompting
 
 Evaluation currently appends the target behavior token and generates item semantic IDs. Keep this protocol, but interpret it as conditional generation on a target behavior level:

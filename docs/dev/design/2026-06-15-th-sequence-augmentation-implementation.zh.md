@@ -99,6 +99,7 @@ policy(full_sequence)
 | User-Adaptive Ratio | 已实现并完成 full-sequence 对齐 | 已验证零 target 回退、训练前缀先验和 full-sequence dataset 行为 | 按修正协议重跑 |
 | Target-Conditioned Augmentation | 已实现为 tail-conditioned full-sequence policy | 已验证 same-level/precursor 恢复和 full-sequence dataset 行为 | 按修正协议重跑 |
 | Multi-View Sequence Augmentation | 已实现并完成 full-sequence 对齐 | 已验证语义视图生成、Dataset 去重和 full-sequence dataset 行为 | 按修正协议重跑 |
+| Hybrid Multi-View + Random Ratio | 已实现、已实验 | `hybrid_random4` 在主要 CVR 和 merged 指标上均超过原始 4x | 继续固定样本预算对照 |
 | Curriculum Augmentation | 未实现 | 未验证 | 暂缓 |
 
 ## 共享实现架构（已实现并验证）
@@ -862,6 +863,7 @@ Merged behavior test-set 结果：
 | Full-sequence policy dataset proportion | 0.1365 | 0.2009 | 0.0580 | 0.0702 |
 | Full-sequence policy session | 0.1390 | 0.2064 | 0.0592 | 0.0722 |
 | Full-sequence policy multi-view | 0.1421 | 0.2101 | 0.0609 | 0.0740 |
+| Hybrid multi-view + random4 | **0.1446** | **0.2135** | **0.0621** | **0.0755** |
 | Full-sequence policy target-conditioned | 0.1373 | 0.2027 | 0.0586 | 0.0711 |
 | Full-sequence policy user-adaptive | 0.1379 | 0.2038 | 0.0592 | 0.0718 |
 
@@ -876,12 +878,13 @@ CVR 目标行为 test-set 结果：
 | Full-sequence policy dataset proportion | 0.1249 | 0.1929 | 0.0668 | 0.0838 |
 | Full-sequence policy session | 0.1268 | 0.1930 | 0.0676 | 0.0847 |
 | Full-sequence policy multi-view | 0.1316 | 0.1935 | 0.0709 | 0.0869 |
+| Hybrid multi-view + random4 | **0.1351** | **0.2008** | **0.0728** | **0.0901** |
 | Full-sequence policy target-conditioned | 0.1265 | 0.1917 | 0.0674 | 0.0840 |
 | Full-sequence policy user-adaptive | 0.1244 | 0.1880 | 0.0679 | 0.0845 |
 
-在修正后的 full-sequence 协议下，policy variants 明显强于 END4Rec 和 MBGen，但没有稳定超过原始 4x explicit-decoder augmentation baseline。Full-sequence multi-view 是当前最强 policy 版本：在 merged behavior 上基本追平原始 4x baseline（`HR@5/N@5` 略高或持平，`HR@10/N@10` 略低），并提升 CVR `HR@5/N@5`，但在 CVR `HR@10/N@10` 上仍低于原始 4x baseline。Dataset-level proportion、session、target-conditioned 和 user-adaptive 在多数指标上都弱于原始 4x baseline。因此当前结论是：语义 policy augmentation 还不能替代 naive 4x ratio augmentation；multi-view policy 是唯一值得继续细化的方向。早期 history-only policy runs 只应作为历史诊断。
+在修正后的 full-sequence 协议下，纯语义 policy variants 没有稳定超过原始 4x explicit-decoder augmentation baseline。Full-sequence multi-view 是最强的 pure policy：它提升 CVR `HR@5/N@5`，但降低 CVR `HR@10/N@10`，表现为靠前排序更强、覆盖不足。Dataset-level proportion、session、target-conditioned 和 user-adaptive 在多数指标上偏弱。早期 history-only policy runs 仍只应作为历史诊断。
 
-当前已落地的下一步变体是测试 hybrid multi-view augmentation，而不是继续用纯语义 policy 替代原始增强：
+当前已落地并完成首轮实验的 hybrid 方案不再用纯语义 policy 替代原始增强，而是组合两类有效信号：
 
 ```text
 原始完整序列
@@ -889,4 +892,11 @@ CVR 目标行为 test-set 结果：
 + semantic multi-view views
 ```
 
-动机应以 CVR 为主：纯 multi-view 提升 `HR@5/N@5`，说明靠前候选质量更好；但降低 `HR@10/N@10`，说明覆盖不足。Random ratio views 应保留 naive baseline 的覆盖优势，semantic multi-view 则补充 TH-aware 结构先验。该方案通过 `sequence_augmentation=multi_view` 下的显式参数 `--multi_view_random_ratio_views N` 启用，因此此前 pure-policy 结果仍可复现。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此仍未实现并继续暂缓。
+`hybrid_random4` 的首轮 test-set 结果验证了这个以 CVR 为主的假设。相对同一 MultiViewSoft backbone 的原始 4x augmentation，CVR `HR@5` 从 `0.1274` 提升到 `0.1351`（`+6.08%`），`HR@10` 从 `0.1958` 提升到 `0.2008`（`+2.56%`），`N@5` 从 `0.0708` 提升到 `0.0728`（`+2.86%`），`N@10` 从 `0.0885` 提升到 `0.0901`（`+1.74%`）；merged `HR@5/HR@10/N@5/N@10` 也全部提升。相对 pure multi-view，Hybrid random4 的所有 CVR 和 merged 指标均提高，说明 random views 修复了 Top-10 覆盖损失，同时保留 semantic views 的 Top-5 收益。分行为结果也较健康：p3s 普遍提升，click 相对原始 4x 基本持平，CVR 增益并非来自浅层行为预测的整体崩塌。
+
+这是当前最强的数据增强结果，但仍存在样本预算混杂因素。原始 4x 最多生成“原始序列 + 4 个 random views”，Hybrid random4 最多生成“原始序列 + 4 个 random views + 3 个 semantic views”。因此当前结果证明了实际训练 recipe 更好，但还不能把收益完全归因于 semantic complementarity，而非更多训练样本和计算量。需要补充两个对照：
+
+1. `Hybrid random1`：原始序列 + 1 个 random view + 最多 3 个 semantic views，与原始 4x 的最大视图预算近似一致。
+2. `Random7`：原始序列 + 7 个 random views，与 Hybrid random4 的最大视图预算近似一致。
+
+如果 Hybrid random1 能达到或超过原始 4x，且 Hybrid random4 超过 Random7，就能分别支持 semantic view 本身的价值以及 random/semantic 的互补性。由于部分增益只有零点几个百分点，仍需多随机种子验证。Hybrid 方案通过 `sequence_augmentation=multi_view` 下的 `--multi_view_random_ratio_views N` 启用，pure-policy 结果仍可复现。Curriculum 会越过当前静态 cache 边界，需要 Dataset、sampler、Trainer、DDP 和 resume 行为协同修改，因此继续暂缓。

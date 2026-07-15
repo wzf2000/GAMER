@@ -53,8 +53,9 @@ Consequently, the zero-relation-bias model is still substantially different from
 | Multi-View | Hard MultiView | Implemented and evaluated | Clearly weaker than TH Base/relation-bias variants; structured ablation |
 | Multi-View | Soft MultiView | Implemented and evaluated | Improves Hard MultiView but remains weaker than FixedSoft/Factorized |
 | Multi-View | Gated MultiView | Implemented, pending result | Learnable per-head view mixture |
-| Objective | Level auxiliary objective / relation regularization | Implemented, pending evaluation | Optional TH supervision and relation-bias control |
-| Data | Existing ratio augmentation | Implemented and used | User-independent and time-independent; needs redesign |
+| Objective | Next behavior-level auxiliary objective | Implemented and evaluated | Mixed CVR result; retain as an auxiliary-objective ablation |
+| Objective | Relation regularization | Implemented and evaluated | Consistently improves FactorizedSoft CVR; preferred objective-side extension |
+| Data | Hybrid random-ratio + semantic multi-view augmentation | Implemented and evaluated | Strongest current augmentation result; pending fixed-budget controls |
 
 ## Relation-Bias Family (Main-Line Candidate, Partly Pending)
 
@@ -128,7 +129,7 @@ Gated MultiView learns a softmax view mixture for each head. Gates are initializ
 
 It preserves interpretability while allowing heads to revise their assigned view. The current gate is static per head; query-, level-, or user-conditioned dynamic gates should only be considered if this static gated variant is clearly beneficial.
 
-## Auxiliary Objectives And Regularization (Implemented, Pending Evaluation)
+## Auxiliary Objectives And Regularization (Implemented And Evaluated)
 
 Auxiliary objectives are now implemented as opt-in config features. Next-token generation remains the primary loss; all added terms are disabled by default unless their config weights are positive.
 
@@ -180,6 +181,41 @@ Added configs:
 - `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg`
 
 Recommended initial weight: `0.01`.
+
+### ShortVideoAD Test-Set Results
+
+The first auxiliary-objective experiments use `smb_explicit_decoder_4`, the ShortVideoAD `smb_explicit` test set, and the same backbone-specific baseline for each comparison. CVR is the primary target and merged behavior is secondary.
+
+CVR target-behavior results:
+
+| Variant | HR@5 | HR@10 | R@5 | R@10 | N@5 | N@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| MultiViewSoft | 0.1274 | 0.1958 | 0.0966 | 0.1504 | 0.0708 | 0.0885 |
+| MultiViewSoft + LevelAux | 0.1293 | 0.1955 | 0.0977 | 0.1474 | 0.0700 | 0.0865 |
+| FactorizedSoft | 0.1274 | 0.1947 | 0.0972 | 0.1503 | 0.0690 | 0.0867 |
+| FactorizedSoft + RelationReg | **0.1305** | 0.1972 | **0.0985** | **0.1518** | **0.0702** | **0.0878** |
+| FactorizedSoft + LevelAux + RelationReg | 0.1304 | **0.1981** | 0.0975 | 0.1493 | 0.0698 | 0.0870 |
+| FixedSoft reference | 0.1349 | **0.1981** | 0.1007 | 0.1513 | 0.0735 | 0.0900 |
+
+Merged-behavior results:
+
+| Variant | HR@5 | HR@10 | R@5 | R@10 | N@5 | N@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| MultiViewSoft | 0.1418 | 0.2102 | 0.0718 | 0.1130 | 0.0609 | 0.0742 |
+| MultiViewSoft + LevelAux | 0.1432 | 0.2111 | 0.0728 | 0.1133 | 0.0614 | 0.0745 |
+| FactorizedSoft | 0.1434 | 0.2099 | 0.0729 | 0.1126 | 0.0615 | 0.0744 |
+| FactorizedSoft + RelationReg | 0.1413 | 0.2099 | 0.0718 | 0.1128 | 0.0607 | 0.0739 |
+| FactorizedSoft + LevelAux + RelationReg | **0.1441** | **0.2123** | **0.0732** | **0.1140** | **0.0619** | **0.0751** |
+| FixedSoft reference | 0.1450 | 0.2121 | 0.0743 | 0.1142 | 0.0628 | 0.0756 |
+
+The results separate the two objective effects:
+
+1. RelationReg is the clearest positive result. Relative to FactorizedSoft, it improves all eight CVR metrics: `HR@5 +2.41%`, `HR@10 +1.29%`, `R@5 +1.32%`, `R@10 +1.02%`, `N@5 +1.71%`, and `N@10 +1.30%`, with similar gains at rank 1. Its small merged-behavior loss suggests that the regularizer reallocates capacity toward the sparse high-level target rather than uniformly improving all behaviors.
+2. LevelAux alone is not a stable CVR improvement. On MultiViewSoft it raises `HR@5` and `R@5`, but lowers `R@10` by `2.00%` and `N@10` by `2.25%`. The merged metrics improve slightly, indicating better generic behavior-sequence modeling but possible gradient conflict with target-item ranking.
+3. Combining LevelAux and RelationReg produces the best merged result within the FactorizedSoft objective ablation and raises CVR hit rate, but weakens CVR recall and NDCG relative to RelationReg alone. LevelAux therefore appears to redistribute the relation-regularization gain toward shallow/merged behavior.
+4. FixedSoft remains the stronger absolute CVR reference. RelationReg narrows the gap between the learnable FactorizedSoft model and the frozen prior, but does not yet prove that a learned relation matrix is superior.
+
+Current decision: prioritize RelationReg as the objective-side main candidate. Keep LevelAux as an informative ablation, and only continue it with lower weights or target-aware/high-level transition supervision. Because the observed differences are mostly a few tenths of a percentage point, multi-seed confirmation is required before making a stability claim.
 
 ### Behavior Transition-Type Prediction (Future Consideration)
 
@@ -327,9 +363,9 @@ Record conversion, merged, per-behavior metrics, training time, memory, learned 
 - If relation-bias extensions remain mixed or below TH Base, define the main contribution as behavior-aware replacement TH attention rather than scalar relation bias.
 - If Gated MultiView improves substantially, consider combining it with Factorized only after checking complexity and attribution.
 
-### Stage 3: Evaluate Implemented Auxiliary Objectives And Regularization
+### Stage 3: Refine Evaluated Auxiliary Objectives And Regularization
 
-Run targeted ablations for `Qwen3TemporalHierarchicalMultiViewSoftLevelAux`, `Qwen3TemporalHierarchicalFixedSoftLevelAux`, `Qwen3TemporalHierarchicalFactorizedSoftReg`, and `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg`. Start from `lambda_level=0.05` and `lambda_relation=0.01`; only tune these weights if the first run shows a clear directional signal.
+The first runs at `lambda_level=0.05` and `lambda_relation=0.01` are complete. Next, repeat FactorizedSoft + RelationReg over multiple seeds and test a small relation-weight sweep such as `0.003/0.01/0.03`. Only revisit LevelAux with a lower weight such as `0.01` or supervision focused on high-level transitions; add a LevelAux-only FactorizedSoft control if contribution isolation is needed.
 
 ### Stage 4: Redesign Sequence Augmentation (Future Focus)
 
@@ -472,7 +508,9 @@ Current test-set evidence supports:
 - behavior-aware Q/K/V helps both conversion and merged behavior,
 - controlled relation bias can improve CVR ranking and coverage,
 - fixed soft hierarchy prior can improve merged behavior and most top-rank CVR metrics,
-- soft MultiView improves hard MultiView but is not yet the strongest model line.
+- soft MultiView improves hard MultiView but is not yet the strongest model line,
+- soft-prior relation regularization consistently improves FactorizedSoft CVR in the first test-set run,
+- the current next-level auxiliary objective improves merged behavior slightly but does not provide a stable CVR gain.
 - compared with MBGen, the TH variants show large gains on both merged behavior and CVR; compared with Original GAMER, the most robust gains are on CVR.
 
 Claims still requiring experiments:
@@ -481,7 +519,8 @@ Claims still requiring experiments:
 - factorized soft prior is beneficial,
 - gated view mixture can stably beat relation-bias variants,
 - gated MultiView outperforms hard MultiView,
-- TH-aware auxiliary objectives and augmentation add further gains.
+- auxiliary-objective gains are stable across seeds and relation-regularization weights,
+- hybrid augmentation gains remain after controlling the number of generated views.
 
 ## Current Conclusion
 
@@ -494,6 +533,8 @@ TH Base
 ```
 
 The latest ShortVideoAD test-set results show that `TH-FixedSoft` is best among new TH variants on merged behavior and most top-rank CVR metrics, while `TH-Factorized` is best on deeper CVR metrics. Compared with MBGen, these variants are clearly stronger. Compared with Original GAMER, the improvement is clear on CVR but mixed on merged behavior, where FixedSoft slightly improves `HR@5/N@5/N@10` while trailing on `HR@10`. `TH-FixedBias` should remain the clean TH base ablation because its scalar relation bias is frozen zero, but it should no longer be described as the best final variant. `TH-MultiViewSoft` remains a useful structured-view ablation, and hard MultiView should be treated mainly as evidence that rigid view partitioning is too restrictive.
+
+On the objective side, the first test-set ablation supports soft-prior RelationReg as a useful stabilizer for learnable FactorizedSoft relations. The current LevelAux formulation is not a main-model improvement: it favors merged behavior and short-list hit rate but weakens several CVR recall/NDCG metrics. This distinction should be preserved in the paper rather than grouping both losses under one positive auxiliary-objective claim.
 
 The data-side design should move beyond a user-independent random ratio schedule toward:
 

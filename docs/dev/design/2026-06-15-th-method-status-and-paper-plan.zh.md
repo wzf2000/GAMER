@@ -69,8 +69,9 @@ TH attention 的共同基础组件包括：
 | Multi-View | Hard MultiView | 已实现、已实验 | 明显弱于 TH Base/relation-bias 系列；结构化消融 |
 | Multi-View | Soft MultiView | 已实现、已实验 | 优于 Hard MultiView，但仍弱于 FixedSoft/Factorized |
 | Multi-View | Gated MultiView | 已实现、待实验 | 每个 head 学习 view mixture |
-| Objective | Level auxiliary objective / relation regularization | 已实现、待实验 | 可选 TH supervision 和 relation-bias control |
-| Data | Existing ratio augmentation | 已实现、已使用 | 用户无关、时间无关，需重新设计 |
+| Objective | Next behavior-level auxiliary objective | 已实现、已实验 | CVR 结果有正有负，保留为辅助目标消融 |
+| Objective | Relation regularization | 已实现、已实验 | 稳定改善 FactorizedSoft CVR，优先保留的 objective-side 扩展 |
+| Data | Hybrid random-ratio + semantic multi-view augmentation | 已实现、已实验 | 当前最强增强结果，等待固定样本预算对照 |
 
 ## Relation-Bias 方案（主线候选，部分待实验）
 
@@ -297,7 +298,7 @@ gate = f(query_hidden, query_level, layer)
 
 但动态 gate 会增加复杂度，建议只在 static gated 结果明确有效后实现。
 
-## 辅助 Objectives 与正则（已实现，待实验）
+## 辅助 Objectives 与正则（已实现、已实验）
 
 辅助目标目前已经以 opt-in config 形式实现。原则仍然是以 next-token generation 为主目标；所有新增 loss 默认关闭，只有配置中的权重大于 `0` 时才生效。
 
@@ -349,6 +350,41 @@ L = L_next_token
 - `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg`
 
 建议初始权重：`0.01`。
+
+### ShortVideoAD Test-Set 实验结果
+
+第一批辅助目标实验均使用 `smb_explicit_decoder_4`、ShortVideoAD `smb_explicit` test set，并针对每个实验使用同结构无辅助 loss 版本作为基线。以下以 CVR 为主要目标，merged behavior 为辅助指标。
+
+CVR 目标行为结果：
+
+| Variant | HR@5 | HR@10 | R@5 | R@10 | N@5 | N@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| MultiViewSoft | 0.1274 | 0.1958 | 0.0966 | 0.1504 | 0.0708 | 0.0885 |
+| MultiViewSoft + LevelAux | 0.1293 | 0.1955 | 0.0977 | 0.1474 | 0.0700 | 0.0865 |
+| FactorizedSoft | 0.1274 | 0.1947 | 0.0972 | 0.1503 | 0.0690 | 0.0867 |
+| FactorizedSoft + RelationReg | **0.1305** | 0.1972 | **0.0985** | **0.1518** | **0.0702** | **0.0878** |
+| FactorizedSoft + LevelAux + RelationReg | 0.1304 | **0.1981** | 0.0975 | 0.1493 | 0.0698 | 0.0870 |
+| FixedSoft 参照 | 0.1349 | **0.1981** | 0.1007 | 0.1513 | 0.0735 | 0.0900 |
+
+Merged behavior 结果：
+
+| Variant | HR@5 | HR@10 | R@5 | R@10 | N@5 | N@10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| MultiViewSoft | 0.1418 | 0.2102 | 0.0718 | 0.1130 | 0.0609 | 0.0742 |
+| MultiViewSoft + LevelAux | 0.1432 | 0.2111 | 0.0728 | 0.1133 | 0.0614 | 0.0745 |
+| FactorizedSoft | 0.1434 | 0.2099 | 0.0729 | 0.1126 | 0.0615 | 0.0744 |
+| FactorizedSoft + RelationReg | 0.1413 | 0.2099 | 0.0718 | 0.1128 | 0.0607 | 0.0739 |
+| FactorizedSoft + LevelAux + RelationReg | **0.1441** | **0.2123** | **0.0732** | **0.1140** | **0.0619** | **0.0751** |
+| FixedSoft 参照 | 0.1450 | 0.2121 | 0.0743 | 0.1142 | 0.0628 | 0.0756 |
+
+两类目标的作用可以明确区分：
+
+1. RelationReg 是当前最清晰的正向结果。相对 FactorizedSoft，它使 CVR 八项指标全部提升，其中 `HR@5 +2.41%`、`HR@10 +1.29%`、`R@5 +1.32%`、`R@10 +1.02%`、`N@5 +1.71%`、`N@10 +1.30%`，rank 1 指标也同时提升。Merged 小幅下降说明它更像是把模型容量重新分配到稀疏高层目标，而不是对所有行为无差别增益。
+2. LevelAux 单独使用没有形成稳定 CVR 提升。在 MultiViewSoft 上，`HR@5/R@5` 上升，但 `R@10` 下降 `2.00%`，`N@10` 下降 `2.25%`。Merged 指标小幅改善，说明它有利于一般行为序列表征，但可能与目标 item 排序产生梯度冲突。
+3. LevelAux 和 RelationReg 叠加后，在 FactorizedSoft objective 消融中取得最好的 merged 结果并提升 CVR hit rate，但相对只使用 RelationReg，CVR recall 和 NDCG 下降。LevelAux 可能将 RelationReg 的部分高层收益重新分配给浅层或 merged behavior。
+4. FixedSoft 的绝对 CVR 表现仍然更强。RelationReg 缩小了 learnable FactorizedSoft 与 frozen prior 之间的差距，但还不能证明可学习 relation matrix 已经优于固定先验。
+
+当前取舍是：优先将 RelationReg 作为 objective-side 主线候选；LevelAux 保留为有解释价值的消融，只有降低权重或改成 target-aware/high-level transition supervision 后再继续。由于当前差异多数只有零点几个百分点，正式稳定性结论仍需多随机种子验证。
 
 ### 方案 C：Behavior Transition Type Prediction（后续考虑）
 
@@ -694,9 +730,9 @@ late: aggressive sparse-history views
 - 如果 relation-bias 扩展仍表现为局部提升或整体弱于 TH Base：主模型采用 TH Base，并将核心贡献定义为 behavior-aware replacement TH attention，而不是 scalar relation bias。
 - 如果 Gated MultiView 明显提升：可考虑与 Factorized 组合，但应先验证复杂度和可解释性收益。
 
-### 第三阶段：评估已实现的辅助目标与正则
+### 第三阶段：细化已完成首轮实验的辅助目标与正则
 
-针对 `Qwen3TemporalHierarchicalMultiViewSoftLevelAux`、`Qwen3TemporalHierarchicalFixedSoftLevelAux`、`Qwen3TemporalHierarchicalFactorizedSoftReg` 和 `Qwen3TemporalHierarchicalFactorizedSoftLevelAuxReg` 做定向消融。初始建议使用 `lambda_level=0.05` 和 `lambda_relation=0.01`；只有第一轮结果出现明确方向性时再继续调权重。
+`lambda_level=0.05` 和 `lambda_relation=0.01` 的第一轮实验已经完成。下一步优先对 FactorizedSoft + RelationReg 做多随机种子验证，并进行 `0.003/0.01/0.03` 的小范围 relation weight 搜索。LevelAux 仅建议以 `0.01` 等更低权重或面向高层 transition 的监督形式继续；如果需要严格归因，再补充 FactorizedSoft + LevelAux、不含 RelationReg 的独立对照。
 
 ### 第四阶段：重新设计序列增强（后续重点）
 
@@ -857,6 +893,8 @@ Hard MultiView 建议降级为结构化消融；Soft MultiView 应作为更强�
 - controlled relation bias 可以提升 CVR 排序和覆盖。
 - fixed soft hierarchy prior 可以提升 merged behavior 和多数靠前 CVR 指标。
 - Soft MultiView 优于 Hard MultiView，但还不是最强模型线。
+- soft-prior relation regularization 在首轮 test-set 实验中稳定改善 FactorizedSoft CVR。
+- 当前 next-level auxiliary objective 小幅改善 merged behavior，但没有形成稳定 CVR 增益。
 - 相对 MBGen，TH 变体在 merged behavior 和 CVR 上都有大幅提升；相对 Original GAMER，最稳定的提升集中在 CVR。
 
 仍需实验才能支持：
@@ -865,7 +903,8 @@ Hard MultiView 建议降级为结构化消融；Soft MultiView 应作为更强�
 - factorized soft prior 一定有效。
 - gated view mixture 可以稳定超过 relation-bias 系列。
 - gated MultiView 优于 hard MultiView。
-- TH-aware auxiliary objective 和 sequence augmentation 带来额外收益。
+- auxiliary-objective 增益能够跨随机种子和 relation-regularization 权重保持稳定。
+- hybrid augmentation 的收益在控制生成视图数量后仍然成立。
 
 ## 当前结论
 
@@ -878,6 +917,8 @@ TH Base
 ```
 
 最新 ShortVideoAD test-set 结果显示，`TH-FixedSoft` 在新 TH 变体中 merged behavior 和多数靠前 CVR 指标上最好，`TH-Factorized` 在更深 CVR 指标上最好。相对 MBGen，这些变体明显更强；相对 Original GAMER，CVR 提升明确，但 merged behavior 更复杂，FixedSoft 在 `HR@5/N@5/N@10` 上小幅提升，同时在 `HR@10` 上略低。`TH-FixedBias` 因为 scalar relation bias 是 frozen zero，仍应作为干净的 TH base ablation，但不应再描述为最佳最终变体。`TH-MultiViewSoft` 仍是有价值的 structured-view 消融；Hard MultiView 主要说明过硬的 view partition 会限制模型表达。
+
+辅助目标侧，第一轮 test-set 消融支持 soft-prior RelationReg 作为 learnable FactorizedSoft relation 的有效稳定器。当前 LevelAux 形式不适合作为主模型增益点：它偏向改善 merged behavior 和短列表 hit rate，但会损伤若干 CVR recall/NDCG 指标。论文中应明确区分这两个目标，而不是将它们合并表述为统一正向的 auxiliary-objective 结果。
 
 数据侧不建议继续仅依赖所有用户统一的随机 ratio schedule。更符合 TH 设计的增强方向是：
 

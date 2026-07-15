@@ -99,6 +99,7 @@ Design requirements for the aligned protocol:
 | User-Adaptive Ratio | Implemented and full-sequence aligned | Zero-target fallback, training-prefix prior, and full-sequence dataset behavior verified | Re-run under corrected protocol |
 | Target-Conditioned Augmentation | Implemented as tail-conditioned full-sequence policy | Same-level/precursor restoration and full-sequence dataset behavior verified | Re-run under corrected protocol |
 | Multi-View Sequence Augmentation | Implemented and full-sequence aligned | Semantic view generation, Dataset deduplication, and full-sequence dataset behavior verified | Re-run under corrected protocol |
+| Hybrid Multi-View + Random Ratio | Implemented and evaluated | `hybrid_random4` improves all main CVR and merged metrics over original 4x | Run fixed-budget controls |
 | Curriculum Augmentation | Not implemented | Not verified | Deferred |
 
 ## Shared Architecture (Implemented And Verified)
@@ -860,6 +861,7 @@ Merged behavior test-set results:
 | Full-sequence policy dataset proportion | 0.1365 | 0.2009 | 0.0580 | 0.0702 |
 | Full-sequence policy session | 0.1390 | 0.2064 | 0.0592 | 0.0722 |
 | Full-sequence policy multi-view | 0.1421 | 0.2101 | 0.0609 | 0.0740 |
+| Hybrid multi-view + random4 | **0.1446** | **0.2135** | **0.0621** | **0.0755** |
 | Full-sequence policy target-conditioned | 0.1373 | 0.2027 | 0.0586 | 0.0711 |
 | Full-sequence policy user-adaptive | 0.1379 | 0.2038 | 0.0592 | 0.0718 |
 
@@ -874,12 +876,13 @@ CVR target-behavior test-set results:
 | Full-sequence policy dataset proportion | 0.1249 | 0.1929 | 0.0668 | 0.0838 |
 | Full-sequence policy session | 0.1268 | 0.1930 | 0.0676 | 0.0847 |
 | Full-sequence policy multi-view | 0.1316 | 0.1935 | 0.0709 | 0.0869 |
+| Hybrid multi-view + random4 | **0.1351** | **0.2008** | **0.0728** | **0.0901** |
 | Full-sequence policy target-conditioned | 0.1265 | 0.1917 | 0.0674 | 0.0840 |
 | Full-sequence policy user-adaptive | 0.1244 | 0.1880 | 0.0679 | 0.0845 |
 
-Under the corrected full-sequence protocol, the policy variants are clearly above END4Rec and MBGen, but they do not stably beat the original 4x explicit-decoder augmentation baseline. Full-sequence multi-view is the strongest policy variant: it essentially matches the original 4x baseline on merged behavior (`HR@5/N@5` slightly higher or tied, `HR@10/N@10` slightly lower) and improves CVR `HR@5/N@5`, but it still trails the original 4x baseline on CVR `HR@10/N@10`. Dataset-level proportion, session, target-conditioned, and user-adaptive policies are weaker than the original 4x baseline on most reported metrics. Therefore, the current conclusion is that semantic policy augmentation is not yet a replacement for the naive 4x ratio augmentation; multi-view policy is the only promising direction worth refining. The earlier history-only policy runs should be treated only as diagnostic history.
+Under the corrected full-sequence protocol, pure semantic policy variants do not stably beat the original 4x explicit-decoder augmentation baseline. Full-sequence multi-view is the strongest pure policy: it improves CVR `HR@5/N@5`, but loses CVR `HR@10/N@10`, indicating stronger early ranking but weaker coverage. Dataset-level proportion, session, target-conditioned, and user-adaptive policies are weaker on most reported metrics. The earlier history-only policy runs should remain diagnostic only.
 
-The implemented next variant tests hybrid multi-view augmentation instead of pure semantic replacement:
+The implemented hybrid variant combines the two useful signals instead of replacing random-ratio augmentation:
 
 ```text
 original full sequence
@@ -887,4 +890,11 @@ original full sequence
 + semantic multi-view views
 ```
 
-The motivation is CVR-first: pure multi-view improves `HR@5/N@5`, suggesting better early candidate quality, but loses `HR@10/N@10`, suggesting weaker coverage. Random ratio views should preserve the coverage benefit of the naive baseline, while semantic multi-view adds TH-aware structure. This is available as the opt-in `--multi_view_random_ratio_views N` argument for `sequence_augmentation=multi_view`, so previous pure-policy runs remain reproducible. Curriculum remains unimplemented and deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
+`hybrid_random4` validates this CVR-first hypothesis in the first test-set run. Relative to the same MultiViewSoft backbone with original 4x augmentation, it improves CVR `HR@5` from `0.1274` to `0.1351` (`+6.08%`), `HR@10` from `0.1958` to `0.2008` (`+2.56%`), `N@5` from `0.0708` to `0.0728` (`+2.86%`), and `N@10` from `0.0885` to `0.0901` (`+1.74%`). Merged `HR@5/HR@10/N@5/N@10` also all improve. Compared with pure multi-view, Hybrid random4 improves every reported CVR and merged metric, so the random views recover the lost Top-10 coverage without removing the semantic-view Top-5 benefit. Per-behavior results are also healthy: p3s improves broadly, click is approximately neutral against original 4x, and CVR gains do not come from a broad collapse of shallow behavior prediction.
+
+This result is the strongest current augmentation result, but it has a sample-budget confound. Original 4x emits at most the original sequence plus four random views, while Hybrid random4 emits the original, four random views, and up to three semantic views. The current result establishes the best practical recipe, but does not yet isolate semantic complementarity from additional training samples and compute. Two controls are therefore required:
+
+1. `Hybrid random1`: original + one random view + up to three semantic views, approximately matching the original 4x maximum view budget.
+2. `Random7`: original + seven random views, approximately matching the Hybrid random4 maximum view budget.
+
+If Hybrid random1 matches or exceeds original 4x and Hybrid random4 exceeds Random7, the evidence will support semantic-view value and random/semantic complementarity separately. Multiple seeds are still needed because some improvements are only a few tenths of a percentage point. The hybrid option remains reproducible through `--multi_view_random_ratio_views N` under `sequence_augmentation=multi_view`. Curriculum remains deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.

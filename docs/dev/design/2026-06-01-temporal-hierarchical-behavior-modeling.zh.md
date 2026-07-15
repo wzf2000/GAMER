@@ -247,6 +247,12 @@ L_relation = MSE(relation_bias, relation_prior)
 
 当前 prior 支持 `soft` 或 `zero`，第一批实验使用与 FixedSoft/FactorizedSoft 一致的 soft hierarchy prior。该正则只在 relation-bias 参数可训练时生效，因此 frozen fixed-table 配置不会改变原有行为。
 
+第一批 ShortVideoAD test-set 结果：
+
+- Relation regularization 是更明确的 objective-side 方向。`FactorizedSoftReg` 相对 `FactorizedSoft` 的 CVR 指标全部提升，其中 `HR@5 +2.41%`、`HR@10 +1.29%`、`N@5 +1.71%`、`N@10 +1.30%`，但 merged behavior 略有下降。
+- 当前 LevelAux 的结果有正有负。在 MultiViewSoft 上，它提升 CVR `HR@5/R@5` 和多数 merged 指标，但降低 CVR `R@10/N@10`；叠加在 RelationReg 上也表现为 merged 改善、CVR recall/NDCG 相对 RelationReg 单独使用下降。
+- 当前优先级是对 RelationReg 做多随机种子和权重验证。LevelAux 暂时保留为消融，除非更低权重或面向高层/target-aware transition 的目标能够消除 CVR 冲突。
+
 ## Profiling 修正
 
 最初的 trainable table 版本虽然概念简单，但 profiling 显示不可用于长序列训练：
