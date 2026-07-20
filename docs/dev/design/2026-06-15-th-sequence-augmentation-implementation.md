@@ -99,7 +99,8 @@ Design requirements for the aligned protocol:
 | User-Adaptive Ratio | Implemented and full-sequence aligned | Zero-target fallback, training-prefix prior, and full-sequence dataset behavior verified | Re-run under corrected protocol |
 | Target-Conditioned Augmentation | Implemented as tail-conditioned full-sequence policy | Same-level/precursor restoration and full-sequence dataset behavior verified | Re-run under corrected protocol |
 | Multi-View Sequence Augmentation | Implemented and full-sequence aligned | Semantic view generation, Dataset deduplication, and full-sequence dataset behavior verified | Re-run under corrected protocol |
-| Hybrid Multi-View + Random Ratio | Implemented and evaluated | `hybrid_random4` improves all main CVR and merged metrics over original 4x | Run fixed-budget controls |
+| Hybrid Multi-View + Random Ratio | Implemented and evaluated | Fixed-budget controls show mixed semantic-view value | Retain as an augmentation ablation |
+| Random-Ratio 7 | Implemented and evaluated | Strongest current augmentation result on most CVR and merged metrics | Preferred augmentation candidate |
 | Curriculum Augmentation | Not implemented | Not verified | Deferred |
 
 ## Shared Architecture (Implemented And Verified)
@@ -861,7 +862,9 @@ Merged behavior test-set results:
 | Full-sequence policy dataset proportion | 0.1365 | 0.2009 | 0.0580 | 0.0702 |
 | Full-sequence policy session | 0.1390 | 0.2064 | 0.0592 | 0.0722 |
 | Full-sequence policy multi-view | 0.1421 | 0.2101 | 0.0609 | 0.0740 |
-| Hybrid multi-view + random4 | **0.1446** | **0.2135** | **0.0621** | **0.0755** |
+| Hybrid multi-view + random1 | 0.1422 | 0.2105 | 0.0609 | 0.0742 |
+| Hybrid multi-view + random4 | 0.1446 | 0.2135 | 0.0621 | 0.0755 |
+| Random-ratio 7 | **0.1460** | **0.2148** | **0.0626** | **0.0762** |
 | Full-sequence policy target-conditioned | 0.1373 | 0.2027 | 0.0586 | 0.0711 |
 | Full-sequence policy user-adaptive | 0.1379 | 0.2038 | 0.0592 | 0.0718 |
 
@@ -876,7 +879,9 @@ CVR target-behavior test-set results:
 | Full-sequence policy dataset proportion | 0.1249 | 0.1929 | 0.0668 | 0.0838 |
 | Full-sequence policy session | 0.1268 | 0.1930 | 0.0676 | 0.0847 |
 | Full-sequence policy multi-view | 0.1316 | 0.1935 | 0.0709 | 0.0869 |
-| Hybrid multi-view + random4 | **0.1351** | **0.2008** | **0.0728** | **0.0901** |
+| Hybrid multi-view + random1 | 0.1302 | 0.1997 | 0.0708 | 0.0884 |
+| Hybrid multi-view + random4 | 0.1351 | 0.2008 | 0.0728 | 0.0901 |
+| Random-ratio 7 | **0.1352** | **0.2039** | **0.0734** | **0.0911** |
 | Full-sequence policy target-conditioned | 0.1265 | 0.1917 | 0.0674 | 0.0840 |
 | Full-sequence policy user-adaptive | 0.1244 | 0.1880 | 0.0679 | 0.0845 |
 
@@ -890,11 +895,10 @@ original full sequence
 + semantic multi-view views
 ```
 
-`hybrid_random4` validates this CVR-first hypothesis in the first test-set run. Relative to the same MultiViewSoft backbone with original 4x augmentation, it improves CVR `HR@5` from `0.1274` to `0.1351` (`+6.08%`), `HR@10` from `0.1958` to `0.2008` (`+2.56%`), `N@5` from `0.0708` to `0.0728` (`+2.86%`), and `N@10` from `0.0885` to `0.0901` (`+1.74%`). Merged `HR@5/HR@10/N@5/N@10` also all improve. Compared with pure multi-view, Hybrid random4 improves every reported CVR and merged metric, so the random views recover the lost Top-10 coverage without removing the semantic-view Top-5 benefit. Per-behavior results are also healthy: p3s improves broadly, click is approximately neutral against original 4x, and CVR gains do not come from a broad collapse of shallow behavior prediction.
+The completed fixed-budget controls revise the initial Hybrid random4 interpretation.
 
-This result is the strongest current augmentation result, but it has a sample-budget confound. Original 4x emits at most the original sequence plus four random views, while Hybrid random4 emits the original, four random views, and up to three semantic views. The current result establishes the best practical recipe, but does not yet isolate semantic complementarity from additional training samples and compute. Two controls are therefore required:
+`Hybrid random1` approximately matches the original 4x maximum view budget by replacing three random views with up to three semantic views. Relative to original 4x, it improves CVR `HR@5` by `2.23%`, `HR@10` by `1.98%`, `R@5` by `2.90%`, and `R@10` by `1.81%`, but lowers `HR@1/R@1`, leaves `N@5/N@10` effectively unchanged, and leaves merged behavior nearly unchanged. Semantic views therefore have a measurable CVR coverage orientation, but they do not provide a broad fixed-budget ranking gain.
 
-1. `Hybrid random1`: original + one random view + up to three semantic views, approximately matching the original 4x maximum view budget.
-2. `Random7`: original + seven random views, approximately matching the Hybrid random4 maximum view budget.
+`Random7` matches the Hybrid random4 maximum view budget with random-ratio views only. Against Hybrid random4, Random7 improves CVR `HR@10` by `1.53%`, `R@5` by `2.64%`, `R@10` by `2.78%`, `N@5` by `0.82%`, and `N@10` by `1.19%`; it also improves all four primary merged `HR@5/HR@10/N@5/N@10` metrics. Against original 4x, Random7 improves CVR `HR@5/HR@10/N@5/N@10` by `6.17%/4.13%/3.71%/2.95%` and merged `HR@5/HR@10/N@5/N@10` by `2.95%/2.17%/2.70%/2.64%`. The tradeoff is lower CVR `HR@1/R@1` and slightly lower merged rank-1 metrics than Hybrid random4.
 
-If Hybrid random1 matches or exceeds original 4x and Hybrid random4 exceeds Random7, the evidence will support semantic-view value and random/semantic complementarity separately. Multiple seeds are still needed because some improvements are only a few tenths of a percentage point. The hybrid option remains reproducible through `--multi_view_random_ratio_views N` under `sequence_augmentation=multi_view`. Curriculum remains deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.
+The fixed-budget evidence therefore does not support semantic hybrid augmentation as the default main method. Most of the large Hybrid random4 gain is explained by the larger view budget, and random-ratio scaling is currently more effective than replacing views with the present recent/hierarchy/session semantic policies. Hybrid random1 remains useful as an ablation showing target-behavior coverage reallocation, while Random7 is the preferred practical augmentation candidate. Multi-seed confirmation and backbone transfer remain necessary before finalizing the paper configuration. The hybrid option remains reproducible through `--multi_view_random_ratio_views N` under `sequence_augmentation=multi_view`. Curriculum remains deferred because it crosses the static-cache boundary and requires coordinated Dataset, sampler, Trainer, DDP, and resume behavior.

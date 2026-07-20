@@ -55,7 +55,8 @@ Consequently, the zero-relation-bias model is still substantially different from
 | Multi-View | Gated MultiView | Implemented, pending result | Learnable per-head view mixture |
 | Objective | Next behavior-level auxiliary objective | Implemented and evaluated | Mixed CVR result; retain as an auxiliary-objective ablation |
 | Objective | Relation regularization | Implemented and evaluated | Consistently improves FactorizedSoft CVR; preferred objective-side extension |
-| Data | Hybrid random-ratio + semantic multi-view augmentation | Implemented and evaluated | Strongest current augmentation result; pending fixed-budget controls |
+| Data | Hybrid random-ratio + semantic multi-view augmentation | Implemented and evaluated | Mixed fixed-budget result; retain as an ablation |
+| Data | Random-ratio 7 augmentation | Implemented and evaluated | Strongest current augmentation result; preferred data-side candidate |
 
 ## Relation-Bias Family (Main-Line Candidate, Partly Pending)
 
@@ -338,13 +339,32 @@ Begin with full or weakly dropped history, then introduce time-aware/session-awa
 
 This may improve robustness but complicates caching, resuming, and early stopping. It should follow static augmentation experiments.
 
+## Latest Augmentation Budget Controls And Model Combination
+
+The completed `Hybrid random1` and `Random7` controls change the augmentation conclusion:
+
+- At approximately the original 4x view budget, Hybrid random1 improves CVR hit/recall coverage but leaves NDCG and merged behavior roughly unchanged and lowers rank-1 metrics. Current semantic views have a target-behavior coverage effect, not a broad ranking gain.
+- At approximately the Hybrid random4 view budget, Random7 outperforms Hybrid random4 on most CVR and merged metrics. The large Hybrid random4 gain is therefore mainly explained by additional views rather than demonstrated random/semantic complementarity.
+- Random7 is now the preferred practical augmentation. Hybrid variants should remain semantic augmentation ablations, and the paper should not claim that the current recent/hierarchy/session views outperform random-ratio augmentation.
+
+Among combinations already tested, `MultiViewSoft + Random7` is the strongest balanced configuration: CVR `HR@5/HR@10/N@5/N@10 = 0.1352/0.2039/0.0734/0.0911` and merged `HR@5/HR@10/N@5/N@10 = 0.1460/0.2148/0.0626/0.0762`. However, this does not establish MultiViewSoft as the best backbone because Random7 has not yet been transferred to the stronger model-side candidates.
+
+The recommended paper-mainline transfer test is:
+
+```text
+FixedSoft + Random7
+```
+
+FixedSoft is the strongest balanced/top-rank model-side candidate under original 4x, has a simple and explicit TH hierarchy prior, and avoids adding an auxiliary objective with mixed attribution. A secondary transfer test should use `Factorized + Random7`, because Factorized is strongest on deeper CVR coverage under original 4x and gives the clearest learnable relation-bias story. Do not add RelationReg to the first combination test: its clean benefit is relative to the weaker FactorizedSoft baseline, while vanilla Factorized remains stronger in absolute CVR results.
+
 ## Directions To Drop Or Downgrade (Current Decisions)
 
 - Drop naive trainable relation table because Factorized provides practical learnable relation modeling.
 - Retain Hard MultiView as an ablation unless soft/gated variants materially improve it.
 - Keep fully flattened behavior-event input as an input ablation, not the default main representation.
 - Delay dynamic context-aware MultiView gating until static Gated MultiView is validated.
-- Keep the uniform random ratio schedule only as an augmentation baseline, not the final TH-aware design.
+- Use Random7 as the current empirical augmentation candidate, but do not present the uniform random-ratio schedule itself as the TH-aware method contribution.
+- Do not present the current semantic hybrid augmentation as a main improvement; fixed-budget controls favor Random7.
 
 ## Recommended Execution Order (Action Plan)
 
@@ -367,15 +387,12 @@ Record conversion, merged, per-behavior metrics, training time, memory, learned 
 
 The first runs at `lambda_level=0.05` and `lambda_relation=0.01` are complete. Next, repeat FactorizedSoft + RelationReg over multiple seeds and test a small relation-weight sweep such as `0.003/0.01/0.03`. Only revisit LevelAux with a lower weight such as `0.01` or supervision focused on high-level transitions; add a LevelAux-only FactorizedSoft control if contribution isolation is needed.
 
-### Stage 4: Redesign Sequence Augmentation (Future Focus)
+### Stage 4: Validate Backbone/Augmentation Transfer
 
-Recommended first implementations:
-
-1. Time-Decayed Behavior Dropout.
-2. Session-Aware Dropout.
-3. User-Adaptive Ratio.
-
-Then consider target-conditioned and multi-view sequence augmentation.
+1. Run FixedSoft + Random7 as the primary paper-mainline candidate.
+2. Run Factorized + Random7 as the learnable relation-bias/deeper-CVR candidate.
+3. Repeat the selected combination over multiple seeds before finalizing it.
+4. Keep semantic multi-view augmentation as an ablation unless a redesigned policy beats Random7 under a fixed view budget.
 
 ## Completed ShortVideoAD TH Variant Results
 
@@ -510,7 +527,7 @@ Current test-set evidence supports:
 - fixed soft hierarchy prior can improve merged behavior and most top-rank CVR metrics,
 - soft MultiView improves hard MultiView but is not yet the strongest model line,
 - soft-prior relation regularization consistently improves FactorizedSoft CVR in the first test-set run,
-- the current next-level auxiliary objective improves merged behavior slightly but does not provide a stable CVR gain.
+- the current next-level auxiliary objective improves merged behavior slightly but does not provide a stable CVR gain,
 - compared with MBGen, the TH variants show large gains on both merged behavior and CVR; compared with Original GAMER, the most robust gains are on CVR.
 
 Claims still requiring experiments:
@@ -520,7 +537,8 @@ Claims still requiring experiments:
 - gated view mixture can stably beat relation-bias variants,
 - gated MultiView outperforms hard MultiView,
 - auxiliary-objective gains are stable across seeds and relation-regularization weights,
-- hybrid augmentation gains remain after controlling the number of generated views.
+- Random7 gains transfer to FixedSoft/Factorized and remain stable across seeds,
+- a redesigned semantic policy can outperform Random7 under a fixed view budget.
 
 ## Current Conclusion
 
@@ -536,7 +554,7 @@ The latest ShortVideoAD test-set results show that `TH-FixedSoft` is best among 
 
 On the objective side, the first test-set ablation supports soft-prior RelationReg as a useful stabilizer for learnable FactorizedSoft relations. The current LevelAux formulation is not a main-model improvement: it favors merged behavior and short-list hit rate but weakens several CVR recall/NDCG metrics. This distinction should be preserved in the paper rather than grouping both losses under one positive auxiliary-objective claim.
 
-The data-side design should move beyond a user-independent random ratio schedule toward:
+On the data side, Random7 is the current performance candidate, while Hybrid random1/random4 should remain augmentation ablations. Because Random7 is not itself a TH-aware contribution, the paper's primary TH claim should come from the backbone. Longer-term semantic augmentation can still move beyond a user-independent random ratio schedule toward:
 
 ```text
 time-aware

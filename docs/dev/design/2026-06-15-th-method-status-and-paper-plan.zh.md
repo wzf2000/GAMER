@@ -71,7 +71,8 @@ TH attention 的共同基础组件包括：
 | Multi-View | Gated MultiView | 已实现、待实验 | 每个 head 学习 view mixture |
 | Objective | Next behavior-level auxiliary objective | 已实现、已实验 | CVR 结果有正有负，保留为辅助目标消融 |
 | Objective | Relation regularization | 已实现、已实验 | 稳定改善 FactorizedSoft CVR，优先保留的 objective-side 扩展 |
-| Data | Hybrid random-ratio + semantic multi-view augmentation | 已实现、已实验 | 当前最强增强结果，等待固定样本预算对照 |
+| Data | Hybrid random-ratio + semantic multi-view augmentation | 已实现、已实验 | 固定预算结果有正有负，保留为消融 |
+| Data | Random-ratio 7 augmentation | 已实现、已实验 | 当前最强增强结果，优先 data-side 候选 |
 
 ## Relation-Bias 方案（主线候选，部分待实验）
 
@@ -674,6 +675,24 @@ late: aggressive sparse-history views
 
 建议优先级：低于静态 time/session-aware augmentation。
 
+## 最新增强预算对照与模型组合选择
+
+完成 `Hybrid random1` 和 `Random7` 后，数据增强结论需要更新：
+
+- 在与原始 4x 近似的视图预算下，Hybrid random1 改善 CVR hit/recall coverage，但 NDCG 和 merged behavior 基本不变，rank-1 指标下降。当前 semantic views 更像是带来目标行为 coverage 重分配，而不是全面排序增益。
+- 在与 Hybrid random4 近似的视图预算下，Random7 在多数 CVR 和 merged 指标上超过 Hybrid random4。因此 Hybrid random4 的大幅收益主要可以由更多视图解释，尚不能证明 random/semantic complementarity。
+- Random7 现在是优先的实用增强方案。Hybrid variants 应保留为 semantic augmentation 消融，论文不应声称当前 recent/hierarchy/session views 已经优于 random-ratio augmentation。
+
+在已经完成的组合中，`MultiViewSoft + Random7` 是当前最强的平衡配置：CVR `HR@5/HR@10/N@5/N@10 = 0.1352/0.2039/0.0734/0.0911`，merged `HR@5/HR@10/N@5/N@10 = 0.1460/0.2148/0.0626/0.0762`。但这不能证明 MultiViewSoft 是最佳 backbone，因为 Random7 还没有迁移到模型侧更强的候选上。
+
+推荐优先测试的论文主线组合是：
+
+```text
+FixedSoft + Random7
+```
+
+FixedSoft 在原始 4x 下是最强的平衡/靠前排序模型侧候选，具有简单明确的 TH hierarchy prior，也避免加入归因较混杂的辅助目标。第二优先级是 `Factorized + Random7`：Factorized 在原始 4x 下的深层 CVR coverage 最强，也最适合讲 learnable relation-bias。第一轮组合实验不建议加入 RelationReg，因为它的干净收益是相对较弱的 FactorizedSoft baseline，而 vanilla Factorized 的绝对 CVR 结果仍然更强。
+
 ## 预计放弃或降级的方向（当前决策）
 
 ### 放弃：Naive Trainable Relation Table
@@ -701,9 +720,11 @@ late: aggressive sparse-history views
 
 原因：static gated view 尚未完成实验。在确认 static gate 有效前，不建议实现 query/user-conditioned dynamic gate。
 
-### 不建议继续使用：无语义统一 Ratio Schedule 作为最终增强方法
+### 当前性能主增强但不作为 TH 创新：无语义统一 Ratio Schedule
 
-当前统一 ratio augmentation 可以保留为 baseline，但最终增强设计应至少加入时间、session 或用户行为分布因素。
+当前统一 ratio augmentation，特别是 Random7，应作为性能主增强候选；但它本身不应被包装为 TH-aware 方法贡献。长期增强设计仍可继续探索时间、session 或用户行为分布因素。
+
+固定预算实验表明 Random7 目前仍强于 semantic hybrid，因此上述判断应理解为论文叙事上的长期目标，而不是当前性能证据。现阶段 Random7 应作为主增强候选，semantic hybrid 保留为消融。
 
 ## 推荐的后续执行顺序（行动计划）
 
@@ -734,18 +755,12 @@ late: aggressive sparse-history views
 
 `lambda_level=0.05` 和 `lambda_relation=0.01` 的第一轮实验已经完成。下一步优先对 FactorizedSoft + RelationReg 做多随机种子验证，并进行 `0.003/0.01/0.03` 的小范围 relation weight 搜索。LevelAux 仅建议以 `0.01` 等更低权重或面向高层 transition 的监督形式继续；如果需要严格归因，再补充 FactorizedSoft + LevelAux、不含 RelationReg 的独立对照。
 
-### 第四阶段：重新设计序列增强（后续重点）
+### 第四阶段：验证 Backbone/Augmentation 迁移
 
-推荐先实现：
-
-1. Time-Decayed Behavior Dropout。
-2. Session-Aware Dropout。
-3. User-Adaptive Ratio。
-
-之后再考虑：
-
-4. Target-Conditioned Augmentation。
-5. Multi-View Sequence Augmentation。
+1. 优先运行 FixedSoft + Random7，作为论文主线候选。
+2. 运行 Factorized + Random7，作为 learnable relation-bias / deeper-CVR 候选。
+3. 对最终选中的组合进行多随机种子重复。
+4. Semantic multi-view augmentation 保留为消融，除非重新设计的 policy 能在固定视图预算下超过 Random7。
 
 ## ShortVideoAD 已完成 TH 变种结果（已实验）
 
@@ -904,7 +919,8 @@ Hard MultiView 建议降级为结构化消融；Soft MultiView 应作为更强�
 - gated view mixture 可以稳定超过 relation-bias 系列。
 - gated MultiView 优于 hard MultiView。
 - auxiliary-objective 增益能够跨随机种子和 relation-regularization 权重保持稳定。
-- hybrid augmentation 的收益在控制生成视图数量后仍然成立。
+- Random7 的收益能够迁移到 FixedSoft/Factorized 并跨随机种子保持稳定。
+- 重新设计的 semantic policy 能在固定视图预算下超过 Random7。
 
 ## 当前结论
 
@@ -920,7 +936,7 @@ TH Base
 
 辅助目标侧，第一轮 test-set 消融支持 soft-prior RelationReg 作为 learnable FactorizedSoft relation 的有效稳定器。当前 LevelAux 形式不适合作为主模型增益点：它偏向改善 merged behavior 和短列表 hit rate，但会损伤若干 CVR recall/NDCG 指标。论文中应明确区分这两个目标，而不是将它们合并表述为统一正向的 auxiliary-objective 结果。
 
-数据侧不建议继续仅依赖所有用户统一的随机 ratio schedule。更符合 TH 设计的增强方向是：
+数据侧当前应以 Random7 作为性能候选，Hybrid random1/random4 保留为增强消融。由于 Random7 本身不是 TH-aware 贡献，论文主要 TH claim 应来自 backbone。长期 semantic augmentation 仍可继续探索超越用户统一 random ratio schedule 的方向：
 
 ```text
 time-aware
