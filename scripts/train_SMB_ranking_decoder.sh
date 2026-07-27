@@ -9,10 +9,11 @@
 : ${gpu:=0,1,2,3,4,5,6}
 : ${port:=2315}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}
-: ${epochs:=20}
+: ${epochs:=5}
 : ${learning_rate:=1e-5}
 : ${weight_decay:=0.05}
 : ${patience:=2}
+: ${save_total_limit:=5}
 : ${train_auc_samples:=2048}
 : ${train_auc_batch_size:=256}
 : ${eval_epochs:=1}
@@ -39,7 +40,7 @@ if ! base_model=$(resolve_s2s_base_model "${backbone}"); then
     exit 1
 fi
 
-: ${suffix:=}
+: ${suffix:=new}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
@@ -69,4 +70,5 @@ run_main_distributed "${gpu_num}" "${port}" train_SMB_ranking_decoder \
     --learning_rate ${learning_rate} \
     --weight_decay ${weight_decay} \
     --patience ${patience} \
+    --save_total_limit ${save_total_limit} \
     "${EXTRA_CLI_ARGS[@]}"

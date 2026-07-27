@@ -119,6 +119,50 @@ def auc(topk_results: list[list[int]]) -> list[float]:
     return aucs
 
 
+def binary_logloss(labels: list[int] | torch.Tensor, scores: list[float] | torch.Tensor, eps: float = 1e-7) -> float:
+    if isinstance(labels, torch.Tensor):
+        labels = labels.detach().cpu().tolist()
+    if isinstance(scores, torch.Tensor):
+        scores = scores.detach().cpu().tolist()
+    if len(labels) != len(scores):
+        raise ValueError("labels and scores must have the same length.")
+    import math
+    # Sigmoid to convert raw scores to probabilities
+    total = 0.0
+    for label, score in zip(labels, scores):
+        p = 1.0 / (1.0 + math.exp(-score))
+        p = max(eps, min(1.0 - eps, p))
+        total += -(label * math.log(p) + (1 - label) * math.log(1 - p))
+    return total / len(labels) if labels else 0.0
+
+
+def binary_gauc(labels: list[int] | torch.Tensor, scores: list[float] | torch.Tensor, user_ids: list) -> float:
+    """Group AUC: average per-user AUC weighted by number of positive+negative pairs."""
+    if isinstance(labels, torch.Tensor):
+        labels = labels.detach().cpu().tolist()
+    if isinstance(scores, torch.Tensor):
+        scores = scores.detach().cpu().tolist()
+    if len(labels) != len(scores) or len(labels) != len(user_ids):
+        raise ValueError("labels, scores, and user_ids must have the same length.")
+    from collections import defaultdict
+    groups: dict = defaultdict(lambda: ([], []))
+    for uid, label, score in zip(user_ids, labels, scores):
+        groups[uid][0].append(label)
+        groups[uid][1].append(score)
+    total_pairs = 0.0
+    weighted_auc = 0.0
+    for uid, (grp_labels, grp_scores) in groups.items():
+        pos = sum(grp_labels)
+        neg = len(grp_labels) - pos
+        if pos == 0 or neg == 0:
+            continue
+        auc_val = binary_auc(grp_labels, grp_scores)
+        pairs = pos * neg
+        weighted_auc += auc_val * pairs
+        total_pairs += pairs
+    return weighted_auc / total_pairs if total_pairs > 0 else 0.0
+
+
 def binary_auc(labels: list[int] | torch.Tensor, scores: list[float] | torch.Tensor) -> float:
     if isinstance(labels, torch.Tensor):
         labels = labels.detach().cpu().tolist()

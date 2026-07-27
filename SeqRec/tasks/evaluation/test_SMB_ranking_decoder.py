@@ -8,7 +8,7 @@ from torch.utils.data.distributed import DistributedSampler
 from SeqRec.datasets.collators.generative import DecoderOnlyRankingCollator
 from SeqRec.datasets.loaders.session_behavior import load_SMB_test_dataset, load_SMB_valid_dataset
 from SeqRec.datasets.session_behavior import SMBRankingDatasetForDecoder
-from SeqRec.evaluation.ranking import binary_auc, get_metrics_results, get_ranked_item_hits, rank_items_by_scores
+from SeqRec.evaluation.ranking import binary_auc, binary_gauc, binary_logloss, get_metrics_results, get_ranked_item_hits, rank_items_by_scores
 from SeqRec.tasks.evaluation.base import _BaseDecoderTestTask
 from SeqRec.utils.args import SubParsersAction, parse_dataset_args, parse_generation_eval_args, parse_global_args
 from SeqRec.utils.runtime import get_tqdm
@@ -211,7 +211,8 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
         return results
 
     def _is_cvr_auc_eval(self) -> bool:
-        return [metric.lower() for metric in self.metric_list] == ["auc"]
+        CVR_METRICS = {"auc", "logloss", "gauc"}
+        return all(m.lower() in CVR_METRICS for m in self.metric_list)
 
     def _setup_cvr_samplers(self):
         if not self.ddp:
@@ -268,19 +269,25 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
         deduped = {}
         for key, label, score in records:
             deduped[key] = (label, score)
+        uid_list = [key[0] for key in deduped.keys()]
         labels = [label for label, _score in deduped.values()]
         scores = [score for _label, score in deduped.values()]
         positive = sum(labels)
         negative = len(labels) - positive
-        return [
-            {
-                "eval_type": f"CVR {target_behavior}",
-                "auc": binary_auc(labels, scores),
-                "positive": float(positive),
-                "negative": float(negative),
-                "num_examples": float(len(labels)),
-            }
-        ]
+        result: dict = {
+            "eval_type": f"CVR {target_behavior}",
+            "positive": float(positive),
+            "negative": float(negative),
+            "num_examples": float(len(labels)),
+        }
+        metrics_lower = {m.lower() for m in self.metric_list}
+        if "auc" in metrics_lower:
+            result["auc"] = binary_auc(labels, scores)
+        if "logloss" in metrics_lower:
+            result["logloss"] = binary_logloss(labels, scores)
+        if "gauc" in metrics_lower:
+            result["gauc"] = binary_gauc(labels, scores, uid_list)
+        return [result]
 
     def invoke(
         self,

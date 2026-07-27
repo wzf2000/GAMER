@@ -6,9 +6,9 @@
 : ${batch_size:=204800}
 : ${tasks:=smb_ranking_decoder}
 : ${test_task:=smb_ranking_decoder}
-: ${metrics:=auc}
+: ${metrics:=auc,logloss,gauc}
 : ${gpu:=4,5,6}
-: ${port:=2315}
+: ${port:=2316}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}
 
 export CUDA_VISIBLE_DEVICES=$gpu
@@ -59,7 +59,7 @@ best_checkpoint() {
     fi
 }
 
-: ${suffix:=}
+: ${suffix:=new}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
@@ -68,7 +68,7 @@ results_file=$(build_result_path "${task_dir}" "results-${test_task}-${token_tag
 ckpt_path=$(build_checkpoint_path "SMB-ranking-decoder" "${task_dir}" "${token_tag}")
 echo "Testing SMB ranking decoder on ${dataset} using ${tokenization_desc} with GPU ${gpu}."
 
-: ${ckpt_num:=best}
+: ${ckpt_num:=475}
 if [[ "$ckpt_num" == "best" ]]; then
     ckpt_path=$(best_checkpoint "$ckpt_path")
     echo "Using the best checkpoint."

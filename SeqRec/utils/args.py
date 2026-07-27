@@ -83,6 +83,7 @@ class ScriptTrainingArgs:
     eval_steps: int | None = None
     save_steps: int | None = None
     patience: int = 20
+    save_total_limit: int = 2
     fp16: bool = False
     bf16: bool = False
     deepspeed: str | None = None
@@ -172,6 +173,7 @@ ARGUMENT_HELP = {
     "eval_steps": "HF Trainer-compatible evaluation interval in steps. Overrides --save_and_eval_steps for evaluation when set.",
     "save_steps": "HF Trainer-compatible save interval in steps. Overrides --save_and_eval_steps for saving when set.",
     "patience": "Number of evaluation steps to wait before stopping training if no improvement",
+    "save_total_limit": "Maximum number of checkpoints to keep (0 = keep all)",
     "fp16": "Use mixed precision training (fp16)",
     "bf16": "Use bfloat16 precision training",
     "deepspeed": "Path to deepspeed configuration file",

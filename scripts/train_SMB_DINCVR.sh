@@ -7,9 +7,10 @@
 : ${test_task:=smb_din}
 : ${gpu:=0}
 : ${backbone:=DIN}
-: ${metrics:=auc}
-: ${epochs:=6}
-: ${save_epoch_limit:=6}
+: ${metrics:=auc,logloss,gauc}
+: ${epochs:=4}
+: ${save_epoch_limit:=4}
+: ${ckpt_num:=4}
 
 export CUDA_VISIBLE_DEVICES=$gpu
 
@@ -19,7 +20,7 @@ source "${script_dir}/lib/paths.sh"
 
 base_model=./config/dis-models/${backbone}
 
-: ${suffix:=item_id_ep6}
+: ${suffix:=item_id}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
@@ -44,5 +45,6 @@ python main.py train_SMB_rec \
     --max_his_len ${max_his_len} \
     --epochs ${epochs} \
     --save_epoch_limit ${save_epoch_limit} \
+    --ckpt_num ${ckpt_num} \
     --metrics ${metrics} \
     "${EXTRA_CLI_ARGS[@]}"

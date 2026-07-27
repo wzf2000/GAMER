@@ -22,7 +22,7 @@ from SeqRec.models.discriminative.MeanPooling import MeanPooling, MeanPoolingCon
 from SeqRec.models.discriminative.SASRecCVR import SASRecCVR, SASRecCVRConfig
 from SeqRec.models.discriminative.DIENCVR import DIENCVR, DIENCVRConfig
 from SeqRec.models.discriminative.BSTCVR import BSTCVR, BSTCVRConfig
-from SeqRec.evaluation.ranking import binary_auc
+from SeqRec.evaluation.ranking import binary_auc, binary_gauc, binary_logloss
 from SeqRec.utils.config import Config
 from SeqRec.utils.fs import ensure_dir
 from SeqRec.utils.args import SubParsersAction, parse_global_args, parse_dataset_args
@@ -122,6 +122,12 @@ class TrainSMBRec(Task):
             action='store_true',
             help='Only perform testing without training.',
         )
+        parser.add_argument(
+            '--ckpt_num',
+            type=str,
+            default='best',
+            help='Checkpoint to load for testing: "best" for best_model.pth, or an epoch number (e.g. "3") for epoch_3_model.pth.',
+        )
 
     def test_single_behavior(self, data_loader: DataLoader, behavior: str) -> dict:
         eval_results = {metric: [] for metric in self.metric_list}
@@ -209,20 +215,30 @@ class TrainSMBRec(Task):
     def test_auc(self, data_loader: DataLoader) -> list[dict[str, float]]:
         labels = []
         scores = []
+        uid_list = []
         with torch.no_grad():
             for batch in get_tqdm(data_loader, desc="Binary CVR AUC testing"):
                 batch = {k: v.to(self.device) for k, v in batch.items()}
                 scores.extend(self.model.predict(batch).detach().cpu().tolist())
                 labels.extend(batch["label"].detach().cpu().tolist())
+                if "uid" in batch:
+                    uid_list.extend(batch["uid"].detach().cpu().tolist())
         positive = sum(1 for label in labels if label)
         negative = len(labels) - positive
-        return [{
+        metrics_lower = {m.lower() for m in self.metric_list}
+        result: dict = {
             "eval_type": f"CVR {self.target_behavior}",
-            "auc": binary_auc(labels, scores),
             "positive": float(positive),
             "negative": float(negative),
             "num_examples": float(len(labels)),
-        }]
+        }
+        if "auc" in metrics_lower:
+            result["auc"] = binary_auc(labels, scores)
+        if "logloss" in metrics_lower:
+            result["logloss"] = binary_logloss(labels, scores)
+        if "gauc" in metrics_lower and uid_list:
+            result["gauc"] = binary_gauc(labels, scores, uid_list)
+        return [result]
 
     def invoke(
         self,
@@ -252,6 +268,7 @@ class TrainSMBRec(Task):
         metrics: str,
         wandb_run_name: str,
         only_test: bool,
+        ckpt_num: str,
         *args,
         **kwargs,
     ):
@@ -282,6 +299,14 @@ class TrainSMBRec(Task):
         config_cls: type[Config] = eval(f"{backbone}Config")
         config = config_cls.from_pretrained(base_model)
 
+        is_binary_cvr = backbone in {"DIN", "MeanPooling", "SASRecCVR", "DIENCVR", "BSTCVR"}
+        CVR_METRICS = {"auc", "logloss", "gauc"}
+        if is_binary_cvr and not all(m.lower() in CVR_METRICS for m in metrics.split(",")):
+            logger.warning(f"{backbone} is a binary CVR baseline; overriding metrics to auc,logloss,gauc.")
+            metrics = "auc,logloss,gauc"
+        if is_binary_cvr:
+            add_uid = True
+
         train_data, valid_data = load_SMBDis_datasets(
             dataset=dataset,
             data_path=data_path,
@@ -289,10 +314,6 @@ class TrainSMBRec(Task):
             tasks=tasks,
             add_uid=add_uid,
         )
-        is_binary_cvr = backbone in {"DIN", "MeanPooling", "SASRecCVR", "DIENCVR", "BSTCVR"}
-        if is_binary_cvr and metrics.lower() != "auc":
-            logger.warning(f"{backbone} is a binary CVR baseline; overriding metrics to auc.")
-            metrics = "auc"
         self.target_behavior = valid_data.target_behavior
         if not is_binary_cvr:
             valid_data = valid_data.filter_by_behavior(self.target_behavior)
@@ -370,7 +391,12 @@ class TrainSMBRec(Task):
             test_task=test_task,
             add_uid=add_uid,
         )
-        state_dict = torch.load(output_dir + '/best_model.pth', map_location='cpu')
+        if ckpt_num == 'best':
+            ckpt_file = output_dir + '/best_model.pth'
+        else:
+            ckpt_file = output_dir + f'/epoch_{ckpt_num}_model.pth'
+        logger.info(f"Loading checkpoint from {ckpt_file}")
+        state_dict = torch.load(ckpt_file, map_location='cpu')
         self.model.load_state_dict(state_dict)
         self.model.eval()
         self.result_dir = result_dir

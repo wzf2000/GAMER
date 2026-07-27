@@ -229,6 +229,7 @@ def build_training_arguments(
     run_name: str,
     label_names: list[str] | None = None,
     ddp_find_unused_parameters: bool | None = None,
+    save_total_limit: int = 2,
 ):
     from transformers.training_args import TrainingArguments
 
@@ -279,7 +280,7 @@ def build_training_arguments(
         save_strategy=save_strategy,
         eval_steps=eval_steps,
         save_steps=save_steps,
-        save_total_limit=2,
+        save_total_limit=save_total_limit if save_total_limit > 0 else None,
         load_best_model_at_end=True,
         deepspeed=deepspeed,
         ddp_find_unused_parameters=ddp_find_unused_parameters,
@@ -336,6 +337,7 @@ def build_training_arguments_from_script_args(
         ddp_find_unused_parameters=ddp_find_unused_parameters,
         run_name=run_name,
         label_names=label_names,
+        save_total_limit=script_args.save_total_limit,
     )
 
 

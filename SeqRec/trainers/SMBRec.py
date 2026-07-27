@@ -10,7 +10,7 @@ from loguru import logger
 from torch.utils.data import DataLoader
 
 from SeqRec.modules.model_base.seq_model import SeqModel
-from SeqRec.evaluation.ranking import binary_auc
+from SeqRec.evaluation.ranking import binary_auc, binary_gauc, binary_logloss
 from SeqRec.utils.runtime import get_tqdm
 
 
@@ -42,6 +42,7 @@ class Trainer:
         self.patience = patience
         self.metrics = metrics
         self.main_metric = metrics[-1]
+        self.main_metric_higher_is_better = self.main_metric.lower() != "logloss"
         self.save_epoch_limit = save_epoch_limit
         self.epoch_checkpoints: list[Path] = []
 
@@ -113,21 +114,31 @@ class Trainer:
 
     def evaluate(self) -> dict:
         self.model.eval()
-        if [metric.lower() for metric in self.metrics] == ["auc"]:
+        CVR_METRICS = {"auc", "logloss", "gauc"}
+        if all(m.lower() in CVR_METRICS for m in self.metrics):
             labels = []
             scores = []
+            uid_list = []
             with torch.no_grad():
-                for batch in get_tqdm(self.eval_dataloader, desc="Evaluating AUC"):
+                for batch in get_tqdm(self.eval_dataloader, desc="Evaluating CVR"):
                     if isinstance(batch, tuple):
                         batch = batch[0]
                     batch = {k: v.to(self.device) for k, v in batch.items()}
                     scores.extend(self.model.predict(batch).detach().cpu().tolist())
                     labels.extend(batch["label"].detach().cpu().tolist())
-            eval_results = {
-                "auc": binary_auc(labels, scores),
+                    if "uid" in batch:
+                        uid_list.extend(batch["uid"].detach().cpu().tolist())
+            metrics_lower = {m.lower() for m in self.metrics}
+            eval_results: dict = {
                 "positive": float(sum(1 for label in labels if label)),
                 "negative": float(sum(1 for label in labels if not label)),
             }
+            if "auc" in metrics_lower:
+                eval_results["auc"] = binary_auc(labels, scores)
+            if "logloss" in metrics_lower:
+                eval_results["logloss"] = binary_logloss(labels, scores)
+            if "gauc" in metrics_lower and uid_list:
+                eval_results["gauc"] = binary_gauc(labels, scores, uid_list)
             wandb.log({f"eval/{metric}": value for metric, value in eval_results.items()}, step=self.global_step)
             logger.info(
                 "Evaluation results - "
@@ -199,7 +210,12 @@ class Trainer:
             metrics = self.evaluate()
             main_metric_value = metrics[self.main_metric]
             self._save_epoch_checkpoint(epoch + 1)
-            if main_metric_value > self.best_metric:
+            improved = (
+                main_metric_value > self.best_metric
+                if self.main_metric_higher_is_better
+                else main_metric_value < self.best_metric
+            )
+            if improved:
                 self.best_metric = main_metric_value
                 logger.info(
                     f"New best {self.main_metric}: {self.best_metric:.4f}, saving model to {self.output_dir}"
