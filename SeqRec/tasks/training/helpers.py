@@ -101,6 +101,7 @@ def prepare_generative_model_for_training(
     ranking_score_type: str | None = None,
     ranking_candidate_len: int | None = None,
     ranking_num_users: int | None = None,
+    ranking_use_user_embedding: bool | None = None,
 ):
     config.use_ranking_head = use_ranking_head
     if ranking_pos_weight is not None:
@@ -114,6 +115,8 @@ def prepare_generative_model_for_training(
         config.ranking_candidate_len = ranking_candidate_len
     if ranking_num_users is not None:
         config.ranking_num_users = ranking_num_users
+    if ranking_use_user_embedding is not None:
+        config.ranking_use_user_embedding = ranking_use_user_embedding
     if train_profile == "basic":
         model = instantiate_generative_model(backbone, config)
         model.set_hyper(temperature)

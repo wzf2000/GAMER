@@ -15,13 +15,16 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
                 getattr(config, "ranking_head_dropout", getattr(config, "dropout_rate", 0.0))
             )
             if getattr(config, "ranking_score_type", "hidden_head") == "llm_pair":
-                self.ranking_user_embedding = torch.nn.Embedding(
-                    int(getattr(config, "ranking_num_users", 0)) + 1,
-                    config.hidden_size,
-                    padding_idx=0,
-                )
+                ranking_use_user_embedding = getattr(config, "ranking_use_user_embedding", True)
+                ranking_feature_size = config.hidden_size * (4 if ranking_use_user_embedding else 3)
+                if ranking_use_user_embedding:
+                    self.ranking_user_embedding = torch.nn.Embedding(
+                        int(getattr(config, "ranking_num_users", 0)) + 1,
+                        config.hidden_size,
+                        padding_idx=0,
+                    )
                 self.ranking_head = torch.nn.Sequential(
-                    torch.nn.Linear(config.hidden_size * 4, config.hidden_size),
+                    torch.nn.Linear(ranking_feature_size, config.hidden_size),
                     torch.nn.PReLU(),
                     torch.nn.Linear(config.hidden_size, 1),
                 )
@@ -52,7 +55,8 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
         attention_mask: torch.Tensor | None,
         user_id: torch.Tensor | None,
     ) -> torch.Tensor:
-        if not hasattr(self, "ranking_user_embedding"):
+        ranking_use_user_embedding = getattr(self.config, "ranking_use_user_embedding", True)
+        if ranking_use_user_embedding and not hasattr(self, "ranking_user_embedding"):
             raise ValueError("LLM-pair ranking head is not initialized. Train or load a llm_pair checkpoint.")
 
         if attention_mask is None:
@@ -91,11 +95,14 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
                 )
             )
         pair_features = torch.stack(features, dim=0)
-        if user_id is None:
+        if not ranking_use_user_embedding:
+            features = pair_features
+        elif user_id is None:
             user_state = hidden_states.new_zeros(hidden_states.shape[0], hidden_states.shape[-1])
+            features = torch.cat([user_state, pair_features], dim=-1)
         else:
             user_state = self.ranking_user_embedding(user_id.to(hidden_states.device).long())
-        features = torch.cat([user_state, pair_features], dim=-1)
+            features = torch.cat([user_state, pair_features], dim=-1)
         return self.ranking_head(self.ranking_head_dropout(features)).squeeze(-1)
 
     def prepare_custom_causal_lm_inputs(

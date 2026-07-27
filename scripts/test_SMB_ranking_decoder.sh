@@ -1,9 +1,9 @@
 #!/bin/bash
-: ${dataset:=ShortVideoAD}
+: ${dataset:=ShortVideoSmall}
 : ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER/data}
 : ${original:=1}
 : ${rq_kmeans:=0}
-: ${batch_size:=20480}
+: ${batch_size:=204800}
 : ${tasks:=smb_ranking_decoder}
 : ${test_task:=smb_ranking_decoder}
 : ${metrics:=auc}
@@ -59,7 +59,7 @@ best_checkpoint() {
     fi
 }
 
-: ${suffix:=}
+: ${suffix:=no_user}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 

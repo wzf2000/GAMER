@@ -239,9 +239,11 @@ class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
             "behavior_token_ids": context["behavior_tokens"],
             "pba_uses_temperature": True,
             "use_ranking_head": True,
+            "ranking_pos_weight": self._ranking_pos_weight,
             "ranking_score_type": "llm_pair",
             "ranking_candidate_len": context["ranking_candidate_len"],
             "ranking_num_users": context["ranking_num_users"],
+            "ranking_use_user_embedding": False,
         }
 
     def get_label_names(self, backbone: str) -> list[str]:
@@ -280,6 +282,7 @@ class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
             "Using LLM-pair discriminative ranking head: "
             f"candidate_len={self._ranking_candidate_len}, "
             f"num_users={self._ranking_num_users}, "
+            "user_embedding=False, "
             f"positive={self._ranking_train_positives}, "
             f"negative={self._ranking_train_negatives}."
         )

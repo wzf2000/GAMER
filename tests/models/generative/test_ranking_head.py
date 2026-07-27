@@ -24,20 +24,20 @@ class RankingHeadFeatureTest(unittest.TestCase):
             ranking_score_type="llm_pair",
             ranking_candidate_len=2,
             num_positions=3,
+            ranking_use_user_embedding=False,
         )
-        model.ranking_user_embedding = torch.nn.Embedding(4, 4, padding_idx=0)
         model.ranking_head_dropout = torch.nn.Dropout(0.0)
-        model.ranking_head = torch.nn.Linear(16, 1, bias=False)
+        model.ranking_head = torch.nn.Linear(12, 1, bias=False)
         with torch.no_grad():
             model.ranking_head.weight.zero_()
-            model.ranking_head.weight[0, 8] = 1.0
+            model.ranking_head.weight[0, 4] = 1.0
 
         hidden_states = torch.arange(2 * 4 * 4, dtype=torch.float32).view(2, 4, 4)
         attention_mask = torch.tensor([[1, 1, 1, 1], [1, 1, 0, 0]])
         logits = model._llm_pair_ranking_logits(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
-            user_id=torch.tensor([1, 2]),
+            user_id=None,
         )
 
         torch.testing.assert_close(logits, torch.tensor([10.0, 18.0]))

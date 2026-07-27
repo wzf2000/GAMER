@@ -1,5 +1,5 @@
 #!/bin/bash
-: ${dataset:=ShortVideoAD}
+: ${dataset:=ShortVideoSmall}
 : ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER/data}
 : ${batch_size:=1024}
 : ${tasks:=smb_din}

@@ -1,5 +1,5 @@
 #!/bin/bash
-: ${dataset:=ShortVideoAD}
+: ${dataset:=ShortVideoSmall}
 : ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER/data}
 : ${original:=1}
 : ${rq_kmeans:=0}
@@ -9,11 +9,11 @@
 : ${gpu:=0,1,2,3,4,5,6}
 : ${port:=2314}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}
-: ${epochs:=50}
-: ${learning_rate:=1e-4}
+: ${epochs:=20}
+: ${learning_rate:=1e-5}
 : ${weight_decay:=0.05}
-: ${patience:=4}
-: ${train_auc_samples:=1024}
+: ${patience:=2}
+: ${train_auc_samples:=20000}
 : ${train_auc_batch_size:=256}
 : ${eval_epochs:=1}
 
@@ -39,7 +39,7 @@ if ! base_model=$(resolve_s2s_base_model "${backbone}"); then
     exit 1
 fi
 
-: ${suffix:=}
+: ${suffix:=no_user}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
