@@ -6,7 +6,7 @@
 : ${max_his_len:=100}
 : ${test_task:=smb_din}
 : ${gpu:=0}
-: ${backbone:=BSTCVR}
+: ${backbone:=HSTUCVR}
 : ${metrics:=auc,prauc,logloss,accuracy,precision,recall,f1,gauc}
 : ${epochs:=5}
 : ${save_epoch_limit:=5}
@@ -24,7 +24,7 @@ base_model=./config/dis-models/${backbone}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
-output_dir=./checkpoint/SMB-BSTCVR/${task_dir}/
+output_dir=./checkpoint/SMB-HSTUCVR/${task_dir}/
 result_dir=$(build_result_path "${task_dir}" "")
 run_name=${task_dir}
 
@@ -48,3 +48,4 @@ python main.py train_SMB_rec \
     --ckpt_num ${ckpt_num} \
     --metrics ${metrics} \
     "${EXTRA_CLI_ARGS[@]}"
+

@@ -8,7 +8,7 @@ from torch.utils.data.distributed import DistributedSampler
 from SeqRec.datasets.collators.generative import DecoderOnlyRankingCollator
 from SeqRec.datasets.loaders.session_behavior import load_SMB_test_dataset, load_SMB_valid_dataset
 from SeqRec.datasets.session_behavior import SMBRankingDatasetForDecoder
-from SeqRec.evaluation.ranking import binary_auc, binary_gauc, binary_logloss, get_metrics_results, get_ranked_item_hits, rank_items_by_scores
+from SeqRec.evaluation.ranking import BINARY_METRICS, DEFAULT_BINARY_METRICS, BinaryMetricAccumulator, get_metrics_results, get_ranked_item_hits, rank_items_by_scores
 from SeqRec.tasks.evaluation.base import _BaseDecoderTestTask
 from SeqRec.utils.args import SubParsersAction, parse_dataset_args, parse_generation_eval_args, parse_global_args
 from SeqRec.utils.runtime import get_tqdm
@@ -29,7 +29,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
         parser = parse_dataset_args(parser)
         parse_generation_eval_args(
             parser,
-            metrics="auc",
+            metrics=",".join(DEFAULT_BINARY_METRICS),
             include_behaviors=True,
             include_valid_loss=True,
         )
@@ -211,8 +211,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
         return results
 
     def _is_cvr_auc_eval(self) -> bool:
-        CVR_METRICS = {"auc", "logloss", "gauc"}
-        return all(m.lower() in CVR_METRICS for m in self.metric_list)
+        return all(m in BINARY_METRICS for m in self.metric_list)
 
     def _setup_cvr_samplers(self):
         if not self.ddp:
@@ -231,17 +230,18 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
         dataset: SMBRankingDatasetForDecoder = loader.dataset
         target_behavior = dataset.target_behavior
         if len(dataset) == 0:
-            return [
-                {
-                    "eval_type": f"CVR {target_behavior}",
-                    "auc": 0.0,
-                    "positive": 0.0,
-                    "negative": 0.0,
-                    "num_examples": 0.0,
-                }
-            ]
+            result = {
+                "eval_type": f"CVR {target_behavior}",
+                "positive": 0.0,
+                "negative": 0.0,
+                "num_examples": 0.0,
+            }
+            for metric in self.metric_list:
+                result[metric.lower()] = 0.0
+            return [result]
         item_len = len(self.tokenizer.encode(dataset[0]["target_item"][0], add_special_tokens=False))
         records = []
+        accumulator = BinaryMetricAccumulator(self.metric_list)
         pbar = get_tqdm(desc=f"CVR AUC {target_behavior}", total=len(loader))
 
         for batch in loader:
@@ -250,19 +250,32 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
                 behaviors = sample["behavior"]
                 for start in range(0, len(candidates), candidate_batch_size):
                     chunk_candidates = candidates[start : start + candidate_batch_size]
+                    chunk_labels = [
+                        1 if dataset.behavior_level[behavior] == dataset.max_behavior_level else 0
+                        for behavior in behaviors[start : start + candidate_batch_size]
+                    ]
                     scores = self._score_candidate_batch(
                         sample=sample,
                         candidates=chunk_candidates,
                         item_len=item_len,
                     )
-                    for offset, score in enumerate(scores.tolist()):
+                    chunk_scores = scores.tolist()
+                    chunk_uids = [sample["uid"]] * len(chunk_labels)
+                    accumulator.update(chunk_labels, chunk_scores, chunk_uids)
+                    for offset, score in enumerate(chunk_scores):
                         item_index = start + offset
-                        behavior = behaviors[item_index]
-                        label = 1 if dataset.behavior_level[behavior] == dataset.max_behavior_level else 0
+                        label = chunk_labels[offset]
                         key = (sample["uid"], sample["target_session_id"], item_index)
                         records.append((key, label, score))
             if pbar:
-                pbar.set_postfix({"scored": len(records)})
+                progress = accumulator.compute(include_rank_metrics=False)
+                show = {
+                    m.lower(): f"{progress[m.lower()]:.4f}"
+                    for m in self.metric_list
+                    if m.lower() in progress
+                }
+                show["scored"] = len(records)
+                pbar.set_postfix(show)
                 pbar.update(1)
 
         records = self._gather_concat(records)
@@ -272,21 +285,12 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
         uid_list = [key[0] for key in deduped.keys()]
         labels = [label for label, _score in deduped.values()]
         scores = [score for _label, score in deduped.values()]
-        positive = sum(labels)
-        negative = len(labels) - positive
         result: dict = {
             "eval_type": f"CVR {target_behavior}",
-            "positive": float(positive),
-            "negative": float(negative),
-            "num_examples": float(len(labels)),
         }
-        metrics_lower = {m.lower() for m in self.metric_list}
-        if "auc" in metrics_lower:
-            result["auc"] = binary_auc(labels, scores)
-        if "logloss" in metrics_lower:
-            result["logloss"] = binary_logloss(labels, scores)
-        if "gauc" in metrics_lower:
-            result["gauc"] = binary_gauc(labels, scores, uid_list)
+        final_accumulator = BinaryMetricAccumulator(self.metric_list)
+        final_accumulator.update(labels, scores, uid_list)
+        result.update(final_accumulator.compute())
         return [result]
 
     def invoke(
@@ -342,7 +346,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
                     target_behavior_tokens[0],
                     add_special_tokens=False,
                 )[0]
-            self.metric_list = metrics.split(",")
+            self.metric_list = [metric.strip().lower() for metric in metrics.split(",") if metric.strip()]
             self.cvr_auc_eval = self._is_cvr_auc_eval() and behaviors is None
             if self.cvr_auc_eval:
                 self.behaviors = [self.base_dataset.target_behavior]

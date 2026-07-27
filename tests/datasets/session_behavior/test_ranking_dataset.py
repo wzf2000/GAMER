@@ -19,7 +19,7 @@ try:
     from transformers import BatchEncoding
 
     from SeqRec.datasets.collators.generative import DecoderOnlyRankingCollator
-    from SeqRec.evaluation.ranking import binary_auc, get_metrics_results, get_ranked_item_hits, rank_items_by_scores
+    from SeqRec.evaluation.ranking import binary_auc, binary_eval_results, get_metrics_results, get_ranked_item_hits, rank_items_by_scores
     from SeqRec.models.generative.qwen3.temporal_hierarchical import resolve_relation_action_indices
 except ModuleNotFoundError as exc:
     torch = None
@@ -210,6 +210,20 @@ class SMBRankingDatasetTest(unittest.TestCase):
         self.assertEqual(metrics["hit@1"], 0.0)
         self.assertEqual(metrics["recall@2"], 0.5)
         self.assertEqual(binary_auc([1, 0, 1, 0], [0.9, 0.8, 0.4, 0.4]), 0.625)
+        binary_metrics = binary_eval_results(
+            [1, 0, 1, 0],
+            [4.0, 3.0, -1.0, -2.0],
+            [1, 1, 2, 2],
+            ["auc", "prauc", "logloss", "accuracy", "precision", "recall", "f1", "gauc"],
+        )
+        self.assertEqual(binary_metrics["positive"], 2.0)
+        self.assertEqual(binary_metrics["negative"], 2.0)
+        self.assertEqual(binary_metrics["accuracy"], 0.5)
+        self.assertEqual(binary_metrics["precision"], 0.5)
+        self.assertEqual(binary_metrics["recall"], 0.5)
+        self.assertEqual(binary_metrics["f1"], 0.5)
+        self.assertGreater(binary_metrics["prauc"], 0.0)
+        self.assertIn("gauc", binary_metrics)
 
 
 if __name__ == "__main__":

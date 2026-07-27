@@ -22,7 +22,8 @@ from SeqRec.models.discriminative.MeanPooling import MeanPooling, MeanPoolingCon
 from SeqRec.models.discriminative.SASRecCVR import SASRecCVR, SASRecCVRConfig
 from SeqRec.models.discriminative.DIENCVR import DIENCVR, DIENCVRConfig
 from SeqRec.models.discriminative.BSTCVR import BSTCVR, BSTCVRConfig
-from SeqRec.evaluation.ranking import binary_auc, binary_gauc, binary_logloss
+from SeqRec.models.discriminative.HSTUCVR import HSTUCVR, HSTUCVRConfig
+from SeqRec.evaluation.ranking import BINARY_METRICS, DEFAULT_BINARY_METRICS, BinaryMetricAccumulator
 from SeqRec.utils.config import Config
 from SeqRec.utils.fs import ensure_dir
 from SeqRec.utils.args import SubParsersAction, parse_global_args, parse_dataset_args
@@ -213,31 +214,27 @@ class TrainSMBRec(Task):
         return results
 
     def test_auc(self, data_loader: DataLoader) -> list[dict[str, float]]:
-        labels = []
-        scores = []
-        uid_list = []
+        accumulator = BinaryMetricAccumulator(self.metric_list)
         with torch.no_grad():
-            for batch in get_tqdm(data_loader, desc="Binary CVR AUC testing"):
+            for batch in (pbar := get_tqdm(data_loader, desc="Binary CVR testing")):
                 batch = {k: v.to(self.device) for k, v in batch.items()}
-                scores.extend(self.model.predict(batch).detach().cpu().tolist())
-                labels.extend(batch["label"].detach().cpu().tolist())
-                if "uid" in batch:
-                    uid_list.extend(batch["uid"].detach().cpu().tolist())
-        positive = sum(1 for label in labels if label)
-        negative = len(labels) - positive
-        metrics_lower = {m.lower() for m in self.metric_list}
+                batch_scores = self.model.predict(batch).detach().cpu()
+                batch_labels = batch["label"].detach().cpu()
+                batch_uids = batch["uid"].detach().cpu() if "uid" in batch else None
+                accumulator.update(batch_labels, batch_scores, batch_uids)
+                if pbar is not None and hasattr(pbar, "set_postfix"):
+                    progress = accumulator.compute(include_rank_metrics=False)
+                    show = {
+                        m.lower(): f"{progress[m.lower()]:.4f}"
+                        for m in self.metric_list
+                        if m.lower() in progress
+                    }
+                    if show:
+                        pbar.set_postfix(show)
         result: dict = {
             "eval_type": f"CVR {self.target_behavior}",
-            "positive": float(positive),
-            "negative": float(negative),
-            "num_examples": float(len(labels)),
         }
-        if "auc" in metrics_lower:
-            result["auc"] = binary_auc(labels, scores)
-        if "logloss" in metrics_lower:
-            result["logloss"] = binary_logloss(labels, scores)
-        if "gauc" in metrics_lower and uid_list:
-            result["gauc"] = binary_gauc(labels, scores, uid_list)
+        result.update(accumulator.compute())
         return [result]
 
     def invoke(
@@ -299,11 +296,11 @@ class TrainSMBRec(Task):
         config_cls: type[Config] = eval(f"{backbone}Config")
         config = config_cls.from_pretrained(base_model)
 
-        is_binary_cvr = backbone in {"DIN", "MeanPooling", "SASRecCVR", "DIENCVR", "BSTCVR"}
-        CVR_METRICS = {"auc", "logloss", "gauc"}
-        if is_binary_cvr and not all(m.lower() in CVR_METRICS for m in metrics.split(",")):
-            logger.warning(f"{backbone} is a binary CVR baseline; overriding metrics to auc,logloss,gauc.")
-            metrics = "auc,logloss,gauc"
+        metrics = ",".join(metric.strip().lower() for metric in metrics.split(",") if metric.strip())
+        is_binary_cvr = backbone in {"DIN", "MeanPooling", "SASRecCVR", "DIENCVR", "BSTCVR", "HSTUCVR"}
+        if is_binary_cvr and not all(m in BINARY_METRICS for m in metrics.split(",")):
+            metrics = ",".join(DEFAULT_BINARY_METRICS)
+            logger.warning(f"{backbone} is a binary CVR baseline; overriding metrics to {metrics}.")
         if is_binary_cvr:
             add_uid = True
 

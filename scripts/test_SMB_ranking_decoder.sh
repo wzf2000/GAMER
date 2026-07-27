@@ -6,7 +6,7 @@
 : ${batch_size:=204800}
 : ${tasks:=smb_ranking_decoder}
 : ${test_task:=smb_ranking_decoder}
-: ${metrics:=auc,logloss,gauc}
+: ${metrics:=auc,prauc,logloss,accuracy,precision,recall,f1,gauc}
 : ${gpu:=4,5,6}
 : ${port:=2316}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}

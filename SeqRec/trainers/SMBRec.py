@@ -10,7 +10,7 @@ from loguru import logger
 from torch.utils.data import DataLoader
 
 from SeqRec.modules.model_base.seq_model import SeqModel
-from SeqRec.evaluation.ranking import binary_auc, binary_gauc, binary_logloss
+from SeqRec.evaluation.ranking import BINARY_METRICS, BinaryMetricAccumulator
 from SeqRec.utils.runtime import get_tqdm
 
 
@@ -40,8 +40,8 @@ class Trainer:
         self.logging_step = logging_step
         self.output_dir = output_dir
         self.patience = patience
-        self.metrics = metrics
-        self.main_metric = metrics[-1]
+        self.metrics = [metric.strip().lower() for metric in metrics if metric.strip()]
+        self.main_metric = self.metrics[-1]
         self.main_metric_higher_is_better = self.main_metric.lower() != "logloss"
         self.save_epoch_limit = save_epoch_limit
         self.epoch_checkpoints: list[Path] = []
@@ -114,31 +114,27 @@ class Trainer:
 
     def evaluate(self) -> dict:
         self.model.eval()
-        CVR_METRICS = {"auc", "logloss", "gauc"}
-        if all(m.lower() in CVR_METRICS for m in self.metrics):
-            labels = []
-            scores = []
-            uid_list = []
+        if all(m.lower() in BINARY_METRICS for m in self.metrics):
+            accumulator = BinaryMetricAccumulator(self.metrics)
             with torch.no_grad():
-                for batch in get_tqdm(self.eval_dataloader, desc="Evaluating CVR"):
+                for batch in (pbar := get_tqdm(self.eval_dataloader, desc="Evaluating CVR")):
                     if isinstance(batch, tuple):
                         batch = batch[0]
                     batch = {k: v.to(self.device) for k, v in batch.items()}
-                    scores.extend(self.model.predict(batch).detach().cpu().tolist())
-                    labels.extend(batch["label"].detach().cpu().tolist())
-                    if "uid" in batch:
-                        uid_list.extend(batch["uid"].detach().cpu().tolist())
-            metrics_lower = {m.lower() for m in self.metrics}
-            eval_results: dict = {
-                "positive": float(sum(1 for label in labels if label)),
-                "negative": float(sum(1 for label in labels if not label)),
-            }
-            if "auc" in metrics_lower:
-                eval_results["auc"] = binary_auc(labels, scores)
-            if "logloss" in metrics_lower:
-                eval_results["logloss"] = binary_logloss(labels, scores)
-            if "gauc" in metrics_lower and uid_list:
-                eval_results["gauc"] = binary_gauc(labels, scores, uid_list)
+                    batch_scores = self.model.predict(batch).detach().cpu()
+                    batch_labels = batch["label"].detach().cpu()
+                    batch_uids = batch["uid"].detach().cpu() if "uid" in batch else None
+                    accumulator.update(batch_labels, batch_scores, batch_uids)
+                    if pbar is not None and hasattr(pbar, "set_postfix"):
+                        progress = accumulator.compute(include_rank_metrics=False)
+                        show = {
+                            m.lower(): f"{progress[m.lower()]:.4f}"
+                            for m in self.metrics
+                            if m.lower() in progress
+                        }
+                        if show:
+                            pbar.set_postfix(show)
+            eval_results = accumulator.compute()
             wandb.log({f"eval/{metric}": value for metric, value in eval_results.items()}, step=self.global_step)
             logger.info(
                 "Evaluation results - "

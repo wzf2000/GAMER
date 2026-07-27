@@ -7,10 +7,10 @@
 : ${test_task:=smb_din}
 : ${gpu:=0}
 : ${backbone:=DIENCVR}
-: ${metrics:=auc,logloss,gauc}
-: ${epochs:=4}
-: ${save_epoch_limit:=4}
-: ${ckpt_num:=4}
+: ${metrics:=auc,prauc,logloss,accuracy,precision,recall,f1,gauc}
+: ${epochs:=5}
+: ${save_epoch_limit:=5}
+: ${ckpt_num:=5}
 
 export CUDA_VISIBLE_DEVICES=$gpu
 
