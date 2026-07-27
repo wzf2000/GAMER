@@ -12,10 +12,10 @@ import random
 import shutil
 
 SRC = "/home/zhouman/guoyunhe/workspace/full/GAMER/data/ShortVideoAD"
-DST = "/home/zhouman/guoyunhe/workspace/full/GAMER/data/ShortVideoSmall"
+DST = "/home/zhouman/guoyunhe/workspace/full/GAMER/data/ShortVideoADSmall"
 SRC_NAME = "ShortVideoAD"
-DST_NAME = "ShortVideoSmall"
-RATIO = 0.1
+DST_NAME = "ShortVideoADSmall"
+RATIO = 0.01
 SEED = 42
 
 os.makedirs(DST, exist_ok=True)
