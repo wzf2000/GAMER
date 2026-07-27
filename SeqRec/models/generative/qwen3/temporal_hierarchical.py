@@ -666,6 +666,7 @@ class Qwen3TemporalHierarchicalWithTemperature(CustomCausalLMWrapperMixin, Qwen3
         extended_session_ids: torch.LongTensor | None = None,
         actions: torch.LongTensor | None = None,
         relation_actions: torch.LongTensor | None = None,
+        user_id: torch.LongTensor | None = None,
         use_ranking_head: bool = False,
         **kwargs: Unpack[KwargsForCausalLM],
     ) -> CausalLMOutputWithPast:
@@ -688,5 +689,5 @@ class Qwen3TemporalHierarchicalWithTemperature(CustomCausalLMWrapperMixin, Qwen3
                 relation_actions=relation_actions,
             ),
             extra_kwargs=kwargs,
-            wrapper_kwargs={"use_ranking_head": use_ranking_head},
+            wrapper_kwargs={"use_ranking_head": use_ranking_head, "user_id": user_id},
         )

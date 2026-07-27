@@ -14,7 +14,19 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
             self.ranking_head_dropout = torch.nn.Dropout(
                 getattr(config, "ranking_head_dropout", getattr(config, "dropout_rate", 0.0))
             )
-            self.ranking_head = torch.nn.Linear(config.hidden_size, 1)
+            if getattr(config, "ranking_score_type", "hidden_head") == "llm_pair":
+                self.ranking_user_embedding = torch.nn.Embedding(
+                    int(getattr(config, "ranking_num_users", 0)) + 1,
+                    config.hidden_size,
+                    padding_idx=0,
+                )
+                self.ranking_head = torch.nn.Sequential(
+                    torch.nn.Linear(config.hidden_size * 4, config.hidden_size),
+                    torch.nn.PReLU(),
+                    torch.nn.Linear(config.hidden_size, 1),
+                )
+            else:
+                self.ranking_head = torch.nn.Linear(config.hidden_size, 1)
         self.post_init()
         self.init_temperature()
 
@@ -32,6 +44,64 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
             batch_indices = torch.arange(hidden_states.shape[0], device=hidden_states.device)
             last_hidden_states = hidden_states[batch_indices, last_indices]
         return self.ranking_head(self.ranking_head_dropout(last_hidden_states)).squeeze(-1)
+
+    def _llm_pair_ranking_logits(
+        self,
+        *,
+        input_ids: torch.LongTensor | None,
+        hidden_states: torch.FloatTensor,
+        attention_mask: torch.Tensor | None,
+        user_id: torch.Tensor | None,
+    ) -> torch.Tensor:
+        if input_ids is None:
+            raise ValueError("LLM-pair ranking requires input_ids.")
+        if not hasattr(self, "ranking_user_embedding"):
+            raise ValueError("LLM-pair ranking head is not initialized. Train or load a llm_pair checkpoint.")
+
+        if attention_mask is None:
+            last_indices = torch.full(
+                (hidden_states.shape[0],),
+                hidden_states.shape[1] - 1,
+                device=hidden_states.device,
+                dtype=torch.long,
+            )
+        else:
+            last_indices = attention_mask.to(hidden_states.device).long().sum(dim=1).clamp(min=1) - 1
+
+        candidate_len = getattr(self.config, "ranking_candidate_len", None)
+        if candidate_len is None:
+            candidate_len = max(1, int(getattr(self.config, "num_positions", 2)) - 1)
+        candidate_len = max(1, int(candidate_len))
+        token_embeddings = self.get_input_embeddings()(input_ids)
+
+        features = []
+        zero_state = hidden_states.new_zeros(hidden_states.shape[-1])
+        for batch_index, last_index_tensor in enumerate(last_indices):
+            last_index = int(last_index_tensor.item())
+            candidate_start = max(0, last_index - candidate_len + 1)
+            candidate_state = token_embeddings[batch_index, candidate_start : last_index + 1].mean(dim=0)
+            history_state = (
+                hidden_states[batch_index, candidate_start - 1]
+                if candidate_start > 0
+                else zero_state
+            )
+            features.append(
+                torch.cat(
+                    [
+                        history_state,
+                        candidate_state,
+                        history_state * candidate_state,
+                    ],
+                    dim=-1,
+                )
+            )
+        pair_features = torch.stack(features, dim=0)
+        if user_id is None:
+            user_state = hidden_states.new_zeros(hidden_states.shape[0], hidden_states.shape[-1])
+        else:
+            user_state = self.ranking_user_embedding(user_id.to(hidden_states.device).long())
+        features = torch.cat([user_state, pair_features], dim=-1)
+        return self.ranking_head(self.ranking_head_dropout(features)).squeeze(-1)
 
     def prepare_custom_causal_lm_inputs(
         self,
@@ -80,10 +150,18 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
 
         hidden_states = outputs.last_hidden_state
         if wrapper_kwargs.get("use_ranking_head", False) or ranking_labels is not None:
-            ranking_logits = self._ranking_logits_from_hidden_states(
-                hidden_states,
-                model_kwargs.get("attention_mask"),
-            )
+            if getattr(self.config, "ranking_score_type", "hidden_head") == "llm_pair":
+                ranking_logits = self._llm_pair_ranking_logits(
+                    input_ids=model_kwargs.get("input_ids"),
+                    hidden_states=hidden_states,
+                    attention_mask=model_kwargs.get("attention_mask"),
+                    user_id=wrapper_kwargs.get("user_id"),
+                )
+            else:
+                ranking_logits = self._ranking_logits_from_hidden_states(
+                    hidden_states,
+                    model_kwargs.get("attention_mask"),
+                )
             loss = None
             if ranking_labels is not None:
                 ranking_labels = ranking_labels.to(

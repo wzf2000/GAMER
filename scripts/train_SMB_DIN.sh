@@ -1,9 +1,9 @@
 #!/bin/bash
-: ${dataset:=ShortVideoSmall}
+: ${dataset:=ShortVideoAD}
 : ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER/data}
 : ${batch_size:=1024}
 : ${tasks:=smb_din}
-: ${max_his_len:=50}
+: ${max_his_len:=100}
 : ${test_task:=smb_din}
 : ${gpu:=0}
 : ${backbone:=DIN}
@@ -17,7 +17,7 @@ source "${script_dir}/lib/paths.sh"
 
 base_model=./config/dis-models/${backbone}
 
-: ${suffix:=}
+: ${suffix:=item_id}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 

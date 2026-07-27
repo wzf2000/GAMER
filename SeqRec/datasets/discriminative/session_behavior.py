@@ -399,7 +399,7 @@ class SMBDINDataset(SMBDisDataset):
         suffix = "adduid." if self.add_uid else ""
         return os.path.join(
             self.data_path,
-            self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{suffix}{self.mode}.pkl",
+            self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.item_id.{suffix}{self.mode}.pkl",
         )
 
     def _target_session_id(self, uid: str) -> int | None:

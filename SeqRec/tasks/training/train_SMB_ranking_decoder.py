@@ -48,7 +48,6 @@ class _SampledCvrAucCallback(TrainerCallback):
         tokenizer: Any,
         behavior_level: dict[str, int],
         max_behavior_level: int,
-        target_behavior_token_id: int,
         sample_count: int,
         candidate_batch_size: int,
         patience: int,
@@ -57,7 +56,6 @@ class _SampledCvrAucCallback(TrainerCallback):
         self.tokenizer = tokenizer
         self.behavior_level = behavior_level
         self.max_behavior_level = max_behavior_level
-        self.target_behavior_token_id = target_behavior_token_id
         self.sample_count = sample_count
         self.candidate_batch_size = candidate_batch_size
         self.patience = patience
@@ -116,11 +114,12 @@ class _SampledCvrAucCallback(TrainerCallback):
                 dtype=torch.long,
                 device=device,
             ),
+            "user_id": torch.tensor([sample["user_id"] for sample in samples], dtype=torch.long, device=device),
             "use_cache": False,
-            "logits_to_keep": 1,
+            "use_ranking_head": True,
         }
         output = model(**model_inputs)
-        return output.logits[:, -1, self.target_behavior_token_id].detach().cpu()
+        return output.logits.squeeze(-1).detach().cpu()
 
     def on_evaluate(self, args, state, control, metrics=None, **kwargs):
         if self.sample_count <= 0:
@@ -184,7 +183,7 @@ class _SampledCvrAucCallback(TrainerCallback):
 
 class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
     checkpoint_dir_name = "SMB-ranking-decoder"
-    parser_help = "Train a SMB decoder with shared lm_head target-token ranking."
+    parser_help = "Train a SMB decoder with LLM-pair discriminative ranking."
     parser_model_max_length = 1024
     include_find_unused_parameters = True
     include_debug = True
@@ -222,16 +221,12 @@ class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
     def prepare_training_context(self, first_dataset, tokenizer):
         self._ranking_behavior_level = first_dataset.behavior_level
         self._ranking_max_behavior_level = first_dataset.max_behavior_level
-        target_behavior_tokens = first_dataset.get_behavior_tokens(first_dataset.target_behavior)
-        if len(target_behavior_tokens) != 1:
-            raise ValueError("SMB ranking decoder requires exactly one target behavior token.")
-        self._ranking_target_behavior_token_id = tokenizer.encode(
-            target_behavior_tokens[0],
-            add_special_tokens=False,
-        )[0]
+        self._ranking_candidate_len = first_dataset.sole_item_len
+        self._ranking_num_users = first_dataset.num_users
         return {
             "behavior_tokens": get_behavior_token_ids(first_dataset, tokenizer),
-            "target_behavior_token_id": self._ranking_target_behavior_token_id,
+            "ranking_candidate_len": self._ranking_candidate_len,
+            "ranking_num_users": self._ranking_num_users,
         }
 
     def get_collator_kwargs(self, first_dataset, tokenizer, context):
@@ -243,20 +238,24 @@ class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
         return {
             "behavior_token_ids": context["behavior_tokens"],
             "pba_uses_temperature": True,
-            "ranking_target_token_id": context["target_behavior_token_id"],
+            "use_ranking_head": True,
+            "ranking_score_type": "llm_pair",
+            "ranking_candidate_len": context["ranking_candidate_len"],
+            "ranking_num_users": context["ranking_num_users"],
         }
 
     def get_label_names(self, backbone: str) -> list[str]:
         if backbone_uses_sessions(backbone):
             return [
                 "input_ids",
-                "labels",
+                "ranking_labels",
+                "user_id",
                 "session_ids",
                 "extended_session_ids",
                 "actions",
                 "relation_actions",
             ]
-        return ["input_ids", "labels", "relation_actions"]
+        return ["input_ids", "ranking_labels", "user_id", "relation_actions"]
 
     def get_ddp_find_unused_parameters(self, script_args):
         if self.ddp:
@@ -278,8 +277,9 @@ class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
             self.info(f"Eval/save will run every {eval_epochs} epoch(s).")
 
         self.info(
-            "Using shared lm_head target-token ranking loss: "
-            f"target_token_id={self._ranking_target_behavior_token_id}, "
+            "Using LLM-pair discriminative ranking head: "
+            f"candidate_len={self._ranking_candidate_len}, "
+            f"num_users={self._ranking_num_users}, "
             f"positive={self._ranking_train_positives}, "
             f"negative={self._ranking_train_negatives}."
         )
@@ -294,7 +294,6 @@ class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
             tokenizer=trainer.processing_class,
             behavior_level=self._ranking_behavior_level,
             max_behavior_level=self._ranking_max_behavior_level,
-            target_behavior_token_id=self._ranking_target_behavior_token_id,
             sample_count=sample_count,
             candidate_batch_size=max(1, int(os.environ.get("SMB_RANKING_TRAIN_AUC_BATCH_SIZE", str(trainer.args.per_device_eval_batch_size)))),
             patience=getattr(self, "_ranking_patience", 0),

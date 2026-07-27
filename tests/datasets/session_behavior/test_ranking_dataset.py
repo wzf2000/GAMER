@@ -170,25 +170,23 @@ class SMBRankingDatasetTest(unittest.TestCase):
         self.assertNotIn("<i3a><i3b><behavior_cart>", sample["input_ids"])
         self.assertNotIn("<behavior_cart><i3a><i3b>", sample["input_ids"])
         self.assertEqual(sample["ranking_labels"], 0.0)
+        self.assertEqual(sample["user_id"], 1)
         self.assertEqual(sample["relation_actions"], [1, 1, 1, 2, 2, 2, 0, 0])
         self.assertEqual(sample["actions"], sample["relation_actions"])
 
-    def test_collator_appends_behavior_label_for_shared_lm_head(self):
+    def test_collator_uses_ranking_label_and_user_id_for_llm_pair_head(self):
         if TORCH_IMPORT_ERROR is not None:
             self.skipTest(f"torch-dependent collator test skipped: {TORCH_IMPORT_ERROR}")
         sample = self._dataset("train")[0]
         tokenizer = FakeTokenizer()
         batch = DecoderOnlyRankingCollator(tokenizer)([sample])
         input_len = len(tokenizer.encode(sample["input_ids"], add_special_tokens=False))
-        full_len = input_len + len(tokenizer.encode(sample["labels"], add_special_tokens=False))
 
-        self.assertEqual(batch["input_ids"].shape[1], full_len)
-        self.assertIn("labels", batch)
-        self.assertNotIn("ranking_labels", batch)
-        self.assertTrue(torch.all(batch["labels"][0, :input_len] == -100))
-        self.assertNotEqual(batch["labels"][0, input_len].item(), -100)
+        self.assertEqual(batch["input_ids"].shape[1], input_len)
+        self.assertNotIn("labels", batch)
+        self.assertEqual(batch["ranking_labels"].item(), 0.0)
+        self.assertEqual(batch["user_id"].item(), 1)
         self.assertEqual(batch["relation_actions"][0, input_len - 1].item(), 0)
-        self.assertEqual(batch["relation_actions"][0, input_len].item(), 0)
 
     def test_relation_override_helper_preserves_old_path_when_absent(self):
         if TORCH_IMPORT_ERROR is not None:

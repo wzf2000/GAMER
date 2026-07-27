@@ -19,7 +19,6 @@ class DIN(SeqModel):
 
     def _define_parameters(self):
         self.item_embedding = nn.Embedding(self.n_items + 1, self.embedding_size, padding_idx=0)
-        self.behavior_embedding = nn.Embedding(self.n_behaviors + 1, self.embedding_size, padding_idx=0)
         self.attention = nn.Sequential(
             nn.Linear(self.embedding_size * 4, self.attention_hidden_size),
             nn.PReLU(),
@@ -51,9 +50,7 @@ class DIN(SeqModel):
             module.bias.data.zero_()
 
     def forward(self, item_seq: torch.Tensor, behavior_seq: torch.Tensor, candidate_item: torch.Tensor) -> torch.Tensor:
-        item_emb = self.item_embedding(item_seq)
-        behavior_emb = self.behavior_embedding(behavior_seq)
-        history_emb = item_emb + behavior_emb
+        history_emb = self.item_embedding(item_seq)
         candidate_emb = self.item_embedding(candidate_item)
         candidate_expanded = candidate_emb[:, None, :].expand_as(history_emb)
 

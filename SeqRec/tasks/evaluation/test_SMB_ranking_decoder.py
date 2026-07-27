@@ -90,15 +90,16 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
             "actions": torch.tensor(relation_actions, dtype=torch.long, device=self.device),
             "session_ids": torch.tensor(session_ids, dtype=torch.long, device=self.device),
             "extended_session_ids": torch.tensor(extended_session_ids, dtype=torch.long, device=self.device),
+            "user_id": torch.tensor([sample["user_id"]] * len(candidates), dtype=torch.long, device=self.device),
             "use_cache": False,
         }
-        if self.ranking_score_type == "hidden_head":
+        if self.ranking_score_type in {"hidden_head", "llm_pair"}:
             model_inputs["use_ranking_head"] = True
         else:
             model_inputs["logits_to_keep"] = 1
         with torch.no_grad():
             output = self.model(**model_inputs)
-            if self.ranking_score_type == "hidden_head":
+            if self.ranking_score_type in {"hidden_head", "llm_pair"}:
                 return output.logits.squeeze(-1).detach().cpu()
             return output.logits[:, -1, self.ranking_target_token_id].detach().cpu()
 
@@ -313,7 +314,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
             "hidden_head" if hasattr(self.model, "ranking_head") else "lm_target_token",
         )
         self.ranking_target_token_id = getattr(self.model.config, "ranking_target_token_id", None)
-        if self.ranking_score_type == "hidden_head" and not hasattr(self.model, "ranking_head"):
+        if self.ranking_score_type in {"hidden_head", "llm_pair"} and not hasattr(self.model, "ranking_head"):
             raise ValueError("SMB ranking decoder checkpoint does not contain a ranking head. Please retrain it.")
         total_params = sum(p.numel() for p in self.model.parameters())
         trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
@@ -326,7 +327,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
             collator = DecoderOnlyRankingCollator(self.tokenizer)
         else:
             self.base_dataset = load_SMB_test_dataset(dataset, data_path, max_his_len, index_file, test_task)
-            if self.ranking_target_token_id is None:
+            if self.ranking_score_type == "lm_target_token" and self.ranking_target_token_id is None:
                 target_behavior_tokens = self.base_dataset.get_behavior_tokens(self.base_dataset.target_behavior)
                 if len(target_behavior_tokens) != 1:
                     raise ValueError("SMB ranking decoder requires exactly one target behavior token.")

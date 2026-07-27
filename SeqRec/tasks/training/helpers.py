@@ -98,6 +98,9 @@ def prepare_generative_model_for_training(
     use_ranking_head: bool = False,
     ranking_pos_weight: float | None = None,
     ranking_target_token_id: int | None = None,
+    ranking_score_type: str | None = None,
+    ranking_candidate_len: int | None = None,
+    ranking_num_users: int | None = None,
 ):
     config.use_ranking_head = use_ranking_head
     if ranking_pos_weight is not None:
@@ -105,6 +108,12 @@ def prepare_generative_model_for_training(
     if ranking_target_token_id is not None:
         config.ranking_score_type = "lm_target_token"
         config.ranking_target_token_id = ranking_target_token_id
+    if ranking_score_type is not None:
+        config.ranking_score_type = ranking_score_type
+    if ranking_candidate_len is not None:
+        config.ranking_candidate_len = ranking_candidate_len
+    if ranking_num_users is not None:
+        config.ranking_num_users = ranking_num_users
     if train_profile == "basic":
         model = instantiate_generative_model(backbone, config)
         model.set_hyper(temperature)

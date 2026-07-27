@@ -31,6 +31,28 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
     def _relation_action_id(self, behavior: str) -> int:
         return self.behavior_level[behavior] + 1
 
+    @property
+    def num_users(self) -> int:
+        try:
+            return max(int(uid) + 1 for uid in self.inters)
+        except ValueError:
+            return len(self._user_id_map)
+
+    @property
+    def _user_id_map(self) -> dict[str, int]:
+        if not hasattr(self, "_cached_user_id_map"):
+            self._cached_user_id_map = {
+                uid: index + 1
+                for index, uid in enumerate(sorted(self.inters))
+            }
+        return self._cached_user_id_map
+
+    def _user_id(self, uid: str) -> int:
+        try:
+            return int(uid) + 1
+        except ValueError:
+            return self._user_id_map[uid]
+
     def _trim_history(
         self,
         items: list[str],
@@ -140,6 +162,7 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
 
         return {
             "uid": uid,
+            "user_id": self._user_id(uid),
             "input_ids": input_ids,
             "labels": self._behavior_label(behavior),
             "ranking_labels": float(self.behavior_level[behavior] == self.max_behavior_level),
@@ -167,6 +190,7 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
     ) -> dict:
         return {
             "uid": uid,
+            "user_id": self._user_id(uid),
             "input_ids": self._get_inters(history_items, history_behaviors),
             "labels": target_items,
             "relation_actions": self._history_relation_actions(history_behaviors),
@@ -306,6 +330,8 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
 
     def __getitem__(self, index: int) -> dict:
         sample = dict(self.inter_data[index])
+        if "user_id" not in sample and "uid" in sample:
+            sample["user_id"] = self._user_id(sample["uid"])
         if "ranking_labels" not in sample and isinstance(sample.get("behavior"), str):
             sample["ranking_labels"] = float(
                 self.behavior_level[sample["behavior"]] == self.max_behavior_level
