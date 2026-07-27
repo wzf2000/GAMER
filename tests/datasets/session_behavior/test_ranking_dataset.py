@@ -163,18 +163,21 @@ class SMBRankingDatasetTest(unittest.TestCase):
         self.assertEqual(test[0]["labels"], ["<i6a><i6b>", "<i7a><i7b>"])
         self.assertEqual(test[0]["target_session_id"], 30)
 
-    def test_candidate_input_has_raw_item_and_relation_unknown(self):
+    def test_candidate_input_has_fixed_target_query_and_aligned_relation(self):
         sample = self._dataset("train")[0]
 
-        self.assertTrue(sample["input_ids"].endswith("<i3a><i3b>"))
+        self.assertTrue(sample["input_ids"].endswith("<behavior_buy><i3a><i3b>"))
         self.assertNotIn("<i3a><i3b><behavior_cart>", sample["input_ids"])
         self.assertNotIn("<behavior_cart><i3a><i3b>", sample["input_ids"])
         self.assertEqual(sample["ranking_labels"], 0.0)
         self.assertEqual(sample["user_id"], 1)
-        self.assertEqual(sample["relation_actions"], [1, 1, 1, 2, 2, 2, 0, 0])
+        self.assertEqual(sample["ranking_query"], "<behavior_buy>")
+        self.assertEqual(sample["ranking_query_action"], 4)
+        self.assertEqual(sample["relation_actions"], [1, 1, 1, 2, 2, 2, 4, 4, 4])
         self.assertEqual(sample["actions"], sample["relation_actions"])
+        self.assertEqual(len(sample["extended_session_ids"]), len(sample["relation_actions"]))
 
-    def test_collator_uses_ranking_label_and_user_id_for_llm_pair_head(self):
+    def test_collator_uses_ranking_label_and_aligned_query_action(self):
         if TORCH_IMPORT_ERROR is not None:
             self.skipTest(f"torch-dependent collator test skipped: {TORCH_IMPORT_ERROR}")
         sample = self._dataset("train")[0]
@@ -186,7 +189,7 @@ class SMBRankingDatasetTest(unittest.TestCase):
         self.assertNotIn("labels", batch)
         self.assertEqual(batch["ranking_labels"].item(), 0.0)
         self.assertEqual(batch["user_id"].item(), 1)
-        self.assertEqual(batch["relation_actions"][0, input_len - 1].item(), 0)
+        self.assertEqual(batch["relation_actions"][0, input_len - 1].item(), 4)
 
     def test_relation_override_helper_preserves_old_path_when_absent(self):
         if TORCH_IMPORT_ERROR is not None:
