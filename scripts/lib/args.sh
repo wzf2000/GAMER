@@ -1,5 +1,30 @@
 #!/bin/bash
 
+parse_script_path_args() {
+    SCRIPT_CLI_ARGS=()
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --suffix)
+                if [ "$#" -lt 2 ]; then
+                    echo "ERROR: --suffix requires a value."
+                    exit 1
+                fi
+                suffix="$2"
+                shift 2
+                ;;
+            --suffix=*)
+                suffix="${1#--suffix=}"
+                shift
+                ;;
+            *)
+                SCRIPT_CLI_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
 build_extra_cli_args() {
     EXTRA_CLI_ARGS=()
 

@@ -15,5 +15,7 @@
         "--max-line-length=500",
         "--ignore=F401,E203,W503,F841"
     ],
-    "editor.wordWrap": "on"
+    "editor.wordWrap": "on",
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda"
 }

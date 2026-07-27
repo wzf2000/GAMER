@@ -15,13 +15,14 @@ source "${script_dir}/lib/paths.sh"
 base_model=./config/dis-models/${backbone}
 
 : ${suffix:=}
+parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
 output_dir=./checkpoint/smb_dis/${task_dir}/
 result_dir=$(build_result_path "${task_dir}" "")
 run_name=${task_dir}
 
-build_extra_cli_args "$@"
+build_extra_cli_args "${SCRIPT_CLI_ARGS[@]}"
 print_extra_cli_args
 
 python main.py train_SMB_rec \

@@ -25,6 +25,7 @@ per_device_batch_size=$(compute_per_device_batch_size "${batch_size}" "${gpu_num
 backbone_arg=$(resolve_s2s_backbone_arg "${backbone}")
 
 : ${suffix:=}
+parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
 resolve_tokenization
@@ -42,7 +43,7 @@ fi
 
 : ${target_behavior:=}
 
-build_extra_cli_args "$@"
+build_extra_cli_args "${SCRIPT_CLI_ARGS[@]}"
 print_extra_cli_args
 
 target_behavior_arg=""

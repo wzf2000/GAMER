@@ -27,6 +27,7 @@ if ! base_model=$(resolve_s2s_base_model "${backbone}"); then
 fi
 
 : ${suffix:=}
+parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
 
@@ -35,7 +36,7 @@ output_dir=$(build_checkpoint_path "SMB-decoder" "${task_dir}" "${token_tag}")
 run_name=${task_dir}/${token_tag}/
 echo "Training SMB Decoder on ${dataset} using ${tokenization_desc} with GPUs ${gpu}."
 
-build_extra_cli_args "$@"
+build_extra_cli_args "${SCRIPT_CLI_ARGS[@]}"
 print_extra_cli_args
 
 run_main_distributed "${gpu_num}" "${port}" train_SMB_decoder \

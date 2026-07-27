@@ -23,6 +23,7 @@ gpu_num=$(count_gpus "${gpu}")
 per_device_batch_size=$(compute_per_device_batch_size "${batch_size}" "${gpu_num}")
 
 : ${suffix:=}
+parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
 resolve_tokenization
@@ -39,7 +40,7 @@ else
     echo "Using checkpoint from step ${ckpt_num}."
 fi
 
-build_extra_cli_args "$@"
+build_extra_cli_args "${SCRIPT_CLI_ARGS[@]}"
 print_extra_cli_args
 
 run_main_distributed "${gpu_num}" "${port}" test_MB_decoder \

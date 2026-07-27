@@ -78,11 +78,17 @@ class PBAEncoderRouter(nn.Module):
         the mapped behavior index will be [0, 0, behavior_id, behavior_id, behavior_id, 0, behavior_id, ..., 0, 0, ...]
         """
         batch_size, seq_length = input_id_sequence.size()
-        position_index = (
-            self.pre_generated_position_index[:seq_length]
-            .to(input_id_sequence.device)
-            .repeat(batch_size, 1)
-        )
+        # Build position_index robustly: if the requested seq_length is larger than the
+        # length of pre_generated_position_index, repeat (tile) the pre-generated vector
+        # and then slice so the resulting position_index always has length == seq_length.
+        p = self.pre_generated_position_index.to(input_id_sequence.device)
+        L = p.size(0)
+        if seq_length <= L:
+            vec = p[:seq_length]
+        else:
+            reps = (seq_length + L - 1) // L
+            vec = p.repeat(reps)[:seq_length]
+        position_index = vec.repeat(batch_size, 1)
         position_index[
             (input_id_sequence == self.pad) | (input_id_sequence == self.eos)
         ] = 0
@@ -90,9 +96,17 @@ class PBAEncoderRouter(nn.Module):
             n_items = (
                 seq_length // self.num_positions
             )  # seq_length should be n_items * num_positions + 1 / 2 (depending on whether we use user token or not)
-            behavior_indices = self.behavior_token_indices.to(input_id_sequence.device)[
-                : n_items
-            ]
+            # Dynamically extend behavior_token_indices if seq_length exceeds the pre-generated size
+            # (e.g., when max_his_len at inference > n_positions used during training)
+            cached = self.behavior_token_indices.to(input_id_sequence.device)
+            if n_items > cached.size(0):
+                offset = 1 if self.use_user_token else 0
+                behavior_indices = torch.arange(
+                    offset, offset + n_items * self.num_positions, self.num_positions,
+                    dtype=torch.long, device=input_id_sequence.device,
+                )
+            else:
+                behavior_indices = cached[:n_items]
             behavior_tokens = input_id_sequence[:, behavior_indices]
             for behavior_token, behavior_emb_id in self.behavior_maps.items():
                 behavior_tokens[behavior_tokens == behavior_token] = behavior_emb_id + 1
@@ -211,6 +225,18 @@ class PBADecoderRouter(nn.Module):
                 self.pre_generated_position_index.to(input_id_sequence.device)[cache_position]
                 .repeat(batch_size, 1)
             )
+            # Ensure the produced position_index matches the actual input sequence length.
+            # cache_position may reference a larger cached sequence, so slice or pad as needed
+            # to avoid indexing errors when applying masks against input_id_sequence.
+            if position_index.size(1) != seq_length:
+                if position_index.size(1) > seq_length:
+                    position_index = position_index[:, :seq_length]
+                else:
+                    pad_cols = seq_length - position_index.size(1)
+                    pad = torch.zeros(
+                        batch_size, pad_cols, dtype=position_index.dtype, device=position_index.device
+                    )
+                    position_index = torch.cat((position_index, pad), dim=1)
             if self.cached_input_id_sequence is None:
                 self.cached_input_id_sequence = input_id_sequence
             elif cache_position.min() == 0:

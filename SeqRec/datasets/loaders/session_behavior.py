@@ -64,7 +64,13 @@ def _build_dataset(dataset_cls: DatasetCls, common_kwargs: dict[str, Any], mode:
     )
 
 
-def _common_kwargs(dataset: str, data_path: str, max_his_len: int, index_file: str, train_session: bool) -> dict[str, Any]:
+def _common_kwargs(
+    dataset: str,
+    data_path: str,
+    max_his_len: int,
+    index_file: str,
+    train_session: bool = True,
+) -> dict[str, Any]:
     return dict(
         dataset=dataset,
         data_path=data_path,

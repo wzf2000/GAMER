@@ -31,6 +31,7 @@ backbone_arg=$(resolve_s2s_backbone_arg "${backbone}")
 baseline_backbone_arg=$(resolve_s2s_backbone_arg "${baseline_backbone}")
 
 : ${suffix:=}
+parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
 # ---------- Our model checkpoint ----------
@@ -61,7 +62,7 @@ echo "Baseline model: ${baseline_backbone_arg} from ${baseline_ckpt_path}."
 results_file=$(build_result_path "${task_dir}" "sparse_behavior-${test_task}-${ckpt_tag}-vs-baseline.json")
 
 : ${target_behavior:=}
-build_extra_cli_args "$@"
+build_extra_cli_args "${SCRIPT_CLI_ARGS[@]}"
 print_extra_cli_args
 
 target_behavior_arg=""

@@ -42,7 +42,7 @@
 0. We recommend using Python 3.12+ and PyTorch 2.7+. Our code has been tested on Python 3.12.11, PyTorch 2.7.1 and CUDA 12.6.
 1. Run the following commands to install PyTorch (Note: change the URL setting if using another version of CUDA):
     ```bash
-    pip install torch --extra-index-url https://download.pytorch.org/whl/cu118
+    pip install torch --index-url https://download.pytorch.org/whl/cu118
     ```
 2. Run the following commands to install dependencies:
     ```bash
