@@ -1,13 +1,15 @@
 #!/bin/bash
-: ${dataset:=ShortVideoSmall}
-: ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER/data}
+: ${dataset:=ShortVideoAD}
+: ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER-rank/data}
 : ${batch_size:=1024}
 : ${tasks:=smb_din}
 : ${max_his_len:=100}
 : ${test_task:=smb_din}
 : ${gpu:=0}
-: ${backbone:=DIN}
+: ${backbone:=DIENCVR}
 : ${metrics:=auc}
+: ${epochs:=6}
+: ${save_epoch_limit:=6}
 
 export CUDA_VISIBLE_DEVICES=$gpu
 
@@ -17,11 +19,11 @@ source "${script_dir}/lib/paths.sh"
 
 base_model=./config/dis-models/${backbone}
 
-: ${suffix:=item_id}
+: ${suffix:=item_id_ep6}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
-output_dir=./checkpoint/SMB-DIN/${task_dir}/
+output_dir=./checkpoint/SMB-DIENCVR/${task_dir}/
 result_dir=$(build_result_path "${task_dir}" "")
 run_name=${task_dir}
 
@@ -40,5 +42,7 @@ python main.py train_SMB_rec \
     --tasks ${tasks} \
     --test_task ${test_task} \
     --max_his_len ${max_his_len} \
+    --epochs ${epochs} \
+    --save_epoch_limit ${save_epoch_limit} \
     --metrics ${metrics} \
     "${EXTRA_CLI_ARGS[@]}"

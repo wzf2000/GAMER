@@ -1,5 +1,7 @@
 import sys
 import time
+from pathlib import Path
+
 import wandb
 import torch
 import numpy as np
@@ -26,6 +28,7 @@ class Trainer:
         output_dir: str,
         patience: int,
         metrics: list[str],
+        save_epoch_limit: int = 0,
     ):
         self.model = model
         self.train_dataloader = train_dataloader
@@ -39,6 +42,8 @@ class Trainer:
         self.patience = patience
         self.metrics = metrics
         self.main_metric = metrics[-1]
+        self.save_epoch_limit = save_epoch_limit
+        self.epoch_checkpoints: list[Path] = []
 
         self.optimizer = self._build_optimizer()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -74,6 +79,18 @@ class Trainer:
             )
             optimizer = torch.optim.Adam(params, lr=learning_rate)
         return optimizer
+
+    def _save_epoch_checkpoint(self, epoch: int):
+        if self.save_epoch_limit <= 0:
+            return
+        ckpt_path = Path(self.output_dir) / f"epoch_{epoch}_model.pth"
+        torch.save(self.model.state_dict(), ckpt_path)
+        self.epoch_checkpoints.append(ckpt_path)
+        while len(self.epoch_checkpoints) > self.save_epoch_limit:
+            old_ckpt = self.epoch_checkpoints.pop(0)
+            if old_ckpt.exists():
+                old_ckpt.unlink()
+        logger.info(f"Saved epoch checkpoint to {ckpt_path}")
 
     def fit(self, epoch: int) -> float:
         self.model.train()
@@ -181,6 +198,7 @@ class Trainer:
             )
             metrics = self.evaluate()
             main_metric_value = metrics[self.main_metric]
+            self._save_epoch_checkpoint(epoch + 1)
             if main_metric_value > self.best_metric:
                 self.best_metric = main_metric_value
                 logger.info(

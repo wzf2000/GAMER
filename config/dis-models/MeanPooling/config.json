@@ -1,0 +1,5 @@
+{
+    "embedding_size": 64,
+    "initializer_range": 0.02,
+    "loss_type": "BCE"
+}

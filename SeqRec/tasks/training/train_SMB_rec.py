@@ -18,6 +18,10 @@ from SeqRec.models.discriminative.MBSTR import MBSTR, MBSTRConfig
 from SeqRec.models.discriminative.PBAT import PBAT, PBATConfig
 from SeqRec.models.discriminative.END4Rec import END4Rec, END4RecConfig
 from SeqRec.models.discriminative.DIN import DIN, DINConfig
+from SeqRec.models.discriminative.MeanPooling import MeanPooling, MeanPoolingConfig
+from SeqRec.models.discriminative.SASRecCVR import SASRecCVR, SASRecCVRConfig
+from SeqRec.models.discriminative.DIENCVR import DIENCVR, DIENCVRConfig
+from SeqRec.models.discriminative.BSTCVR import BSTCVR, BSTCVRConfig
 from SeqRec.evaluation.ranking import binary_auc
 from SeqRec.utils.config import Config
 from SeqRec.utils.fs import ensure_dir
@@ -82,6 +86,12 @@ class TrainSMBRec(Task):
             type=int,
             default=20,
             help="Number of evaluation steps to wait before stopping training if no improvement",
+        )
+        parser.add_argument(
+            "--save_epoch_limit",
+            type=int,
+            default=0,
+            help="Number of per-epoch model checkpoints to keep in addition to best_model.pth",
         )
         parser.add_argument(
             "--test_task",
@@ -200,7 +210,7 @@ class TrainSMBRec(Task):
         labels = []
         scores = []
         with torch.no_grad():
-            for batch in get_tqdm(data_loader, desc="DIN CVR AUC testing"):
+            for batch in get_tqdm(data_loader, desc="Binary CVR AUC testing"):
                 batch = {k: v.to(self.device) for k, v in batch.items()}
                 scores.extend(self.model.predict(batch).detach().cpu().tolist())
                 labels.extend(batch["label"].detach().cpu().tolist())
@@ -238,6 +248,7 @@ class TrainSMBRec(Task):
         logging_step: int,
         weight_decay: float,
         patience: int,
+        save_epoch_limit: int,
         metrics: str,
         wandb_run_name: str,
         only_test: bool,
@@ -278,12 +289,12 @@ class TrainSMBRec(Task):
             tasks=tasks,
             add_uid=add_uid,
         )
-        is_din = backbone == "DIN"
-        if is_din and metrics.lower() != "auc":
-            logger.warning("DIN is a binary CVR baseline; overriding metrics to auc.")
+        is_binary_cvr = backbone in {"DIN", "MeanPooling", "SASRecCVR", "DIENCVR", "BSTCVR"}
+        if is_binary_cvr and metrics.lower() != "auc":
+            logger.warning(f"{backbone} is a binary CVR baseline; overriding metrics to auc.")
             metrics = "auc"
         self.target_behavior = valid_data.target_behavior
-        if not is_din:
+        if not is_binary_cvr:
             valid_data = valid_data.filter_by_behavior(self.target_behavior)
         first_dataset: SMBDisDataset = train_data.datasets[0]
         num_items = first_dataset.num_items
@@ -295,7 +306,7 @@ class TrainSMBRec(Task):
         logger.info(f"Training data size: {len(train_data)}")
 
         if isinstance(first_dataset, SMBDINDataset):
-            logger.info("Using DIN collator for training.")
+            logger.info("Using DIN-style binary collator for training.")
             train_collator = DINCollator()
             eval_collator = DINCollator()
         elif isinstance(first_dataset, SMBDisUserLevelDataset):
@@ -341,6 +352,7 @@ class TrainSMBRec(Task):
                 output_dir=output_dir,
                 patience=patience,
                 metrics=metrics.split(","),
+                save_epoch_limit=save_epoch_limit,
             )
 
             trainer.train()
@@ -364,7 +376,7 @@ class TrainSMBRec(Task):
         self.result_dir = result_dir
         self.test_task = test_task
 
-        if is_din:
+        if is_binary_cvr:
             test_loader = DataLoader(
                 test_data,
                 batch_size=batch_size,

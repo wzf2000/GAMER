@@ -1,19 +1,19 @@
 #!/bin/bash
-: ${dataset:=ShortVideoSmall}
-: ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER/data}
+: ${dataset:=ShortVideoAD}
+: ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER-rank/data}
 : ${original:=1}
 : ${rq_kmeans:=0}
 : ${batch_size:=1024}
 : ${tasks:=smb_ranking_decoder}
 : ${max_his_len:=100}
 : ${gpu:=0,1,2,3,4,5,6}
-: ${port:=2314}
+: ${port:=2315}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}
 : ${epochs:=20}
 : ${learning_rate:=1e-5}
 : ${weight_decay:=0.05}
 : ${patience:=2}
-: ${train_auc_samples:=20000}
+: ${train_auc_samples:=2048}
 : ${train_auc_batch_size:=256}
 : ${eval_epochs:=1}
 
@@ -39,7 +39,7 @@ if ! base_model=$(resolve_s2s_base_model "${backbone}"); then
     exit 1
 fi
 
-: ${suffix:=no_user}
+: ${suffix:=}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 

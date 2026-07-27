@@ -1,13 +1,13 @@
 #!/bin/bash
-: ${dataset:=ShortVideoSmall}
-: ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER/data}
+: ${dataset:=ShortVideoAD}
+: ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER-rank/data}
 : ${original:=1}
 : ${rq_kmeans:=0}
 : ${batch_size:=204800}
 : ${tasks:=smb_ranking_decoder}
 : ${test_task:=smb_ranking_decoder}
 : ${metrics:=auc}
-: ${gpu:=0,1,2,3}
+: ${gpu:=4,5,6}
 : ${port:=2315}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}
 
@@ -59,7 +59,7 @@ best_checkpoint() {
     fi
 }
 
-: ${suffix:=no_user}
+: ${suffix:=}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
