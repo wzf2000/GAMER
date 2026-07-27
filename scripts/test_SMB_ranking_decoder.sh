@@ -1,5 +1,5 @@
 #!/bin/bash
-: ${dataset:=ShortVideoAD}
+: ${dataset:=ShortVideoSmall}
 : ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER/data}
 : ${original:=1}
 : ${rq_kmeans:=0}

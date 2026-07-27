@@ -384,6 +384,86 @@ class SMBDisDataset(BaseSMBDisDataset):
             return super().filter_by_behavior(behavior)
 
 
+class SMBDINDataset(SMBDisDataset):
+    """
+    DIN-style binary CVR dataset.
+
+    For each user with at least 3 sessions:
+      train target session = -3, valid = -2, test = -1.
+    Every interaction in the target session becomes one candidate sample.
+    History contains only interactions before the target session.
+    """
+
+    @property
+    def cached_file_name(self) -> str:
+        suffix = "adduid." if self.add_uid else ""
+        return os.path.join(
+            self.data_path,
+            self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.{suffix}{self.mode}.pkl",
+        )
+
+    def _target_session_id(self, uid: str) -> int | None:
+        unique_sids = sorted(set(self.session[uid]))
+        if len(unique_sids) < 3:
+            return None
+        if self.mode == "train":
+            return unique_sids[-3]
+        if self.mode == "valid":
+            return unique_sids[-2]
+        if self.mode == "test":
+            return unique_sids[-1]
+        raise NotImplementedError
+
+    def _process_split_data(self) -> list[dict[str, int | float | list[int] | list[float]]]:
+        inter_data = []
+        for uid in get_tqdm(self.inters, desc=f"Processing DIN {self.mode} data"):
+            target_sid = self._target_session_id(uid)
+            if target_sid is None:
+                continue
+            target_indices = [
+                index
+                for index, sid in enumerate(self.session[uid])
+                if sid == target_sid
+            ]
+            if not target_indices:
+                continue
+            history_end = target_indices[0]
+            history_items = self.inters[uid][:history_end]
+            history_behaviors = self.history_behaviors[uid][:history_end]
+            if not history_items:
+                continue
+            history = self._get_inters(history_items, history_behaviors)
+            inter_behaviors = self._get_inter_behaviors(history_behaviors)
+            seq_len = len(history)
+            for index in target_indices:
+                behavior = self.history_behaviors[uid][index]
+                sample = {
+                    "inters": history,
+                    "inter_behaviors": inter_behaviors,
+                    "seq_len": seq_len,
+                    "candidate_item": self.inters[uid][index] + 1,
+                    "label": float(self.behavior_level[behavior] == self.max_behavior_level),
+                    "behavior": self.behaviors.index(behavior),
+                    "target_session_id": target_sid,
+                }
+                if self.add_uid:
+                    sample["uid"] = int(uid) + 1
+                inter_data.append(sample)
+        return inter_data
+
+    def _process_train_data(self) -> list[dict[str, int | float | list[int] | list[float]]]:
+        return self._process_split_data()
+
+    def _process_valid_data(self) -> list[dict[str, int | float | list[int] | list[float]]]:
+        return self._process_split_data()
+
+    def _process_test_data(self) -> list[dict[str, int | float | list[int] | list[float]]]:
+        return self._process_split_data()
+
+    def __getitem__(self, index: int) -> dict[str, int | float | list[int]]:
+        return dict(self.inter_data[index])
+
+
 class SMBDisTargetDataset(SMBDisDataset):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

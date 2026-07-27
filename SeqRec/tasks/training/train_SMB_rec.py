@@ -6,9 +6,9 @@ from loguru import logger
 from torch.utils.data import DataLoader, ConcatDataset
 
 from SeqRec.tasks.base import Task
-from SeqRec.datasets.discriminative.session_behavior import SMBDisDataset, SMBDisUserLevelDataset
+from SeqRec.datasets.discriminative.session_behavior import SMBDINDataset, SMBDisDataset, SMBDisUserLevelDataset
 from SeqRec.datasets.loaders.session_behavior_discriminative import load_SMBDis_datasets, load_SMBDis_test_dataset
-from SeqRec.datasets.collators.traditional import TraditionalCollator, TraditionalTestCollator, TraditionalUserLevelCollator
+from SeqRec.datasets.collators.traditional import DINCollator, TraditionalCollator, TraditionalTestCollator, TraditionalUserLevelCollator
 from SeqRec.modules.model_base.seq_model import SeqModel
 from SeqRec.models.discriminative.GRU4Rec import GRU4Rec, GRU4RecConfig
 from SeqRec.models.discriminative.SASRec import SASRec, SASRecConfig
@@ -17,6 +17,8 @@ from SeqRec.models.discriminative.MBHT import MBHT, MBHTConfig
 from SeqRec.models.discriminative.MBSTR import MBSTR, MBSTRConfig
 from SeqRec.models.discriminative.PBAT import PBAT, PBATConfig
 from SeqRec.models.discriminative.END4Rec import END4Rec, END4RecConfig
+from SeqRec.models.discriminative.DIN import DIN, DINConfig
+from SeqRec.evaluation.ranking import binary_auc
 from SeqRec.utils.config import Config
 from SeqRec.utils.fs import ensure_dir
 from SeqRec.utils.args import SubParsersAction, parse_global_args, parse_dataset_args
@@ -194,6 +196,24 @@ class TrainSMBRec(Task):
         results.append(merge_results)
         return results
 
+    def test_auc(self, data_loader: DataLoader) -> list[dict[str, float]]:
+        labels = []
+        scores = []
+        with torch.no_grad():
+            for batch in get_tqdm(data_loader, desc="DIN CVR AUC testing"):
+                batch = {k: v.to(self.device) for k, v in batch.items()}
+                scores.extend(self.model.predict(batch).detach().cpu().tolist())
+                labels.extend(batch["label"].detach().cpu().tolist())
+        positive = sum(1 for label in labels if label)
+        negative = len(labels) - positive
+        return [{
+            "eval_type": f"CVR {self.target_behavior}",
+            "auc": binary_auc(labels, scores),
+            "positive": float(positive),
+            "negative": float(negative),
+            "num_examples": float(len(labels)),
+        }]
+
     def invoke(
         self,
         # global arguments
@@ -258,8 +278,13 @@ class TrainSMBRec(Task):
             tasks=tasks,
             add_uid=add_uid,
         )
+        is_din = backbone == "DIN"
+        if is_din and metrics.lower() != "auc":
+            logger.warning("DIN is a binary CVR baseline; overriding metrics to auc.")
+            metrics = "auc"
         self.target_behavior = valid_data.target_behavior
-        valid_data = valid_data.filter_by_behavior(self.target_behavior)
+        if not is_din:
+            valid_data = valid_data.filter_by_behavior(self.target_behavior)
         first_dataset: SMBDisDataset = train_data.datasets[0]
         num_items = first_dataset.num_items
         num_users = first_dataset.num_users
@@ -269,12 +294,17 @@ class TrainSMBRec(Task):
         logger.info(f"Number of items: {num_items}")
         logger.info(f"Training data size: {len(train_data)}")
 
-        if isinstance(first_dataset, SMBDisUserLevelDataset):
+        if isinstance(first_dataset, SMBDINDataset):
+            logger.info("Using DIN collator for training.")
+            train_collator = DINCollator()
+            eval_collator = DINCollator()
+        elif isinstance(first_dataset, SMBDisUserLevelDataset):
             logger.info("Using user-level collator for training.")
             train_collator = TraditionalUserLevelCollator()
+            eval_collator = TraditionalTestCollator()
         else:
             train_collator = TraditionalCollator()
-        eval_collator = TraditionalTestCollator()
+            eval_collator = TraditionalTestCollator()
         train_loader = DataLoader(
             train_data,
             batch_size=batch_size,
@@ -328,27 +358,38 @@ class TrainSMBRec(Task):
             test_task=test_task,
             add_uid=add_uid,
         )
-        self.datasets: list[SMBDisDataset] = []
-        for behavior in self.behaviors:
-            self.datasets.append(test_data.filter_by_behavior(behavior))
-            self.info(f"Loaded dataset for behavior {behavior} with {len(self.datasets[-1])} samples.")
-        self.loaders = [
-            DataLoader(
-                dataset,
-                batch_size=batch_size,
-                shuffle=False,
-                collate_fn=eval_collator,
-                drop_last=False,
-                num_workers=0
-            ) for dataset in self.datasets
-        ]
         state_dict = torch.load(output_dir + '/best_model.pth', map_location='cpu')
         self.model.load_state_dict(state_dict)
         self.model.eval()
         self.result_dir = result_dir
         self.test_task = test_task
 
-        results = self.test()
+        if is_din:
+            test_loader = DataLoader(
+                test_data,
+                batch_size=batch_size,
+                shuffle=False,
+                collate_fn=eval_collator,
+                drop_last=False,
+                num_workers=0,
+            )
+            results = self.test_auc(test_loader)
+        else:
+            self.datasets: list[SMBDisDataset] = []
+            for behavior in self.behaviors:
+                self.datasets.append(test_data.filter_by_behavior(behavior))
+                self.info(f"Loaded dataset for behavior {behavior} with {len(self.datasets[-1])} samples.")
+            self.loaders = [
+                DataLoader(
+                    dataset,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    collate_fn=eval_collator,
+                    drop_last=False,
+                    num_workers=0
+                ) for dataset in self.datasets
+            ]
+            results = self.test()
         logger.success("======================================================")
         logger.success("Results:")
         for res in results:

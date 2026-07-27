@@ -61,3 +61,25 @@ class TraditionalTestCollator:
 class TraditionalUserLevelCollator:
     def __call__(self, batch: list[dict]) -> dict[str, torch.Tensor]:
         return collate_with_padding(batch, padding_side='right')
+
+
+class DINCollator:
+    def __call__(self, batch: list[dict]) -> dict[str, torch.Tensor]:
+        seq_len = [d["seq_len"] for d in batch]
+        max_len = max(seq_len)
+        inputs = [d["inters"] + [0] * (max_len - len(d["inters"])) for d in batch]
+        behaviors = [
+            [b + 1 for b in d["inter_behaviors"]] + [0] * (max_len - len(d["inter_behaviors"]))
+            for d in batch
+        ]
+        ret = {
+            "inputs": torch.tensor(inputs, dtype=torch.long),
+            "behaviors": torch.tensor(behaviors, dtype=torch.long),
+            "seq_len": torch.tensor(seq_len, dtype=torch.long),
+            "candidate_item": torch.tensor([d["candidate_item"] for d in batch], dtype=torch.long),
+            "label": torch.tensor([d["label"] for d in batch], dtype=torch.float32),
+            "behavior": torch.tensor([d["behavior"] + 1 for d in batch], dtype=torch.long),
+        }
+        if "uid" in batch[0]:
+            ret["uid"] = torch.tensor([d["uid"] for d in batch], dtype=torch.long)
+        return ret

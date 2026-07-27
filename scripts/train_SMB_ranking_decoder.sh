@@ -1,10 +1,11 @@
 #!/bin/bash
-: ${dataset:=ShortVideoAD}
+: ${dataset:=ShortVideoSmall}
 : ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER/data}
 : ${original:=1}
 : ${rq_kmeans:=0}
-: ${batch_size:=8192}
+: ${batch_size:=1024}
 : ${tasks:=smb_ranking_decoder}
+: ${max_his_len:=100}
 : ${gpu:=0,1,2,3,4,5,6,7}
 : ${port:=2314}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}
@@ -57,5 +58,6 @@ run_main_distributed "${gpu_num}" "${port}" train_SMB_ranking_decoder \
     --data_path ${data_path} \
     --per_device_batch_size ${per_device_batch_size} \
     --tasks ${tasks} \
+    --max_his_len ${max_his_len} \
     --index_file ${index_file} \
     "${EXTRA_CLI_ARGS[@]}"

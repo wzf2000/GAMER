@@ -1,6 +1,6 @@
 from torch.utils.data import ConcatDataset
 
-from SeqRec.datasets.discriminative.session_behavior import SMBDisDataset, SMBDisTargetDataset, SMBDisUserLevelDataset, SMBDisNegSampleDataset, SMBDisNegSampleEvalDataset, SMBDisTargetNegSampleEvalDataset
+from SeqRec.datasets.discriminative.session_behavior import SMBDINDataset, SMBDisDataset, SMBDisTargetDataset, SMBDisUserLevelDataset, SMBDisNegSampleDataset, SMBDisNegSampleEvalDataset, SMBDisTargetNegSampleEvalDataset
 
 
 def load_SMBDis_datasets(
@@ -175,6 +175,16 @@ def load_SMBDis_datasets(
                 diff=True,
                 add_uid=add_uid,
             )
+        elif task.lower() == "smb_din":
+            seq_type = "smb_din"
+            single_dataset = SMBDINDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                mode="train",
+                diff=False,
+                add_uid=add_uid,
+            )
         else:
             raise NotImplementedError
         train_datasets.append(single_dataset)
@@ -253,6 +263,15 @@ def load_SMBDis_datasets(
                 diff=True,
                 add_uid=add_uid,
             )
+        elif seq_type == "smb_din":
+            valid_data = SMBDINDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                mode="valid",
+                diff=False,
+                add_uid=add_uid,
+            )
     else:
         raise NotImplementedError("No multi-behavior type specified for validation dataset.")
 
@@ -300,6 +319,15 @@ def load_SMBDis_test_dataset(
             max_his_len=max_his_len,
             mode="test",
             diff=True,
+            add_uid=add_uid,
+        )
+    elif test_task.lower() == "smb_din":
+        test_data = SMBDINDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            mode="test",
+            diff=False,
             add_uid=add_uid,
         )
     else:

@@ -8,6 +8,7 @@ from loguru import logger
 from torch.utils.data import DataLoader
 
 from SeqRec.modules.model_base.seq_model import SeqModel
+from SeqRec.evaluation.ranking import binary_auc
 from SeqRec.utils.runtime import get_tqdm
 
 
@@ -95,6 +96,28 @@ class Trainer:
 
     def evaluate(self) -> dict:
         self.model.eval()
+        if [metric.lower() for metric in self.metrics] == ["auc"]:
+            labels = []
+            scores = []
+            with torch.no_grad():
+                for batch in get_tqdm(self.eval_dataloader, desc="Evaluating AUC"):
+                    if isinstance(batch, tuple):
+                        batch = batch[0]
+                    batch = {k: v.to(self.device) for k, v in batch.items()}
+                    scores.extend(self.model.predict(batch).detach().cpu().tolist())
+                    labels.extend(batch["label"].detach().cpu().tolist())
+            eval_results = {
+                "auc": binary_auc(labels, scores),
+                "positive": float(sum(1 for label in labels if label)),
+                "negative": float(sum(1 for label in labels if not label)),
+            }
+            wandb.log({f"eval/{metric}": value for metric, value in eval_results.items()}, step=self.global_step)
+            logger.info(
+                "Evaluation results - "
+                + " - ".join([f"{metric}: {value:.4f}" for metric, value in eval_results.items()])
+            )
+            return eval_results
+
         eval_results = {metric: [] for metric in self.metrics}
         with torch.no_grad():
             for batch, targets in (pbar := get_tqdm(self.eval_dataloader, desc="Evaluating")):
