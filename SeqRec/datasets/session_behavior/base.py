@@ -140,6 +140,35 @@ class BaseSMBDataset(Dataset):
         )
         with open(os.path.join(self.data_path, self.dataset + '.behavior_level.json'), 'r') as f:
             self.behavior_level: dict[str, int] = json.load(f)
+        behavior_schema_file = os.path.join(
+            self.data_path,
+            self.dataset + '.behavior_schema.json',
+        )
+        self.behavior_schema = {}
+        if os.path.exists(behavior_schema_file):
+            with open(behavior_schema_file, 'r') as f:
+                self.behavior_schema = json.load(f)
+        self.separate_behavior_identity_and_level = bool(
+            self.behavior_schema.get(
+                "separate_behavior_identity_and_level",
+                False,
+            )
+        )
+        if self.separate_behavior_identity_and_level:
+            if not all(
+                isinstance(level, int) and level >= 0
+                for level in self.behavior_level.values()
+            ):
+                raise ValueError(
+                    "Separated behavior hierarchy requires non-negative integer levels."
+                )
+            observed_levels = set(self.behavior_level.values())
+            expected_levels = set(range(max(observed_levels) + 1))
+            if observed_levels != expected_levels:
+                raise ValueError(
+                    "Separated behavior hierarchy requires contiguous levels starting at 0, "
+                    f"but got {sorted(observed_levels)}."
+                )
         # get the max level of behaviors
         self.max_behavior_level = max(self.behavior_level.values())
         # get the target behavior
@@ -148,6 +177,10 @@ class BaseSMBDataset(Dataset):
             logger.warning(f"Expected exactly one target behavior with max level, but found {len(max_level_behaviors)}: {max_level_behaviors}")
         self.target_behavior = max_level_behaviors[-1]
         logger.info(f"Target behavior: {self.target_behavior}")
+        logger.info(
+            "Separate behavior identity and hierarchy level: "
+            f"{self.separate_behavior_identity_and_level}"
+        )
         self.behaviors = list(self.behavior_level.keys())
 
     def _remap_items(self):

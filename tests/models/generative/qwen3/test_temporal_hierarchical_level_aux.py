@@ -141,6 +141,57 @@ class TemporalHierarchicalLevelAuxTest(unittest.TestCase):
         self.assertEqual(loss.ndim, 0)
         self.assertGreaterEqual(loss.item(), 0.0)
 
+    def test_relation_bias_and_auxiliary_head_use_hierarchy_level_count(self):
+        config = self._build_config(loss_weight=0.05)
+        config.num_behavior = 4
+        config.behavior_maps = {10: 0, 11: 1, 12: 2, 13: 3}
+        config.num_behavior_levels = 3
+        config.behavior_level_maps = {10: 0, 11: 1, 12: 1, 13: 2}
+        config.th_attention_mode = "relation_bias"
+        config.th_relation_bias_type = "table"
+        config.th_relation_bias_trainable = False
+        config.th_relation_bias_init = "soft"
+
+        attention = Qwen3TemporalHierarchicalAttention(
+            config,
+            layer_idx=0,
+            is_temporal_hierarchical=True,
+        )
+        model = Qwen3TemporalHierarchicalWithTemperature(config)
+
+        self.assertEqual(attention.q_behavior_embedding.num_embeddings, 5)
+        self.assertEqual(attention.level_pair_bias.shape[:2], (4, 4))
+        self.assertEqual(model.level_head.out_features, 4)
+
+        labels = model._build_next_behavior_level_labels(
+            torch.tensor([[7, 11, 8, 12, 9, 13]]),
+            torch.ones(1, 6, dtype=torch.long),
+        )
+        expected = torch.tensor([[2, -100, 2, -100, 3]])
+        self.assertTrue(torch.equal(labels.cpu(), expected))
+
+    def test_separated_hierarchy_runs_th_forward_path(self):
+        config = self._build_config()
+        config.num_behavior = 4
+        config.behavior_maps = {10: 0, 11: 1, 12: 2, 13: 3}
+        config.num_behavior_levels = 3
+        config.behavior_level_maps = {10: 0, 11: 1, 12: 1, 13: 2}
+        config.temporal_hierarchical_attention_decoder = [0]
+        config.th_attention_mode = "relation_bias"
+        config.th_relation_bias_type = "table"
+        config.th_relation_bias_trainable = False
+        config.th_relation_bias_init = "soft"
+        model = Qwen3TemporalHierarchicalWithTemperature(config)
+        input_ids = torch.tensor([[11, 20, 21, 12, 22, 23]])
+
+        outputs = model(
+            input_ids=input_ids,
+            attention_mask=torch.ones_like(input_ids),
+            use_cache=False,
+        )
+
+        self.assertEqual(outputs.logits.shape, (1, 6, config.vocab_size))
+
     def test_model_relation_regularization_is_config_gated(self):
         disabled_config = self._build_config()
         disabled_config.temporal_hierarchical_attention_decoder = [0]

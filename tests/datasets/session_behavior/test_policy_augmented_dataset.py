@@ -98,6 +98,13 @@ class PolicyAugmentedDatasetTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             self._build_dataset_files(root)
+            self._write_json(
+                root / "TinySMB" / "TinySMB.behavior_schema.json",
+                {
+                    "schema_version": 3,
+                    "separate_behavior_identity_and_level": True,
+                },
+            )
 
             train_data, valid_data = load_SMB_datasets(
                 dataset="TinySMB",
@@ -120,6 +127,9 @@ class PolicyAugmentedDatasetTest(unittest.TestCase):
             )
 
             train_dataset = train_data.datasets[0]
+            self.assertTrue(
+                train_dataset.separate_behavior_identity_and_level
+            )
             self.assertIsInstance(
                 train_dataset,
                 SMBPolicyAugmentedDatasetForDecoder,
