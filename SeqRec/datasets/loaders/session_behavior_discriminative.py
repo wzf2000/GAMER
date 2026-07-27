@@ -1,6 +1,6 @@
 from torch.utils.data import ConcatDataset
 
-from SeqRec.datasets.discriminative.session_behavior import SMBDINDataset, SMBDisDataset, SMBDisTargetDataset, SMBDisUserLevelDataset, SMBDisNegSampleDataset, SMBDisNegSampleEvalDataset, SMBDisTargetNegSampleEvalDataset
+from SeqRec.datasets.discriminative.session_behavior import SMBDINDataset, SMBDSINDataset, SMBDisDataset, SMBDisTargetDataset, SMBDisUserLevelDataset, SMBDisNegSampleDataset, SMBDisNegSampleEvalDataset, SMBDisTargetNegSampleEvalDataset
 
 
 def load_SMBDis_datasets(
@@ -185,6 +185,16 @@ def load_SMBDis_datasets(
                 diff=False,
                 add_uid=add_uid,
             )
+        elif task.lower() == "smb_dsin":
+            seq_type = "smb_dsin"
+            single_dataset = SMBDSINDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                mode="train",
+                diff=False,
+                add_uid=add_uid,
+            )
         else:
             raise NotImplementedError
         train_datasets.append(single_dataset)
@@ -272,6 +282,15 @@ def load_SMBDis_datasets(
                 diff=False,
                 add_uid=add_uid,
             )
+        elif seq_type == "smb_dsin":
+            valid_data = SMBDSINDataset(
+                dataset=dataset,
+                data_path=data_path,
+                max_his_len=max_his_len,
+                mode="valid",
+                diff=False,
+                add_uid=add_uid,
+            )
     else:
         raise NotImplementedError("No multi-behavior type specified for validation dataset.")
 
@@ -323,6 +342,15 @@ def load_SMBDis_test_dataset(
         )
     elif test_task.lower() == "smb_din":
         test_data = SMBDINDataset(
+            dataset=dataset,
+            data_path=data_path,
+            max_his_len=max_his_len,
+            mode="test",
+            diff=False,
+            add_uid=add_uid,
+        )
+    elif test_task.lower() == "smb_dsin":
+        test_data = SMBDSINDataset(
             dataset=dataset,
             data_path=data_path,
             max_his_len=max_his_len,

@@ -6,6 +6,12 @@ from SeqRec.models.generative.common.temperature import TemperatureCausalLMLossM
 
 
 class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
+    def train(self, mode: bool = True):
+        result = super().train(mode)
+        if mode and getattr(self.config, "ranking_freeze_backbone", False):
+            self.model.eval()
+        return result
+
     def init_custom_causal_lm(self, config: Any, model_cls: type):
         self.model = model_cls(config)
         self.vocab_size = config.vocab_size

@@ -434,12 +434,16 @@ class SMBDINDataset(SMBDisDataset):
                 continue
             history = self._get_inters(history_items, history_behaviors)
             inter_behaviors = self._get_inter_behaviors(history_behaviors)
+            history_session_ids = self.session[uid][:history_end]
+            if self.max_his_len > 0:
+                history_session_ids = history_session_ids[-self.max_his_len:]
             seq_len = len(history)
             for index in target_indices:
                 behavior = self.history_behaviors[uid][index]
                 sample = {
                     "inters": history,
                     "inter_behaviors": inter_behaviors,
+                    "session_ids": history_session_ids,
                     "seq_len": seq_len,
                     "candidate_item": self.inters[uid][index] + 1,
                     "label": float(self.behavior_level[behavior] == self.max_behavior_level),
@@ -462,6 +466,10 @@ class SMBDINDataset(SMBDisDataset):
 
     def __getitem__(self, index: int) -> dict[str, int | float | list[int]]:
         return dict(self.inter_data[index])
+
+
+class SMBDSINDataset(SMBDINDataset):
+    """DIN candidate samples with session IDs retained for DSIN."""
 
 
 class SMBDisTargetDataset(SMBDisDataset):

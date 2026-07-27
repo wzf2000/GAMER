@@ -9,9 +9,9 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
     """
     Decoder-only SMB ranking data.
 
-    Input is history interactions plus a raw candidate item.  The target behavior
-    is stored as metadata, while ranking_labels is kept for analysis/counting and
-    relation_actions carries the explicit action indices used by relation-bias.
+    Input is history interactions plus a fixed target-behavior query and candidate
+    item. The candidate's observed behavior is used only to build ranking_labels;
+    relation_actions carries the explicit query action used by relation-bias.
     """
 
     def __init__(self, **kwargs):
@@ -22,7 +22,7 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
         return os.path.join(
             self.data_path,
             self.dataset
-            + f".{self.__class__.__name__}.{self.max_his_len}.SMB.ranking.{self.mode}{self.index_suffix}.pkl",
+            + f".{self.__class__.__name__}.{self.max_his_len}.SMB.ranking-query.{self.mode}{self.index_suffix}.pkl",
         )
 
     def _behavior_label(self, behavior: str) -> str:
@@ -152,12 +152,15 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
         behavior: str,
         target_session_id: int,
     ) -> dict:
-        input_ids = self._get_inters(history_items, history_behaviors) + candidate_item
+        query_behavior = self.target_behavior
+        query_token = self._behavior_label(query_behavior)
+        input_ids = self._get_inters(history_items, history_behaviors) + query_token + candidate_item
         relation_actions = self._history_relation_actions(history_behaviors)
         session_ids = self._history_session_ids(history_sessions)
         extended_session_ids = self._history_extended_session_ids(history_sessions)
-        candidate_session_ids = [target_session_id] * self.sole_item_len
-        candidate_relation_actions = [0] * self.sole_item_len
+        candidate_len = self.token_count()
+        candidate_session_ids = [target_session_id] * candidate_len
+        candidate_relation_actions = [self._relation_action_id(query_behavior)] * candidate_len
         next_extended = (max(extended_session_ids) + 1) if extended_session_ids else 0
 
         return {
@@ -170,9 +173,11 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
             "actions": relation_actions + candidate_relation_actions,
             "session_ids": session_ids + candidate_session_ids,
             "extended_session_ids": extended_session_ids
-            + [next_extended + index for index in range(self.sole_item_len)],
+            + [next_extended + index for index in range(candidate_len)],
             "behavior": behavior,
             "target_item": candidate_item,
+            "ranking_query": query_token,
+            "ranking_query_action": self._relation_action_id(query_behavior),
             "target_session_id": target_session_id,
             "split": self.mode,
         }
@@ -188,6 +193,7 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
         target_behaviors: list[str],
         target_session_id: int,
     ) -> dict:
+        query_behavior = self.target_behavior
         return {
             "uid": uid,
             "user_id": self._user_id(uid),
@@ -199,6 +205,8 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
             "extended_session_ids": self._history_extended_session_ids(history_sessions),
             "behavior": target_behaviors,
             "target_item": target_items,
+            "ranking_query": self._behavior_label(query_behavior),
+            "ranking_query_action": self._relation_action_id(query_behavior),
             "target_session_id": target_session_id,
             "split": self.mode,
         }

@@ -23,6 +23,7 @@ from SeqRec.models.discriminative.SASRecCVR import SASRecCVR, SASRecCVRConfig
 from SeqRec.models.discriminative.DIENCVR import DIENCVR, DIENCVRConfig
 from SeqRec.models.discriminative.BSTCVR import BSTCVR, BSTCVRConfig
 from SeqRec.models.discriminative.HSTUCVR import HSTUCVR, HSTUCVRConfig
+from SeqRec.models.discriminative.DSIN import DSIN, DSINConfig
 from SeqRec.evaluation.ranking import BINARY_METRICS, DEFAULT_BINARY_METRICS, BinaryMetricAccumulator
 from SeqRec.utils.config import Config
 from SeqRec.utils.fs import ensure_dir
@@ -297,7 +298,7 @@ class TrainSMBRec(Task):
         config = config_cls.from_pretrained(base_model)
 
         metrics = ",".join(metric.strip().lower() for metric in metrics.split(",") if metric.strip())
-        is_binary_cvr = backbone in {"DIN", "MeanPooling", "SASRecCVR", "DIENCVR", "BSTCVR", "HSTUCVR"}
+        is_binary_cvr = backbone in {"DIN", "MeanPooling", "SASRecCVR", "DIENCVR", "BSTCVR", "HSTUCVR", "DSIN"}
         if is_binary_cvr and not all(m in BINARY_METRICS for m in metrics.split(",")):
             metrics = ",".join(DEFAULT_BINARY_METRICS)
             logger.warning(f"{backbone} is a binary CVR baseline; overriding metrics to {metrics}.")

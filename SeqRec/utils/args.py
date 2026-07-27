@@ -14,6 +14,7 @@ class ModelArgs:
     seed: int = 42
     backbone: str = "TIGER"
     base_model: str = "./config/s2s-models/TIGER"
+    pretrained_model: str | None = None
     output_dir: str = "./checkpoint/decoder"
 
 
@@ -113,6 +114,7 @@ ARGUMENT_HELP = {
     "seed": "Random seed",
     "backbone": "The backbone model to use, e.g., TIGER, PBATransformer, etc.",
     "base_model": "Basic model path",
+    "pretrained_model": "Optional pretrained checkpoint used to initialize model weights",
     "output_dir": "The output directory",
     "data_path": "data directory",
     "tasks": "Downstream tasks, separate by comma",

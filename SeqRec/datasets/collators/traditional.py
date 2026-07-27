@@ -80,6 +80,12 @@ class DINCollator:
             "label": torch.tensor([d["label"] for d in batch], dtype=torch.float32),
             "behavior": torch.tensor([d["behavior"] + 1 for d in batch], dtype=torch.long),
         }
+        if "session_ids" in batch[0]:
+            session_ids = [
+                d["session_ids"] + [0] * (max_len - len(d["session_ids"]))
+                for d in batch
+            ]
+            ret["session_ids"] = torch.tensor(session_ids, dtype=torch.long)
         if "uid" in batch[0]:
             ret["uid"] = torch.tensor([d["uid"] for d in batch], dtype=torch.long)
         return ret

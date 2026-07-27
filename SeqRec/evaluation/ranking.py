@@ -9,6 +9,8 @@ BINARY_METRICS = {
     "prauc",
     "logloss",
     "gauc",
+    "gauc_macro",
+    "gauc_pair",
     "accuracy",
     "precision",
     "recall",
@@ -28,6 +30,8 @@ DEFAULT_BINARY_METRICS = [
     "precision",
     "recall",
     "f1",
+    "gauc_macro",
+    "gauc_pair",
     "gauc",
 ]
 
@@ -179,31 +183,78 @@ def binary_logloss(labels: list[int] | torch.Tensor, scores: list[float] | torch
     return total / len(labels) if labels else 0.0
 
 
-def binary_gauc(labels: list[int] | torch.Tensor, scores: list[float] | torch.Tensor, user_ids: list) -> float:
-    """Group AUC: average per-user AUC weighted by number of positive+negative pairs."""
+def binary_gauc(
+    labels: list[int] | torch.Tensor,
+    scores: list[float] | torch.Tensor,
+    user_ids: list,
+    weighting: Literal["impression", "macro", "pair"] = "impression",
+) -> float:
+    """Average AUC over users that contain both classes.
+
+    ``impression`` is the primary GAUC and weights each valid user by its
+    number of examples. ``macro`` gives every valid user equal weight, while
+    ``pair`` preserves the legacy positive-negative-pair weighting.
+    """
     if isinstance(labels, torch.Tensor):
         labels = labels.detach().cpu().tolist()
     if isinstance(scores, torch.Tensor):
         scores = scores.detach().cpu().tolist()
     if len(labels) != len(scores) or len(labels) != len(user_ids):
         raise ValueError("labels, scores, and user_ids must have the same length.")
+    if weighting not in {"impression", "macro", "pair"}:
+        raise ValueError(f"Unsupported GAUC weighting: {weighting}")
     from collections import defaultdict
     groups: dict = defaultdict(lambda: ([], []))
     for uid, label, score in zip(user_ids, labels, scores):
         groups[uid][0].append(label)
         groups[uid][1].append(score)
-    total_pairs = 0.0
+    total_weight = 0.0
     weighted_auc = 0.0
-    for uid, (grp_labels, grp_scores) in groups.items():
+    for grp_labels, grp_scores in groups.values():
         pos = sum(grp_labels)
         neg = len(grp_labels) - pos
         if pos == 0 or neg == 0:
             continue
         auc_val = binary_auc(grp_labels, grp_scores)
-        pairs = pos * neg
-        weighted_auc += auc_val * pairs
-        total_pairs += pairs
-    return weighted_auc / total_pairs if total_pairs > 0 else 0.0
+        if weighting == "impression":
+            weight = len(grp_labels)
+        elif weighting == "macro":
+            weight = 1
+        else:
+            weight = pos * neg
+        weighted_auc += auc_val * weight
+        total_weight += weight
+    return weighted_auc / total_weight if total_weight > 0 else 0.0
+
+
+def binary_gauc_coverage(labels: list[int] | torch.Tensor, user_ids: list) -> dict[str, float]:
+    """Describe how much of the evaluation set has a defined per-user AUC."""
+    labels = [int(label) for label in _as_list(labels)]
+    user_ids = _as_list(user_ids)
+    if len(labels) != len(user_ids):
+        raise ValueError("labels and user_ids must have the same length.")
+
+    from collections import defaultdict
+    group_counts: dict = defaultdict(lambda: [0, 0])
+    for uid, label in zip(user_ids, labels):
+        group_counts[uid][int(bool(label))] += 1
+
+    valid_groups = [
+        counts
+        for counts in group_counts.values()
+        if counts[0] > 0 and counts[1] > 0
+    ]
+    total_groups = len(group_counts)
+    valid_examples = sum(sum(counts) for counts in valid_groups)
+    return {
+        "gauc_total_users": float(total_groups),
+        "gauc_valid_users": float(len(valid_groups)),
+        "gauc_valid_user_ratio": len(valid_groups) / total_groups if total_groups else 0.0,
+        "gauc_valid_examples": float(valid_examples),
+        "gauc_valid_example_ratio": valid_examples / len(labels) if labels else 0.0,
+        "gauc_no_positive_users": float(sum(counts[1] == 0 for counts in group_counts.values())),
+        "gauc_no_negative_users": float(sum(counts[0] == 0 for counts in group_counts.values())),
+    }
 
 
 def binary_auc(labels: list[int] | torch.Tensor, scores: list[float] | torch.Tensor) -> float:
@@ -322,6 +373,12 @@ class BinaryMetricAccumulator:
         pred_negative = self.tn + self.fn
         precision = self.tp / pred_positive if pred_positive else 0.0
         recall = self.tp / self.positive if self.positive else 0.0
+        if (
+            include_rank_metrics
+            and self.user_ids
+            and any(metric in {"gauc", "gauc_macro", "gauc_pair"} for metric in self.metrics)
+        ):
+            result.update(binary_gauc_coverage(self.labels, self.user_ids))
         for metric in self.metrics:
             if metric == "auc" and include_rank_metrics:
                 result["auc"] = binary_auc(self.labels, self.scores)
@@ -329,8 +386,18 @@ class BinaryMetricAccumulator:
                 result["prauc"] = binary_prauc(self.labels, self.scores)
             elif metric == "logloss":
                 result["logloss"] = self.logloss_sum / total
-            elif metric == "gauc" and include_rank_metrics and self.user_ids:
-                result["gauc"] = binary_gauc(self.labels, self.scores, self.user_ids)
+            elif metric in {"gauc", "gauc_macro", "gauc_pair"} and include_rank_metrics and self.user_ids:
+                weighting = {
+                    "gauc": "impression",
+                    "gauc_macro": "macro",
+                    "gauc_pair": "pair",
+                }[metric]
+                result[metric] = binary_gauc(
+                    self.labels,
+                    self.scores,
+                    self.user_ids,
+                    weighting=weighting,
+                )
             elif metric == "accuracy":
                 result["accuracy"] = (self.tp + self.tn) / total
             elif metric == "precision":

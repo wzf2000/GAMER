@@ -55,7 +55,8 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
     ) -> torch.Tensor:
         self.tokenizer.padding_side = "right"
         self.tokenizer.truncation_side = "left"
-        texts = [sample["input_ids"] + candidate for candidate in candidates]
+        query = sample["ranking_query"]
+        texts = [sample["input_ids"] + query + candidate for candidate in candidates]
         inputs = self.tokenizer(
             text=texts,
             return_tensors="pt",
@@ -65,19 +66,23 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
             return_attention_mask=True,
         )
         max_length = inputs["input_ids"].shape[1]
+        candidate_len = item_len + 1
         relation_actions = [
-            self._align_sequence(sample["relation_actions"] + [0] * item_len, max_length)
+            self._align_sequence(
+                sample["relation_actions"] + [sample["ranking_query_action"]] * candidate_len,
+                max_length,
+            )
             for _candidate in candidates
         ]
         session_id = sample["target_session_id"]
         session_ids = [
-            self._align_sequence(sample["session_ids"] + [session_id] * item_len, max_length)
+            self._align_sequence(sample["session_ids"] + [session_id] * candidate_len, max_length)
             for _candidate in candidates
         ]
         next_extended = (max(sample["extended_session_ids"]) + 1) if sample["extended_session_ids"] else 0
         extended_session_ids = [
             self._align_sequence(
-                sample["extended_session_ids"] + [next_extended + index for index in range(item_len)],
+                sample["extended_session_ids"] + [next_extended + index for index in range(candidate_len)],
                 max_length,
             )
             for _candidate in candidates

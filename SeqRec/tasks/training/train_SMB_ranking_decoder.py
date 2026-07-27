@@ -26,6 +26,16 @@ def _compute_ranking_pos_weight(train_data: Any) -> tuple[float, int, int]:
     return negatives / positives, positives, negatives
 
 
+def _freeze_for_ranking_probe(model: Any):
+    if not hasattr(model, "ranking_head"):
+        raise ValueError("Ranking probe requires a ranking_head.")
+    for parameter in model.parameters():
+        parameter.requires_grad = False
+    for parameter in model.ranking_head.parameters():
+        parameter.requires_grad = True
+    model.config.ranking_freeze_backbone = True
+
+
 class _EveryNEpochSaveEvalCallback(TrainerCallback):
     def __init__(self, interval: int):
         self.interval = interval
@@ -183,7 +193,7 @@ class _SampledCvrAucCallback(TrainerCallback):
 
 class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
     checkpoint_dir_name = "SMB-ranking-decoder"
-    parser_help = "Train a SMB decoder with LLM-pair discriminative ranking."
+    parser_help = "Train a last-token SMB ranking probe from a pretrained decoder."
     parser_model_max_length = 1024
     include_find_unused_parameters = True
     include_debug = True
@@ -216,17 +226,14 @@ class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
         return train_data, valid_data
 
     def get_train_notes(self, data_args, model_args) -> str:
-        return f"Training SMB ranking decoder on {data_args.data_path} with base model {model_args.base_model}"
+        model_source = model_args.pretrained_model or model_args.base_model
+        return f"Training SMB ranking decoder on {data_args.data_path} with model {model_source}"
 
     def prepare_training_context(self, first_dataset, tokenizer):
         self._ranking_behavior_level = first_dataset.behavior_level
         self._ranking_max_behavior_level = first_dataset.max_behavior_level
-        self._ranking_candidate_len = first_dataset.sole_item_len
-        self._ranking_num_users = first_dataset.num_users
         return {
             "behavior_tokens": get_behavior_token_ids(first_dataset, tokenizer),
-            "ranking_candidate_len": self._ranking_candidate_len,
-            "ranking_num_users": self._ranking_num_users,
         }
 
     def get_collator_kwargs(self, first_dataset, tokenizer, context):
@@ -240,11 +247,33 @@ class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
             "pba_uses_temperature": True,
             "use_ranking_head": True,
             "ranking_pos_weight": self._ranking_pos_weight,
-            "ranking_score_type": "llm_pair",
-            "ranking_candidate_len": context["ranking_candidate_len"],
-            "ranking_num_users": context["ranking_num_users"],
-            "ranking_use_user_embedding": False,
+            "ranking_score_type": "hidden_head",
         }
+
+    def configure_model(self, model: Any, model_args: Any, script_args: Any):
+        if model_args.pretrained_model is None:
+            self.info("No pretrained checkpoint supplied; training the last-token ranking model end to end.")
+            return model
+        freeze_backbone = os.environ.get("SMB_RANKING_FREEZE_BACKBONE", "1").lower() not in {
+            "0",
+            "false",
+            "no",
+        }
+        if not freeze_backbone:
+            for parameter in model.parameters():
+                parameter.requires_grad = True
+            model.config.ranking_freeze_backbone = False
+            trainable = sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
+            self.info(
+                f"Loaded {model_args.pretrained_model}; enabled full ranking fine-tuning for {trainable} parameters."
+            )
+            return model
+        _freeze_for_ranking_probe(model)
+        trainable = sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
+        self.info(
+            f"Loaded {model_args.pretrained_model}; froze the decoder and left {trainable} ranking-head parameters trainable."
+        )
+        return model
 
     def get_label_names(self, backbone: str) -> list[str]:
         if backbone_uses_sessions(backbone):
@@ -279,10 +308,7 @@ class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
             self.info(f"Eval/save will run every {eval_epochs} epoch(s).")
 
         self.info(
-            "Using LLM-pair discriminative ranking head: "
-            f"candidate_len={self._ranking_candidate_len}, "
-            f"num_users={self._ranking_num_users}, "
-            "user_embedding=False, "
+            "Using last-candidate-token linear ranking head: "
             f"positive={self._ranking_train_positives}, "
             f"negative={self._ranking_train_negatives}."
         )

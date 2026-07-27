@@ -81,6 +81,9 @@ class BaseGenerativeTrainTask(MultiGPUTask):
         if getattr(script_args, "debug", False):
             hf_training_args.report_to = "none"
 
+    def configure_model(self, model: Any, model_args: Any, script_args: Any):
+        return model
+
     def after_trainer_created(self, trainer: Any):
         if self.replace_progress:
             replace_progress_callback(trainer)
@@ -105,9 +108,10 @@ class BaseGenerativeTrainTask(MultiGPUTask):
         if parsed_args.unused:
             logger.warning(f"Unused parameters: {parsed_args.unused}")
 
+        model_source = model_args.pretrained_model or model_args.base_model
         config, tokenizer = load_config_and_tokenizer(
             model_args.backbone,
-            model_args.base_model,
+            model_source,
             model_max_length=script_args.model_max_length,
         )
         train_profile = get_backbone_train_profile(model_args.backbone)
@@ -142,9 +146,11 @@ class BaseGenerativeTrainTask(MultiGPUTask):
             model_max_length=script_args.model_max_length,
             temperature=script_args.temperature,
             info=self.info,
+            pretrained_model=model_args.pretrained_model,
             **self.get_model_prepare_kwargs(context),
         )
         model = finalize_generative_model(model, tokenizer, self.device, self.ddp, self.info)
+        model = self.configure_model(model, model_args, script_args)
 
         hf_training_args = build_training_arguments_from_script_args(
             model_args=model_args,

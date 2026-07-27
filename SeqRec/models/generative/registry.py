@@ -214,8 +214,15 @@ def get_generative_model_cls(backbone: str):
     return getattr(module, class_name)
 
 
-def instantiate_generative_model(backbone: str, config: Any):
-    return get_generative_model_cls(backbone)(config)
+def instantiate_generative_model(
+    backbone: str,
+    config: Any,
+    pretrained_model: str | None = None,
+):
+    model_cls = get_generative_model_cls(backbone)
+    if pretrained_model is not None:
+        return model_cls.from_pretrained(pretrained_model, config=config)
+    return model_cls(config)
 
 
 def load_model_and_tokenizer(backbone: str, ckpt_path: str):

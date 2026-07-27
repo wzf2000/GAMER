@@ -102,6 +102,7 @@ def prepare_generative_model_for_training(
     ranking_candidate_len: int | None = None,
     ranking_num_users: int | None = None,
     ranking_use_user_embedding: bool | None = None,
+    pretrained_model: str | None = None,
 ):
     config.use_ranking_head = use_ranking_head
     if ranking_pos_weight is not None:
@@ -118,7 +119,7 @@ def prepare_generative_model_for_training(
     if ranking_use_user_embedding is not None:
         config.ranking_use_user_embedding = ranking_use_user_embedding
     if train_profile == "basic":
-        model = instantiate_generative_model(backbone, config)
+        model = instantiate_generative_model(backbone, config, pretrained_model)
         model.set_hyper(temperature)
         return model
 
@@ -136,7 +137,7 @@ def prepare_generative_model_for_training(
         config.n_positions = max_his_len
         config.use_user_token = False
         info(f"PBATransformer Model Config: {config}")
-        model = instantiate_generative_model(backbone, config)
+        model = instantiate_generative_model(backbone, config, pretrained_model)
         if pba_uses_temperature:
             model.set_hyper(temperature)
         return model
@@ -153,7 +154,7 @@ def prepare_generative_model_for_training(
         config.use_user_token = False
         config.model_max_length = model_max_length
         info(f"Model Config: {config}")
-        model = instantiate_generative_model(backbone, config)
+        model = instantiate_generative_model(backbone, config, pretrained_model)
         model.set_hyper(temperature)
         return model
 
@@ -161,7 +162,7 @@ def prepare_generative_model_for_training(
         single_item_ids = tokenizer.encode(single_item, add_special_tokens=False)
         config.num_positions = len(single_item_ids)
         config.model_max_length = model_max_length
-        model = instantiate_generative_model(backbone, config)
+        model = instantiate_generative_model(backbone, config, pretrained_model)
         model.set_hyper(temperature)
         return model
 
