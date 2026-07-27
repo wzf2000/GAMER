@@ -7,7 +7,7 @@
 : ${test_task:=smb_din}
 : ${gpu:=0}
 : ${backbone:=DIENCVR}
-: ${metrics:=auc,prauc,logloss,accuracy,precision,recall,f1,gauc}
+: ${metrics:=auc,prauc,logloss,accuracy,precision,recall,f1,gauc_macro,gauc_pair,gauc}
 : ${epochs:=5}
 : ${save_epoch_limit:=5}
 : ${ckpt_num:=5}

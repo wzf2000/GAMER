@@ -2,11 +2,11 @@
 : ${dataset:=ShortVideoAD}
 : ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER-rank/data}
 : ${batch_size:=1024}
-: ${tasks:=smb_din}
+: ${tasks:=smb_dsin}
 : ${max_his_len:=100}
-: ${test_task:=smb_din}
+: ${test_task:=smb_dsin}
 : ${gpu:=0}
-: ${backbone:=MeanPooling}
+: ${backbone:=DSIN}
 : ${metrics:=auc,prauc,logloss,accuracy,precision,recall,f1,gauc_macro,gauc_pair,gauc}
 : ${epochs:=5}
 : ${save_epoch_limit:=5}
@@ -24,7 +24,7 @@ base_model=./config/dis-models/${backbone}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
-output_dir=./checkpoint/SMB-MeanPooling/${task_dir}/
+output_dir=./checkpoint/SMB-DSIN/${task_dir}/
 result_dir=$(build_result_path "${task_dir}" "")
 run_name=${task_dir}
 

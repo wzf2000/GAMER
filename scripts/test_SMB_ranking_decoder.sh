@@ -6,10 +6,11 @@
 : ${batch_size:=204800}
 : ${tasks:=smb_ranking_decoder}
 : ${test_task:=smb_ranking_decoder}
-: ${metrics:=auc,prauc,logloss,accuracy,precision,recall,f1,gauc}
+: ${metrics:=auc,prauc,logloss,accuracy,precision,recall,f1,gauc_macro,gauc_pair,gauc}
 : ${gpu:=4,5,6}
 : ${port:=2316}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}
+: ${max_his_len:=100}
 
 export CUDA_VISIBLE_DEVICES=$gpu
 export CUDA_LAUNCH_BLOCKING=1
@@ -68,7 +69,7 @@ results_file=$(build_result_path "${task_dir}" "results-${test_task}-${token_tag
 ckpt_path=$(build_checkpoint_path "SMB-ranking-decoder" "${task_dir}" "${token_tag}")
 echo "Testing SMB ranking decoder on ${dataset} using ${tokenization_desc} with GPU ${gpu}."
 
-: ${ckpt_num:=475}
+: ${ckpt_num:=best}
 if [[ "$ckpt_num" == "best" ]]; then
     ckpt_path=$(best_checkpoint "$ckpt_path")
     echo "Using the best checkpoint."
@@ -91,4 +92,5 @@ run_main_distributed "${gpu_num}" "${port}" test_SMB_ranking_decoder \
     --metrics ${metrics} \
     --index_file ${index_file} \
     --test_task ${test_task} \
+    --max_his_len ${max_his_len} \
     "${EXTRA_CLI_ARGS[@]}"

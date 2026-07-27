@@ -7,10 +7,10 @@
 : ${test_task:=smb_din}
 : ${gpu:=0}
 : ${backbone:=BSTCVR}
-: ${metrics:=auc,prauc,logloss,accuracy,precision,recall,f1,gauc}
-: ${epochs:=5}
-: ${save_epoch_limit:=5}
-: ${ckpt_num:=5}
+: ${metrics:=auc,prauc,logloss,accuracy,precision,recall,f1,gauc_macro,gauc_pair,gauc}
+: ${epochs:=3}
+: ${save_epoch_limit:=3}
+: ${ckpt_num:=3}
 
 export CUDA_VISIBLE_DEVICES=$gpu
 
@@ -20,7 +20,7 @@ source "${script_dir}/lib/paths.sh"
 
 base_model=./config/dis-models/${backbone}
 
-: ${suffix:=item_id}
+: ${suffix:=item_id_new}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 

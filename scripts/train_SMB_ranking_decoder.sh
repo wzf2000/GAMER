@@ -10,13 +10,16 @@
 : ${port:=2315}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}
 : ${epochs:=5}
-: ${learning_rate:=1e-5}
-: ${weight_decay:=0.05}
+: ${learning_rate:=1e-3}
+: ${weight_decay:=0.01}
 : ${patience:=2}
 : ${save_total_limit:=5}
 : ${train_auc_samples:=2048}
 : ${train_auc_batch_size:=256}
 : ${eval_epochs:=1}
+: ${pretrained_model:=${pretrained_ckpt:-}}
+: ${freeze_backbone:=1}
+: ${cold_start:=0}
 
 export CUDA_VISIBLE_DEVICES=$gpu
 export CUDA_LAUNCH_BLOCKING=1
@@ -24,6 +27,7 @@ export OMP_NUM_THREADS=1
 export SMB_RANKING_TRAIN_AUC_SAMPLES=${train_auc_samples}
 export SMB_RANKING_TRAIN_AUC_BATCH_SIZE=${train_auc_batch_size}
 export SMB_RANKING_EVAL_EPOCHS=${eval_epochs}
+export SMB_RANKING_FREEZE_BACKBONE=${freeze_backbone}
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "${script_dir}/lib/s2s_backbone.sh"
@@ -39,8 +43,18 @@ if ! base_model=$(resolve_s2s_base_model "${backbone}"); then
     echo "Unsupported backbone model: ${backbone}."
     exit 1
 fi
+if [[ "${cold_start}" == "1" ]]; then
+    pretrained_model=""
+elif [[ -z "${pretrained_model}" ]]; then
+    echo "Set pretrained_model=/path/to/SMB-decoder/checkpoint before training the ranking probe."
+    exit 1
+fi
+pretrained_args=()
+if [[ -n "${pretrained_model}" ]]; then
+    pretrained_args=(--pretrained_model "${pretrained_model}")
+fi
 
-: ${suffix:=new}
+: ${suffix:=frozen_probe}
 parse_script_path_args "$@"
 task_dir=$(build_task_dir "${dataset}" "${tasks}" "${backbone}" "${suffix}")
 
@@ -48,6 +62,11 @@ resolve_tokenization
 output_dir=$(build_checkpoint_path "SMB-ranking-decoder" "${task_dir}" "${token_tag}")
 run_name=${task_dir}/${token_tag}/
 echo "Training SMB Ranking Decoder on ${dataset} using ${tokenization_desc} with GPUs ${gpu}."
+if [[ "${cold_start}" == "1" ]]; then
+    echo "Cold-start training: initialize the decoder and ranking head from scratch."
+else
+    echo "SMB decoder checkpoint: ${pretrained_model}; freeze_backbone=${freeze_backbone}."
+fi
 echo "Anti-overfit defaults: epochs=${epochs}, lr=${learning_rate}, weight_decay=${weight_decay}, patience=${patience}."
 echo "Sampled train-time CVR AUC: samples=${train_auc_samples}, batch=${train_auc_batch_size}."
 echo "Eval/save interval: every ${eval_epochs} epoch(s)."
@@ -58,6 +77,7 @@ print_extra_cli_args
 run_main_distributed "${gpu_num}" "${port}" train_SMB_ranking_decoder \
     --backbone ${backbone_arg} \
     --base_model ${base_model} \
+    "${pretrained_args[@]}" \
     --output_dir ${output_dir} \
     --wandb_run_name ${run_name} \
     --dataset ${dataset} \
