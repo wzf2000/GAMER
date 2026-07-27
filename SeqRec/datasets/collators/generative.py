@@ -45,6 +45,94 @@ def _add_right_padded_sequence_fields(inputs: BatchEncoding, batch: list[dict]):
         inputs["time"] = _pad_sequence_field(batch, "time", -1, dtype=torch.float32)
 
 
+def _align_sequence_to_length(
+    sequence: list[int],
+    length: int,
+    pad_value: int,
+    *,
+    truncation_side: str = "left",
+    padding_side: str = "right",
+) -> list[int]:
+    if len(sequence) > length:
+        if truncation_side == "left":
+            sequence = sequence[-length:]
+        else:
+            sequence = sequence[:length]
+    if len(sequence) < length:
+        padding = [pad_value] * (length - len(sequence))
+        if padding_side == "left":
+            sequence = padding + sequence
+        else:
+            sequence = sequence + padding
+    return sequence
+
+
+def _pad_ranking_field(
+    inputs: BatchEncoding,
+    batch: list[dict],
+    field: str,
+    *,
+    pad_value: int,
+    append_label_value,
+    dtype: torch.dtype,
+):
+    if field not in batch[0]:
+        return
+    max_length = inputs["input_ids"].shape[1]
+    values = []
+    for sample in batch:
+        label_len = sample.get("_ranking_label_len", 1)
+        label_values = append_label_value(sample, label_len)
+        values.append(
+            _align_sequence_to_length(
+                list(sample[field]) + label_values,
+                max_length,
+                pad_value,
+                truncation_side="left",
+                padding_side="right",
+            )
+        )
+    inputs[field] = torch.tensor(values, dtype=dtype)
+
+
+def _add_ranking_sequence_fields(inputs: BatchEncoding, batch: list[dict]):
+    _pad_ranking_field(
+        inputs,
+        batch,
+        "relation_actions",
+        pad_value=0,
+        append_label_value=lambda _sample, label_len: [0] * label_len,
+        dtype=torch.long,
+    )
+    _pad_ranking_field(
+        inputs,
+        batch,
+        "actions",
+        pad_value=0,
+        append_label_value=lambda _sample, label_len: [0] * label_len,
+        dtype=torch.long,
+    )
+    _pad_ranking_field(
+        inputs,
+        batch,
+        "session_ids",
+        pad_value=0,
+        append_label_value=lambda sample, label_len: [sample["session_ids"][-1] if sample["session_ids"] else 0] * label_len,
+        dtype=torch.long,
+    )
+    _pad_ranking_field(
+        inputs,
+        batch,
+        "extended_session_ids",
+        pad_value=0,
+        append_label_value=lambda sample, label_len: [
+            (sample["extended_session_ids"][-1] + index + 1) if sample["extended_session_ids"] else index
+            for index in range(label_len)
+        ],
+        dtype=torch.long,
+    )
+
+
 def _add_left_padded_decoder_test_fields(
     inputs: BatchEncoding,
     batch: list[dict],
@@ -152,6 +240,45 @@ class DecoderOnlyCollator:
         inputs["split"] = batch[0].get("split", "train")
         _add_common_optional_fields(inputs, batch)
         _add_right_padded_sequence_fields(inputs, batch)
+
+        return inputs
+
+
+class DecoderOnlyRankingCollator:
+    def __init__(self, tokenizer: PreTrainedTokenizer):
+        self.tokenizer = tokenizer
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token_id = self.tokenizer.unk_token_id
+        self.tokenizer.padding_side = "right"
+        self.tokenizer.truncation_side = "left"
+
+    def __call__(self, batch: list[dict]) -> BatchEncoding:
+        batch = [dict(sample) for sample in batch]
+        for sample in batch:
+            sample["_ranking_label_len"] = len(
+                self.tokenizer.encode(sample["labels"], add_special_tokens=False)
+            )
+
+        input_texts = [sample["input_ids"] for sample in batch]
+        full_texts = [sample["input_ids"] + sample["labels"] for sample in batch]
+
+        inputs = self.tokenizer(
+            text=full_texts,
+            text_target=input_texts,
+            return_tensors="pt",
+            padding="longest",
+            max_length=self.tokenizer.model_max_length,
+            truncation=True,
+            return_attention_mask=True,
+        )
+        labels = copy.deepcopy(inputs["input_ids"])
+        labels[labels == self.tokenizer.pad_token_id] = -100
+        labels[torch.where(inputs["labels"] != self.tokenizer.pad_token_id)] = -100
+
+        inputs["labels"] = labels
+        inputs["split"] = batch[0].get("split", "train")
+        _add_common_optional_fields(inputs, batch)
+        _add_ranking_sequence_fields(inputs, batch)
 
         return inputs
 

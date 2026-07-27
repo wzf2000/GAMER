@@ -3,6 +3,7 @@ from SeqRec.datasets.collators.generative import (
     DecoderOnlyCollator,
     EncoderDecoderTestCollator,
     DecoderOnlyTestCollator,
+    DecoderOnlyRankingCollator,
 )
 from SeqRec.datasets.collators.traditional import (
     TraditionalCollator,
@@ -15,6 +16,7 @@ __all__ = [
     "DecoderOnlyCollator",
     "EncoderDecoderTestCollator",
     "DecoderOnlyTestCollator",
+    "DecoderOnlyRankingCollator",
     "TraditionalCollator",
     "TraditionalTestCollator",
     "TraditionalUserLevelCollator",

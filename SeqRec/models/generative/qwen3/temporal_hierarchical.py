@@ -28,6 +28,27 @@ from SeqRec.models.generative.common.wrappers import CustomCausalLMWrapperMixin
 from SeqRec.models.generative.common.session_masks import apply_attention_padding_mask, build_mask_context, build_in_item_self_mask, build_incremental_causal_mask
 
 
+def resolve_relation_action_indices(
+    router_action_indices: torch.Tensor,
+    relation_actions: torch.Tensor | None,
+    cache_position: torch.LongTensor | None = None,
+) -> torch.Tensor:
+    if relation_actions is None:
+        return router_action_indices
+    relation_actions = relation_actions.to(
+        device=router_action_indices.device,
+        dtype=router_action_indices.dtype,
+    )
+    if relation_actions.shape[-1] == router_action_indices.shape[-1]:
+        return relation_actions
+    if cache_position is not None and relation_actions.shape[-1] > router_action_indices.shape[-1]:
+        return relation_actions[:, cache_position]
+    raise ValueError(
+        "relation_actions must match the current input length, or provide the "
+        "full cached sequence when cache_position is set."
+    )
+
+
 class Qwen3TemporalHierarchicalAttention(nn.Module):
     def __init__(self, config: Qwen3MoeConfig, layer_idx: int, is_temporal_hierarchical: bool):
         super().__init__()
@@ -547,6 +568,7 @@ class Qwen3TemporalHierarchicalModel(Qwen3DecoderModelBase):
         cache_position: torch.LongTensor | None = None,
         session_ids: torch.LongTensor | None = None,
         actions: torch.LongTensor | None = None,
+        relation_actions: torch.LongTensor | None = None,
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ) -> BaseModelOutputWithPast:
         state = prepare_decoder_forward_state(
@@ -569,6 +591,10 @@ class Qwen3TemporalHierarchicalModel(Qwen3DecoderModelBase):
         output_hidden_states = state.output_hidden_states
 
         position_indices, behavior_indices, action_indices = self.router(input_ids, cache_position=cache_position)
+        if relation_actions is not None:
+            action_indices = resolve_relation_action_indices(action_indices, relation_actions, cache_position)
+            action_indices = action_indices.clamp(min=0, max=self.config.num_behavior)
+            behavior_indices = action_indices
         key_action_indices = self._update_key_action_indices(action_indices, cache_position, past_key_values)
 
         causal_mask = self._update_session_wise_causal_mask(
@@ -638,6 +664,7 @@ class Qwen3TemporalHierarchicalWithTemperature(CustomCausalLMWrapperMixin, Qwen3
         session_ids: torch.LongTensor | None = None,
         extended_session_ids: torch.LongTensor | None = None,
         actions: torch.LongTensor | None = None,
+        relation_actions: torch.LongTensor | None = None,
         **kwargs: Unpack[KwargsForCausalLM],
     ) -> CausalLMOutputWithPast:
         return self.forward_custom_causal_lm(
@@ -655,6 +682,7 @@ class Qwen3TemporalHierarchicalWithTemperature(CustomCausalLMWrapperMixin, Qwen3
                 cache_position=cache_position,
                 session_ids=session_ids,
                 actions=actions,
+                relation_actions=relation_actions,
             ),
             extra_kwargs=kwargs,
         )

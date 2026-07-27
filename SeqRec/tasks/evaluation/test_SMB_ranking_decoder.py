@@ -1,0 +1,386 @@
+import os
+import torch
+import torch.distributed as dist
+from loguru import logger
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+
+from SeqRec.datasets.collators.generative import DecoderOnlyRankingCollator
+from SeqRec.datasets.loaders.session_behavior import load_SMB_test_dataset, load_SMB_valid_dataset
+from SeqRec.datasets.session_behavior import SMBRankingDatasetForDecoder
+from SeqRec.evaluation.ranking import binary_auc, get_metrics_results, get_ranked_item_hits, rank_items_by_scores
+from SeqRec.tasks.evaluation.base import _BaseDecoderTestTask
+from SeqRec.utils.args import SubParsersAction, parse_dataset_args, parse_generation_eval_args, parse_global_args
+from SeqRec.utils.runtime import get_tqdm
+
+
+class TestSMBRankingDecoder(_BaseDecoderTestTask):
+    @staticmethod
+    def parser_name() -> str:
+        return "test_SMB_ranking_decoder"
+
+    @staticmethod
+    def add_sub_parsers(sub_parsers: SubParsersAction):
+        parser = sub_parsers.add_parser(
+            "test_SMB_ranking_decoder",
+            help="Test a SMB decoder by ranking candidate items.",
+        )
+        parser = parse_global_args(parser)
+        parser = parse_dataset_args(parser)
+        parse_generation_eval_args(
+            parser,
+            metrics="auc",
+            include_behaviors=True,
+            include_valid_loss=True,
+        )
+
+    @staticmethod
+    def _max_metric_k(metrics: list[str]) -> int:
+        metric_ks = [int(metric.split("@")[1]) for metric in metrics if "@" in metric]
+        return max(metric_ks) if metric_ks else 0
+
+    def _behavior_token_id(self, dataset: SMBRankingDatasetForDecoder, behavior: str) -> int:
+        behavior_text = "".join(dataset.get_behavior_tokens(behavior))
+        behavior_token_ids = self.tokenizer.encode(behavior_text, add_special_tokens=False)
+        if len(behavior_token_ids) != 1:
+            raise ValueError(f"Expected one behavior token for {behavior}, got {behavior_token_ids}.")
+        return behavior_token_ids[0]
+
+    def _align_sequence(self, sequence: list[int], length: int, pad_value: int = 0) -> list[int]:
+        if len(sequence) > length:
+            sequence = sequence[-length:]
+        if len(sequence) < length:
+            sequence = sequence + [pad_value] * (length - len(sequence))
+        return sequence
+
+    def _score_candidate_batch(
+        self,
+        *,
+        sample: dict,
+        candidates: list[str],
+        behavior_token_id: int,
+        item_len: int,
+    ) -> torch.Tensor:
+        self.tokenizer.padding_side = "right"
+        self.tokenizer.truncation_side = "left"
+        texts = [sample["input_ids"] + candidate for candidate in candidates]
+        inputs = self.tokenizer(
+            text=texts,
+            return_tensors="pt",
+            padding="longest",
+            max_length=self.tokenizer.model_max_length,
+            truncation=True,
+            return_attention_mask=True,
+        )
+        max_length = inputs["input_ids"].shape[1]
+        relation_actions = [
+            self._align_sequence(sample["relation_actions"] + [0] * item_len, max_length)
+            for _candidate in candidates
+        ]
+        session_id = sample["target_session_id"]
+        session_ids = [
+            self._align_sequence(sample["session_ids"] + [session_id] * item_len, max_length)
+            for _candidate in candidates
+        ]
+        next_extended = (max(sample["extended_session_ids"]) + 1) if sample["extended_session_ids"] else 0
+        extended_session_ids = [
+            self._align_sequence(
+                sample["extended_session_ids"] + [next_extended + index for index in range(item_len)],
+                max_length,
+            )
+            for _candidate in candidates
+        ]
+
+        model_inputs = {
+            "input_ids": inputs["input_ids"].to(self.device),
+            "attention_mask": inputs["attention_mask"].to(self.device),
+            "relation_actions": torch.tensor(relation_actions, dtype=torch.long, device=self.device),
+            "actions": torch.tensor(relation_actions, dtype=torch.long, device=self.device),
+            "session_ids": torch.tensor(session_ids, dtype=torch.long, device=self.device),
+            "extended_session_ids": torch.tensor(extended_session_ids, dtype=torch.long, device=self.device),
+            "use_cache": False,
+        }
+        with torch.no_grad():
+            output = self.model(**model_inputs)
+            logits = output.logits
+            last_indices = model_inputs["attention_mask"].sum(dim=1) - 1
+            last_logits = logits[torch.arange(logits.shape[0], device=self.device), last_indices]
+            return torch.log_softmax(last_logits, dim=-1)[:, behavior_token_id].detach().cpu()
+
+    def _score_sample(
+        self,
+        *,
+        sample: dict,
+        behavior_token_id: int,
+        item_len: int,
+        candidate_batch_size: int,
+    ) -> torch.Tensor:
+        scores = []
+        for start in range(0, len(self.all_items), candidate_batch_size):
+            candidates = self.all_items[start : start + candidate_batch_size]
+            scores.append(
+                self._score_candidate_batch(
+                    sample=sample,
+                    candidates=candidates,
+                    behavior_token_id=behavior_token_id,
+                    item_len=item_len,
+                )
+            )
+        return torch.cat(scores, dim=0)
+
+    def test_single_behavior(
+        self,
+        loader: DataLoader,
+        behavior: str,
+        candidate_batch_size: int,
+    ) -> dict[str, float]:
+        if len(loader.dataset) == 0:
+            return {metric: 0.0 for metric in self.metric_list}
+        dataset: SMBRankingDatasetForDecoder = loader.dataset
+        behavior_token_id = self._behavior_token_id(dataset, behavior)
+        item_len = len(self.tokenizer.encode(self.all_items[0], add_special_tokens=False))
+        max_k = self._max_metric_k(self.metric_list)
+        results: dict[str, float] = {}
+        user_metric_dict: dict[str, dict[str, float]] = {metric: {} for metric in self.metric_list}
+        total = 0
+        pbar = get_tqdm(desc=f"Ranking behavior {behavior}", total=len(loader))
+
+        for batch in loader:
+            for sample in batch:
+                scores = self._score_sample(
+                    sample=sample,
+                    behavior_token_id=behavior_token_id,
+                    item_len=item_len,
+                    candidate_batch_size=candidate_batch_size,
+                )
+                ranked_items = rank_items_by_scores(self.all_items, scores)
+                hit_limit = None if "auc" in {metric.lower() for metric in self.metric_list} else max_k
+                topk_hits = [get_ranked_item_hits(ranked_items, sample["labels"], hit_limit)]
+                sample_metrics = get_metrics_results(
+                    topk_hits,
+                    self.metric_list,
+                    [sample["labels"]],
+                    list_output=True,
+                )
+                uid = sample.get("uid", str(total))
+                for metric, values in sample_metrics.items():
+                    user_metric_dict[metric][uid] = values[0]
+                    results[metric] = results.get(metric, 0.0) + values[0]
+                total += 1
+
+            if pbar:
+                show = {
+                    metric: f"{results[metric] / max(total, 1):.4f}"
+                    for metric in self.metric_list[:2]
+                    if metric in results
+                }
+                pbar.set_postfix(show)
+                pbar.update(1)
+            if self.ddp:
+                dist.barrier()
+
+        if pbar:
+            pbar.close()
+        total = self._gather_sum(total)
+        for metric in list(results):
+            results[metric] = self._gather_sum(results[metric]) / total
+
+        gathered_user_metrics = self._gather_concat([user_metric_dict])
+        merged_user_metrics: dict[str, dict[str, float]] = {metric: {} for metric in self.metric_list}
+        for one_rank_metrics in gathered_user_metrics:
+            for metric, metric_by_uid in one_rank_metrics.items():
+                merged_user_metrics[metric].update(metric_by_uid)
+
+        save_path = os.path.join(
+            self.results_file.replace(".json", ""),
+            f"user_level_metrics_{behavior}.json",
+        )
+        self._save_user_metrics(merged_user_metrics, len(loader.dataset), save_path, results)
+        return results
+
+    def test(self, candidate_batch_size: int) -> list[dict[str, float]]:
+        results = []
+        merged = {metric: 0.0 for metric in self.metric_list}
+        total = 0
+        for loader, behavior in zip(self.loaders, self.behaviors):
+            result = self.test_single_behavior(loader, behavior, candidate_batch_size)
+            result["eval_type"] = f"Behavior {behavior}"
+            results.append(result)
+            dataset_len = len(loader.dataset)
+            for metric in self.metric_list:
+                merged[metric] += result[metric] * dataset_len
+            total += dataset_len
+        for metric in merged:
+            merged[metric] = merged[metric] / total if total else 0.0
+        merged["eval_type"] = "Merged Behavior"
+        results.append(merged)
+        return results
+
+    def _is_cvr_auc_eval(self) -> bool:
+        return [metric.lower() for metric in self.metric_list] == ["auc"]
+
+    def _setup_cvr_samplers(self):
+        if not self.ddp:
+            return [None] * len(self.datasets)
+        return [
+            DistributedSampler(
+                dataset,
+                num_replicas=self.world_size,
+                rank=self.local_rank,
+                shuffle=False,
+            )
+            for dataset in self.datasets
+        ]
+
+    def test_cvr_auc(self, loader: DataLoader, candidate_batch_size: int) -> list[dict[str, float]]:
+        dataset: SMBRankingDatasetForDecoder = loader.dataset
+        target_behavior = dataset.target_behavior
+        if len(dataset) == 0:
+            return [
+                {
+                    "eval_type": f"CVR {target_behavior}",
+                    "auc": 0.0,
+                    "positive": 0.0,
+                    "negative": 0.0,
+                    "num_examples": 0.0,
+                }
+            ]
+        behavior_token_id = self._behavior_token_id(dataset, target_behavior)
+        item_len = len(self.tokenizer.encode(dataset[0]["target_item"][0], add_special_tokens=False))
+        records = []
+        pbar = get_tqdm(desc=f"CVR AUC {target_behavior}", total=len(loader))
+
+        for batch in loader:
+            for sample in batch:
+                candidates = sample["target_item"]
+                behaviors = sample["behavior"]
+                for start in range(0, len(candidates), candidate_batch_size):
+                    chunk_candidates = candidates[start : start + candidate_batch_size]
+                    scores = self._score_candidate_batch(
+                        sample=sample,
+                        candidates=chunk_candidates,
+                        behavior_token_id=behavior_token_id,
+                        item_len=item_len,
+                    )
+                    for offset, score in enumerate(scores.tolist()):
+                        item_index = start + offset
+                        behavior = behaviors[item_index]
+                        label = 1 if dataset.behavior_level[behavior] == dataset.max_behavior_level else 0
+                        key = (sample["uid"], sample["target_session_id"], item_index)
+                        records.append((key, label, score))
+            if pbar:
+                pbar.set_postfix({"scored": len(records)})
+                pbar.update(1)
+
+        records = self._gather_concat(records)
+        deduped = {}
+        for key, label, score in records:
+            deduped[key] = (label, score)
+        labels = [label for label, _score in deduped.values()]
+        scores = [score for _label, score in deduped.values()]
+        positive = sum(labels)
+        negative = len(labels) - positive
+        return [
+            {
+                "eval_type": f"CVR {target_behavior}",
+                "auc": binary_auc(labels, scores),
+                "positive": float(positive),
+                "negative": float(negative),
+                "num_examples": float(len(labels)),
+            }
+        ]
+
+    def invoke(
+        self,
+        seed: int,
+        backbone: str,
+        base_model: str,
+        output_dir: str,
+        data_path: str,
+        tasks: str,
+        dataset: str,
+        index_file: str,
+        max_his_len: int,
+        ckpt_path: str,
+        results_file: str,
+        test_batch_size: int,
+        num_beams: int,
+        metrics: str,
+        test_task: str,
+        behaviors: list[str] | None,
+        valid_loss: bool,
+        *args,
+        **kwargs,
+    ):
+        if not backbone.startswith("Qwen3TemporalHierarchical"):
+            raise ValueError("SMB ranking decoder requires a Qwen3TemporalHierarchical backbone.")
+        self.init(seed, False)
+        self._load_model_via_registry(backbone, ckpt_path)
+        total_params = sum(p.numel() for p in self.model.parameters())
+        trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        logger.success(f"Model {backbone} has {total_params} parameters, {trainable_params} of them are trainable.")
+
+        if valid_loss:
+            self.datasets = [
+                load_SMB_valid_dataset(dataset, data_path, max_his_len, index_file, test_task)
+            ]
+            collator = DecoderOnlyRankingCollator(self.tokenizer)
+        else:
+            self.base_dataset = load_SMB_test_dataset(dataset, data_path, max_his_len, index_file, test_task)
+            self.metric_list = metrics.split(",")
+            self.cvr_auc_eval = self._is_cvr_auc_eval() and behaviors is None
+            if self.cvr_auc_eval:
+                self.behaviors = [self.base_dataset.target_behavior]
+                self.datasets = [self.base_dataset]
+                self.info(
+                    "Using fast CVR AUC evaluation: "
+                    f"positive=max behavior level ({self.base_dataset.target_behavior}), "
+                    "negative=other target-session behaviors."
+                )
+            elif behaviors is None:
+                self.behaviors = self.base_dataset.behaviors
+                self.datasets = [
+                    self.base_dataset.filter_by_behavior(behavior)
+                    for behavior in self.behaviors
+                ]
+            else:
+                self.behaviors = behaviors
+                self.datasets = [
+                    self.base_dataset.filter_by_behavior(behavior)
+                    for behavior in self.behaviors
+                ]
+            if not self.cvr_auc_eval:
+                for behavior, behavior_dataset in zip(self.behaviors, self.datasets):
+                    self.info(f"Loaded ranking dataset for behavior {behavior} with {len(behavior_dataset)} samples.")
+                self.all_items = sorted(self.base_dataset.get_all_items())
+            collator = lambda batch: batch
+
+        self.samplers = self._setup_cvr_samplers() if getattr(self, "cvr_auc_eval", False) else self._setup_ddp_for_datasets(self.datasets)
+        loader_batch_size = test_batch_size if valid_loss else 1
+        self.loaders = [
+            DataLoader(
+                test_dataset,
+                batch_size=loader_batch_size,
+                collate_fn=collator,
+                sampler=sampler,
+                num_workers=0,
+                pin_memory=True,
+            )
+            for sampler, test_dataset in zip(self.samplers, self.datasets)
+        ]
+
+        self.model.eval()
+        if not hasattr(self, "metric_list"):
+            self.metric_list = metrics.split(",")
+        self.results_file = results_file
+
+        if valid_loss:
+            self.validation()
+        elif getattr(self, "cvr_auc_eval", False):
+            results = self.test_cvr_auc(self.loaders[0], max(1, test_batch_size))
+            self._save_results_and_log(results, results_file, multiple=True)
+        else:
+            results = self.test(max(1, test_batch_size))
+            self._save_results_and_log(results, results_file, multiple=True)
+
+        self.finish(False)

@@ -12,6 +12,7 @@ from SeqRec.datasets.session_behavior import (
     SMBExplicitDatasetForDecoder,
     SMBFixedRatioDatasetForDecoder,
     SMBPolicyAugmentedDatasetForDecoder,
+    SMBRankingDatasetForDecoder,
 )
 
 
@@ -179,6 +180,20 @@ def _train_policy_decoder(_: str) -> SMBTrainTaskResolution:
     )
 
 
+def _train_ranking_decoder(_: str) -> SMBTrainTaskResolution:
+    return SMBTrainTaskResolution(
+        "ranking_decoder",
+        SMBRankingDatasetForDecoder,
+        {},
+        SMBRankingDatasetForDecoder,
+        {},
+    )
+
+
+def _eval_ranking_decoder(_: str) -> SMBTaskResolution:
+    return SMBTaskResolution("ranking_decoder", SMBRankingDatasetForDecoder, {})
+
+
 def _eval_fixed_ratio(task_lower: str) -> SMBTaskResolution:
     return SMBTaskResolution(
         "fixed_ratio",
@@ -217,6 +232,7 @@ SMB_TASK_PATTERNS: tuple[SMBTaskPattern, ...] = (
     SMBTaskPattern(lambda task: task == "smb_explicit_back", _train_explicit_back, _eval_explicit_back, _eval_explicit_back),
     SMBTaskPattern(lambda task: task.startswith("smb_fixed_ratio"), _train_fixed_ratio, _eval_fixed_ratio, _eval_fixed_ratio),
     SMBTaskPattern(lambda task: task == "smb_policy_decoder", _train_policy_decoder, None, None),
+    SMBTaskPattern(lambda task: task == "smb_ranking_decoder", _train_ranking_decoder, _eval_ranking_decoder, _eval_ranking_decoder),
     SMBTaskPattern(lambda task: task == "smb_explicit_valid", None, None, _test_explicit_valid),
     SMBTaskPattern(lambda task: task.startswith("smb_valid_augment_"), None, None, _test_valid_augment),
     SMBTaskPattern(lambda task: task == "smb_drop_gt", None, None, _test_drop_gt),

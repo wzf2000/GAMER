@@ -3,6 +3,28 @@ import torch
 from typing import overload, Literal
 
 
+def rank_items_by_scores(items: list[str], scores: list[float] | torch.Tensor) -> list[str]:
+    if isinstance(scores, torch.Tensor):
+        scores = scores.detach().cpu().tolist()
+    return [
+        item
+        for item, _score in sorted(
+            zip(items, scores),
+            key=lambda pair: pair[1],
+            reverse=True,
+        )
+    ]
+
+
+def get_ranked_item_hits(ranked_items: list[str], targets: list[str], max_k: int | None = None) -> list[int]:
+    target_set = set(targets)
+    ranked_items = ranked_items if max_k is None else ranked_items[:max_k]
+    return [
+        1 if item in target_set else 0
+        for item in ranked_items
+    ]
+
+
 def get_topk_results(predictions: list[str], scores: torch.Tensor, targets: list[str] | list[list[str]], k: int) -> list[list[int]]:
     results = []
     B = len(targets)
@@ -78,6 +100,50 @@ def hit_k(topk_results: list[list[int]], k: int) -> list[float]:
     return hits
 
 
+def auc(topk_results: list[list[int]]) -> list[float]:
+    aucs = []
+    for row in topk_results:
+        pos = sum(row)
+        neg = len(row) - pos
+        if pos == 0 or neg == 0:
+            aucs.append(0.0)
+            continue
+        pos_seen = 0
+        wins = 0
+        for hit in row:
+            if hit:
+                pos_seen += 1
+            else:
+                wins += pos_seen
+        aucs.append(wins / (pos * neg))
+    return aucs
+
+
+def binary_auc(labels: list[int] | torch.Tensor, scores: list[float] | torch.Tensor) -> float:
+    if isinstance(labels, torch.Tensor):
+        labels = labels.detach().cpu().tolist()
+    if isinstance(scores, torch.Tensor):
+        scores = scores.detach().cpu().tolist()
+    if len(labels) != len(scores):
+        raise ValueError("labels and scores must have the same length.")
+    pos = sum(1 for label in labels if label)
+    neg = len(labels) - pos
+    if pos == 0 or neg == 0:
+        return 0.0
+
+    rank_sum = 0.0
+    sorted_pairs = sorted(zip(scores, labels), key=lambda pair: pair[0])
+    index = 0
+    while index < len(sorted_pairs):
+        end = index + 1
+        while end < len(sorted_pairs) and sorted_pairs[end][0] == sorted_pairs[index][0]:
+            end += 1
+        avg_rank = (index + 1 + end) / 2
+        rank_sum += avg_rank * sum(1 for _score, label in sorted_pairs[index:end] if label)
+        index = end
+    return (rank_sum - pos * (pos + 1) / 2) / (pos * neg)
+
+
 @overload
 def get_metrics_results(topk_results: list[list[int]], metrics: list[str], targets: list[list[str]] | None = None, list_output: Literal[True] = True) -> dict[str, list[float]]:
     ...
@@ -110,6 +176,11 @@ def get_metrics_results(topk_results: list[list[int]], metrics: list[str], targe
                 res[m] = recall_k(topk_results, k, targets_set)
             else:
                 res[m] = sum(recall_k(topk_results, k, targets_set))
+        elif m.lower() == "auc":
+            if list_output:
+                res[m] = auc(topk_results)
+            else:
+                res[m] = sum(auc(topk_results))
         else:
             raise NotImplementedError
     return res

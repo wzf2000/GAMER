@@ -1,7 +1,7 @@
 import torch
 from typing import Any
 
-from SeqRec.datasets.collators.generative import DecoderOnlyCollator, EncoderDecoderCollator
+from SeqRec.datasets.collators.generative import DecoderOnlyCollator, DecoderOnlyRankingCollator, EncoderDecoderCollator
 from SeqRec.models.generative.registry import instantiate_generative_model, is_decoder_only_backbone
 from SeqRec.utils.fs import ensure_dir
 
@@ -154,8 +154,11 @@ def build_train_collator(
     first_dataset: Any,
     decoder_response_dataset_types: tuple[type, ...] = (),
     ignore_behavior_tokens: list[int] | None = None,
+    ranking: bool = False,
 ):
     if is_decoder_only_backbone(backbone):
+        if ranking:
+            return DecoderOnlyRankingCollator(tokenizer)
         only_train_response = not isinstance(first_dataset, decoder_response_dataset_types)
         return DecoderOnlyCollator(
             tokenizer,
