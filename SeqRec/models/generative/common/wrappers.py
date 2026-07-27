@@ -48,13 +48,10 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
     def _llm_pair_ranking_logits(
         self,
         *,
-        input_ids: torch.LongTensor | None,
         hidden_states: torch.FloatTensor,
         attention_mask: torch.Tensor | None,
         user_id: torch.Tensor | None,
     ) -> torch.Tensor:
-        if input_ids is None:
-            raise ValueError("LLM-pair ranking requires input_ids.")
         if not hasattr(self, "ranking_user_embedding"):
             raise ValueError("LLM-pair ranking head is not initialized. Train or load a llm_pair checkpoint.")
 
@@ -72,14 +69,12 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
         if candidate_len is None:
             candidate_len = max(1, int(getattr(self.config, "num_positions", 2)) - 1)
         candidate_len = max(1, int(candidate_len))
-        token_embeddings = self.get_input_embeddings()(input_ids)
-
         features = []
         zero_state = hidden_states.new_zeros(hidden_states.shape[-1])
         for batch_index, last_index_tensor in enumerate(last_indices):
             last_index = int(last_index_tensor.item())
             candidate_start = max(0, last_index - candidate_len + 1)
-            candidate_state = token_embeddings[batch_index, candidate_start : last_index + 1].mean(dim=0)
+            candidate_state = hidden_states[batch_index, candidate_start : last_index + 1].mean(dim=0)
             history_state = (
                 hidden_states[batch_index, candidate_start - 1]
                 if candidate_start > 0
@@ -152,7 +147,6 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
         if wrapper_kwargs.get("use_ranking_head", False) or ranking_labels is not None:
             if getattr(self.config, "ranking_score_type", "hidden_head") == "llm_pair":
                 ranking_logits = self._llm_pair_ranking_logits(
-                    input_ids=model_kwargs.get("input_ids"),
                     hidden_states=hidden_states,
                     attention_mask=model_kwargs.get("attention_mask"),
                     user_id=wrapper_kwargs.get("user_id"),
