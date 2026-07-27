@@ -60,12 +60,47 @@ def _configure_behavior_tokens(
     if behavior_token_ids is None:
         behavior_token_ids = get_behavior_token_ids(first_dataset, tokenizer)
 
+    behavior_token_specs = [
+        (behavior, token)
+        for behavior in first_dataset.behaviors
+        for token in first_dataset.get_behavior_tokens(behavior)
+    ]
+    if len(behavior_token_ids) != len(behavior_token_specs):
+        raise ValueError(
+            "Behavior token IDs must align one-to-one with dataset behavior tokens: "
+            f"got {len(behavior_token_ids)} IDs for {len(behavior_token_specs)} tokens."
+        )
     behavior_maps = {
         behavior_token: i
         for i, behavior_token in enumerate(behavior_token_ids)
     }
+    use_separate_behavior_levels = bool(
+        getattr(
+            first_dataset,
+            "separate_behavior_identity_and_level",
+            False,
+        )
+    )
+    if use_separate_behavior_levels:
+        behavior_level_maps = {
+            behavior_token_id: int(first_dataset.behavior_level[behavior])
+            for behavior_token_id, (behavior, _) in zip(
+                behavior_token_ids,
+                behavior_token_specs,
+            )
+        }
+    else:
+        behavior_level_maps = dict(behavior_maps)
+
     config.num_behavior = len(behavior_maps)
     config.behavior_maps = behavior_maps
+    config.separate_behavior_identity_and_level = use_separate_behavior_levels
+    config.behavior_level_maps = behavior_level_maps
+    config.num_behavior_levels = (
+        max(behavior_level_maps.values()) + 1
+        if behavior_level_maps
+        else 0
+    )
     config.use_behavior_token = (
         len(first_dataset.get_behavior_tokens(first_dataset.target_behavior)) > 0
     )
