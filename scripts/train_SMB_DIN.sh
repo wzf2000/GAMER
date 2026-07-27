@@ -3,7 +3,7 @@
 : ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER/data}
 : ${batch_size:=1024}
 : ${tasks:=smb_din}
-: ${max_his_len:=100}
+: ${max_his_len:=50}
 : ${test_task:=smb_din}
 : ${gpu:=0}
 : ${backbone:=DIN}

@@ -5,7 +5,7 @@
 : ${rq_kmeans:=0}
 : ${batch_size:=1024}
 : ${tasks:=smb_ranking_decoder}
-: ${max_his_len:=100}
+: ${max_his_len:=50}
 : ${gpu:=0,1,2,3,4,5,6}
 : ${port:=2314}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}

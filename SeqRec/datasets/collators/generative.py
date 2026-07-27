@@ -245,20 +245,21 @@ class DecoderOnlyRankingCollator:
     def __call__(self, batch: list[dict]) -> BatchEncoding:
         batch = [dict(sample) for sample in batch]
         input_texts = [sample["input_ids"] for sample in batch]
+        full_texts = [sample["input_ids"] + sample["labels"] for sample in batch]
 
         inputs = self.tokenizer(
-            text=input_texts,
+            text=full_texts,
+            text_target=input_texts,
             return_tensors="pt",
             padding="longest",
             max_length=self.tokenizer.model_max_length,
             truncation=True,
             return_attention_mask=True,
         )
-
-        inputs["ranking_labels"] = torch.tensor(
-            [sample["ranking_labels"] for sample in batch],
-            dtype=torch.float32,
-        )
+        labels = copy.deepcopy(inputs["input_ids"])
+        labels[labels == self.tokenizer.pad_token_id] = -100
+        labels[torch.where(inputs["labels"] != self.tokenizer.pad_token_id)] = -100
+        inputs["labels"] = labels
         _add_ranking_sequence_fields(inputs, batch)
 
         return inputs

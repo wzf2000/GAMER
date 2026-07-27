@@ -10,7 +10,7 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
     Decoder-only SMB ranking data.
 
     Input is history interactions plus a raw candidate item.  The target behavior
-    is stored as metadata, while ranking_labels drives the binary head loss and
+    is stored as metadata, while ranking_labels is kept for analysis/counting and
     relation_actions carries the explicit action indices used by relation-bias.
     """
 

@@ -23,7 +23,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
     def add_sub_parsers(sub_parsers: SubParsersAction):
         parser = sub_parsers.add_parser(
             "test_SMB_ranking_decoder",
-            help="Test a SMB decoder hidden-state ranking head.",
+            help="Test a SMB decoder ranking scorer.",
         )
         parser = parse_global_args(parser)
         parser = parse_dataset_args(parser)
@@ -91,11 +91,16 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
             "session_ids": torch.tensor(session_ids, dtype=torch.long, device=self.device),
             "extended_session_ids": torch.tensor(extended_session_ids, dtype=torch.long, device=self.device),
             "use_cache": False,
-            "use_ranking_head": True,
         }
+        if self.ranking_score_type == "hidden_head":
+            model_inputs["use_ranking_head"] = True
+        else:
+            model_inputs["logits_to_keep"] = 1
         with torch.no_grad():
             output = self.model(**model_inputs)
-            return output.logits.squeeze(-1).detach().cpu()
+            if self.ranking_score_type == "hidden_head":
+                return output.logits.squeeze(-1).detach().cpu()
+            return output.logits[:, -1, self.ranking_target_token_id].detach().cpu()
 
     def _score_sample(
         self,
@@ -302,7 +307,13 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
             raise ValueError("SMB ranking decoder requires a Qwen3TemporalHierarchical backbone.")
         self.init(seed, False)
         self._load_model_via_registry(backbone, ckpt_path)
-        if not hasattr(self.model, "ranking_head"):
+        self.ranking_score_type = getattr(
+            self.model.config,
+            "ranking_score_type",
+            "hidden_head" if hasattr(self.model, "ranking_head") else "lm_target_token",
+        )
+        self.ranking_target_token_id = getattr(self.model.config, "ranking_target_token_id", None)
+        if self.ranking_score_type == "hidden_head" and not hasattr(self.model, "ranking_head"):
             raise ValueError("SMB ranking decoder checkpoint does not contain a ranking head. Please retrain it.")
         total_params = sum(p.numel() for p in self.model.parameters())
         trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
@@ -315,6 +326,14 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
             collator = DecoderOnlyRankingCollator(self.tokenizer)
         else:
             self.base_dataset = load_SMB_test_dataset(dataset, data_path, max_his_len, index_file, test_task)
+            if self.ranking_target_token_id is None:
+                target_behavior_tokens = self.base_dataset.get_behavior_tokens(self.base_dataset.target_behavior)
+                if len(target_behavior_tokens) != 1:
+                    raise ValueError("SMB ranking decoder requires exactly one target behavior token.")
+                self.ranking_target_token_id = self.tokenizer.encode(
+                    target_behavior_tokens[0],
+                    add_special_tokens=False,
+                )[0]
             self.metric_list = metrics.split(",")
             self.cvr_auc_eval = self._is_cvr_auc_eval() and behaviors is None
             if self.cvr_auc_eval:
