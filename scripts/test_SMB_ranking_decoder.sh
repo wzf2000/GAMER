@@ -1,5 +1,5 @@
 #!/bin/bash
-: ${dataset:=ShortVideoADSmall}
+: ${dataset:=ShortVideoSmall}
 : ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER/data}
 : ${original:=1}
 : ${rq_kmeans:=0}
@@ -8,7 +8,7 @@
 : ${test_task:=smb_ranking_decoder}
 : ${metrics:=auc}
 : ${gpu:=0,1,2,3}
-: ${port:=2314}
+: ${port:=2315}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}
 
 export CUDA_VISIBLE_DEVICES=$gpu

@@ -1,17 +1,21 @@
 #!/bin/bash
-: ${dataset:=ShortVideoADSmall}
+: ${dataset:=ShortVideoSmall}
 : ${data_path:=/home/zhouman/guoyunhe/workspace/full/GAMER/data}
 : ${original:=1}
 : ${rq_kmeans:=0}
 : ${batch_size:=1024}
 : ${tasks:=smb_ranking_decoder}
-: ${max_his_len:=50}
-: ${gpu:=0,1,2,3,4,5,6,7}
+: ${max_his_len:=100}
+: ${gpu:=0,1,2,3,4,5,6}
 : ${port:=2314}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}
+: ${epochs:=50}
+: ${learning_rate:=1e-4}
+: ${weight_decay:=0.05}
+: ${patience:=4}
 : ${train_auc_samples:=1024}
 : ${train_auc_batch_size:=256}
-: ${eval_epochs:=10}
+: ${eval_epochs:=1}
 
 export CUDA_VISIBLE_DEVICES=$gpu
 export CUDA_LAUNCH_BLOCKING=1
@@ -43,6 +47,7 @@ resolve_tokenization
 output_dir=$(build_checkpoint_path "SMB-ranking-decoder" "${task_dir}" "${token_tag}")
 run_name=${task_dir}/${token_tag}/
 echo "Training SMB Ranking Decoder on ${dataset} using ${tokenization_desc} with GPUs ${gpu}."
+echo "Anti-overfit defaults: epochs=${epochs}, lr=${learning_rate}, weight_decay=${weight_decay}, patience=${patience}."
 echo "Sampled train-time CVR AUC: samples=${train_auc_samples}, batch=${train_auc_batch_size}."
 echo "Eval/save interval: every ${eval_epochs} epoch(s)."
 
@@ -60,4 +65,8 @@ run_main_distributed "${gpu_num}" "${port}" train_SMB_ranking_decoder \
     --tasks ${tasks} \
     --max_his_len ${max_his_len} \
     --index_file ${index_file} \
+    --num_train_epochs ${epochs} \
+    --learning_rate ${learning_rate} \
+    --weight_decay ${weight_decay} \
+    --patience ${patience} \
     "${EXTRA_CLI_ARGS[@]}"

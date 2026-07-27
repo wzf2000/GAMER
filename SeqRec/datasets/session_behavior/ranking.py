@@ -10,8 +10,8 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
     Decoder-only SMB ranking data.
 
     Input is history interactions plus a raw candidate item.  The target behavior
-    token is kept only in labels, and relation_actions carries the explicit
-    behavior/action indices used by relation-bias.
+    is stored as metadata, while ranking_labels drives the binary head loss and
+    relation_actions carries the explicit action indices used by relation-bias.
     """
 
     def __init__(self, **kwargs):
@@ -142,6 +142,7 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
             "uid": uid,
             "input_ids": input_ids,
             "labels": self._behavior_label(behavior),
+            "ranking_labels": float(self.behavior_level[behavior] == self.max_behavior_level),
             "relation_actions": relation_actions + candidate_relation_actions,
             "actions": relation_actions + candidate_relation_actions,
             "session_ids": session_ids + candidate_session_ids,
@@ -304,4 +305,9 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
         return copied_dataset
 
     def __getitem__(self, index: int) -> dict:
-        return dict(self.inter_data[index])
+        sample = dict(self.inter_data[index])
+        if "ranking_labels" not in sample and isinstance(sample.get("behavior"), str):
+            sample["ranking_labels"] = float(
+                self.behavior_level[sample["behavior"]] == self.max_behavior_level
+            )
+        return sample

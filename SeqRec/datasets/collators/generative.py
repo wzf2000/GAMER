@@ -73,7 +73,6 @@ def _pad_ranking_field(
     field: str,
     *,
     pad_value: int,
-    append_label_value,
     dtype: torch.dtype,
 ):
     if field not in batch[0]:
@@ -81,11 +80,9 @@ def _pad_ranking_field(
     max_length = inputs["input_ids"].shape[1]
     values = []
     for sample in batch:
-        label_len = sample.get("_ranking_label_len", 1)
-        label_values = append_label_value(sample, label_len)
         values.append(
             _align_sequence_to_length(
-                list(sample[field]) + label_values,
+                list(sample[field]),
                 max_length,
                 pad_value,
                 truncation_side="left",
@@ -101,7 +98,6 @@ def _add_ranking_sequence_fields(inputs: BatchEncoding, batch: list[dict]):
         batch,
         "relation_actions",
         pad_value=0,
-        append_label_value=lambda _sample, label_len: [0] * label_len,
         dtype=torch.long,
     )
     _pad_ranking_field(
@@ -109,7 +105,6 @@ def _add_ranking_sequence_fields(inputs: BatchEncoding, batch: list[dict]):
         batch,
         "actions",
         pad_value=0,
-        append_label_value=lambda _sample, label_len: [0] * label_len,
         dtype=torch.long,
     )
     _pad_ranking_field(
@@ -117,7 +112,6 @@ def _add_ranking_sequence_fields(inputs: BatchEncoding, batch: list[dict]):
         batch,
         "session_ids",
         pad_value=0,
-        append_label_value=lambda sample, label_len: [sample["session_ids"][-1] if sample["session_ids"] else 0] * label_len,
         dtype=torch.long,
     )
     _pad_ranking_field(
@@ -125,10 +119,6 @@ def _add_ranking_sequence_fields(inputs: BatchEncoding, batch: list[dict]):
         batch,
         "extended_session_ids",
         pad_value=0,
-        append_label_value=lambda sample, label_len: [
-            (sample["extended_session_ids"][-1] + index + 1) if sample["extended_session_ids"] else index
-            for index in range(label_len)
-        ],
         dtype=torch.long,
     )
 
@@ -254,30 +244,21 @@ class DecoderOnlyRankingCollator:
 
     def __call__(self, batch: list[dict]) -> BatchEncoding:
         batch = [dict(sample) for sample in batch]
-        for sample in batch:
-            sample["_ranking_label_len"] = len(
-                self.tokenizer.encode(sample["labels"], add_special_tokens=False)
-            )
-
         input_texts = [sample["input_ids"] for sample in batch]
-        full_texts = [sample["input_ids"] + sample["labels"] for sample in batch]
 
         inputs = self.tokenizer(
-            text=full_texts,
-            text_target=input_texts,
+            text=input_texts,
             return_tensors="pt",
             padding="longest",
             max_length=self.tokenizer.model_max_length,
             truncation=True,
             return_attention_mask=True,
         )
-        labels = copy.deepcopy(inputs["input_ids"])
-        labels[labels == self.tokenizer.pad_token_id] = -100
-        labels[torch.where(inputs["labels"] != self.tokenizer.pad_token_id)] = -100
 
-        inputs["labels"] = labels
-        inputs["split"] = batch[0].get("split", "train")
-        _add_common_optional_fields(inputs, batch)
+        inputs["ranking_labels"] = torch.tensor(
+            [sample["ranking_labels"] for sample in batch],
+            dtype=torch.float32,
+        )
         _add_ranking_sequence_fields(inputs, batch)
 
         return inputs

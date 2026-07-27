@@ -95,7 +95,12 @@ def prepare_generative_model_for_training(
     info,
     behavior_token_ids: list[int] | None = None,
     pba_uses_temperature: bool = False,
+    use_ranking_head: bool = False,
+    ranking_pos_weight: float | None = None,
 ):
+    config.use_ranking_head = use_ranking_head
+    if ranking_pos_weight is not None:
+        config.ranking_pos_weight = ranking_pos_weight
     if train_profile == "basic":
         model = instantiate_generative_model(backbone, config)
         model.set_hyper(temperature)

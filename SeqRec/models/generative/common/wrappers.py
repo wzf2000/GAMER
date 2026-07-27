@@ -10,8 +10,28 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
         self.model = model_cls(config)
         self.vocab_size = config.vocab_size
         self.lm_head = torch.nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        if getattr(config, "use_ranking_head", False):
+            self.ranking_head_dropout = torch.nn.Dropout(
+                getattr(config, "ranking_head_dropout", getattr(config, "dropout_rate", 0.0))
+            )
+            self.ranking_head = torch.nn.Linear(config.hidden_size, 1)
         self.post_init()
         self.init_temperature()
+
+    def _ranking_logits_from_hidden_states(
+        self,
+        hidden_states: torch.FloatTensor,
+        attention_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        if not hasattr(self, "ranking_head"):
+            raise ValueError("Ranking head is not initialized. Train or load a checkpoint with use_ranking_head=True.")
+        if attention_mask is None:
+            last_hidden_states = hidden_states[:, -1, :]
+        else:
+            last_indices = attention_mask.to(hidden_states.device).long().sum(dim=1).clamp(min=1) - 1
+            batch_indices = torch.arange(hidden_states.shape[0], device=hidden_states.device)
+            last_hidden_states = hidden_states[batch_indices, last_indices]
+        return self.ranking_head(self.ranking_head_dropout(last_hidden_states)).squeeze(-1)
 
     def prepare_custom_causal_lm_inputs(
         self,
@@ -32,6 +52,7 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
         output_attentions: bool | None,
         output_hidden_states: bool | None,
         logits_to_keep: int | torch.Tensor,
+        ranking_labels: torch.Tensor | None = None,
         model_kwargs: dict[str, Any],
         extra_kwargs: dict[str, Any],
         wrapper_kwargs: dict[str, Any] | None = None,
@@ -58,6 +79,38 @@ class CustomCausalLMWrapperMixin(TemperatureCausalLMLossMixin):
         )
 
         hidden_states = outputs.last_hidden_state
+        if wrapper_kwargs.get("use_ranking_head", False) or ranking_labels is not None:
+            ranking_logits = self._ranking_logits_from_hidden_states(
+                hidden_states,
+                model_kwargs.get("attention_mask"),
+            )
+            loss = None
+            if ranking_labels is not None:
+                ranking_labels = ranking_labels.to(
+                    device=ranking_logits.device,
+                    dtype=ranking_logits.dtype,
+                ).view_as(ranking_logits)
+                ranking_pos_weight = getattr(self.config, "ranking_pos_weight", None)
+                pos_weight = None
+                if ranking_pos_weight is not None:
+                    pos_weight = torch.tensor(
+                        ranking_pos_weight,
+                        device=ranking_logits.device,
+                        dtype=ranking_logits.dtype,
+                    )
+                loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                    ranking_logits,
+                    ranking_labels,
+                    pos_weight=pos_weight,
+                )
+            return CausalLMOutputWithPast(
+                loss=loss,
+                logits=ranking_logits[:, None],
+                past_key_values=outputs.past_key_values,
+                hidden_states=outputs.hidden_states,
+                attentions=outputs.attentions,
+            )
+
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 

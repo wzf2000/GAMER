@@ -23,7 +23,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
     def add_sub_parsers(sub_parsers: SubParsersAction):
         parser = sub_parsers.add_parser(
             "test_SMB_ranking_decoder",
-            help="Test a SMB decoder by ranking candidate items.",
+            help="Test a SMB decoder hidden-state ranking head.",
         )
         parser = parse_global_args(parser)
         parser = parse_dataset_args(parser)
@@ -39,13 +39,6 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
         metric_ks = [int(metric.split("@")[1]) for metric in metrics if "@" in metric]
         return max(metric_ks) if metric_ks else 0
 
-    def _behavior_token_id(self, dataset: SMBRankingDatasetForDecoder, behavior: str) -> int:
-        behavior_text = "".join(dataset.get_behavior_tokens(behavior))
-        behavior_token_ids = self.tokenizer.encode(behavior_text, add_special_tokens=False)
-        if len(behavior_token_ids) != 1:
-            raise ValueError(f"Expected one behavior token for {behavior}, got {behavior_token_ids}.")
-        return behavior_token_ids[0]
-
     def _align_sequence(self, sequence: list[int], length: int, pad_value: int = 0) -> list[int]:
         if len(sequence) > length:
             sequence = sequence[-length:]
@@ -58,7 +51,6 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
         *,
         sample: dict,
         candidates: list[str],
-        behavior_token_id: int,
         item_len: int,
     ) -> torch.Tensor:
         self.tokenizer.padding_side = "right"
@@ -99,19 +91,16 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
             "session_ids": torch.tensor(session_ids, dtype=torch.long, device=self.device),
             "extended_session_ids": torch.tensor(extended_session_ids, dtype=torch.long, device=self.device),
             "use_cache": False,
+            "use_ranking_head": True,
         }
         with torch.no_grad():
             output = self.model(**model_inputs)
-            logits = output.logits
-            last_indices = model_inputs["attention_mask"].sum(dim=1) - 1
-            last_logits = logits[torch.arange(logits.shape[0], device=self.device), last_indices]
-            return torch.log_softmax(last_logits, dim=-1)[:, behavior_token_id].detach().cpu()
+            return output.logits.squeeze(-1).detach().cpu()
 
     def _score_sample(
         self,
         *,
         sample: dict,
-        behavior_token_id: int,
         item_len: int,
         candidate_batch_size: int,
     ) -> torch.Tensor:
@@ -122,7 +111,6 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
                 self._score_candidate_batch(
                     sample=sample,
                     candidates=candidates,
-                    behavior_token_id=behavior_token_id,
                     item_len=item_len,
                 )
             )
@@ -137,7 +125,8 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
         if len(loader.dataset) == 0:
             return {metric: 0.0 for metric in self.metric_list}
         dataset: SMBRankingDatasetForDecoder = loader.dataset
-        behavior_token_id = self._behavior_token_id(dataset, behavior)
+        if behavior != dataset.target_behavior:
+            raise ValueError("The ranking head scores only the target/max-level behavior.")
         item_len = len(self.tokenizer.encode(self.all_items[0], add_special_tokens=False))
         max_k = self._max_metric_k(self.metric_list)
         results: dict[str, float] = {}
@@ -149,7 +138,6 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
             for sample in batch:
                 scores = self._score_sample(
                     sample=sample,
-                    behavior_token_id=behavior_token_id,
                     item_len=item_len,
                     candidate_batch_size=candidate_batch_size,
                 )
@@ -245,7 +233,6 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
                     "num_examples": 0.0,
                 }
             ]
-        behavior_token_id = self._behavior_token_id(dataset, target_behavior)
         item_len = len(self.tokenizer.encode(dataset[0]["target_item"][0], add_special_tokens=False))
         records = []
         pbar = get_tqdm(desc=f"CVR AUC {target_behavior}", total=len(loader))
@@ -259,7 +246,6 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
                     scores = self._score_candidate_batch(
                         sample=sample,
                         candidates=chunk_candidates,
-                        behavior_token_id=behavior_token_id,
                         item_len=item_len,
                     )
                     for offset, score in enumerate(scores.tolist()):
@@ -316,6 +302,8 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
             raise ValueError("SMB ranking decoder requires a Qwen3TemporalHierarchical backbone.")
         self.init(seed, False)
         self._load_model_via_registry(backbone, ckpt_path)
+        if not hasattr(self.model, "ranking_head"):
+            raise ValueError("SMB ranking decoder checkpoint does not contain a ranking head. Please retrain it.")
         total_params = sum(p.numel() for p in self.model.parameters())
         trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         logger.success(f"Model {backbone} has {total_params} parameters, {trainable_params} of them are trainable.")
@@ -338,7 +326,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
                     "negative=other target-session behaviors."
                 )
             elif behaviors is None:
-                self.behaviors = self.base_dataset.behaviors
+                self.behaviors = [self.base_dataset.target_behavior]
                 self.datasets = [
                     self.base_dataset.filter_by_behavior(behavior)
                     for behavior in self.behaviors
