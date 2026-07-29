@@ -117,7 +117,7 @@ class Trainer:
         if all(m.lower() in BINARY_METRICS for m in self.metrics):
             accumulator = BinaryMetricAccumulator(self.metrics)
             with torch.no_grad():
-                for batch in (pbar := get_tqdm(self.eval_dataloader, desc="Evaluating CVR")):
+                for batch in (pbar := get_tqdm(self.eval_dataloader, desc="Evaluating binary ranking")):
                     if isinstance(batch, tuple):
                         batch = batch[0]
                     batch = {k: v.to(self.device) for k, v in batch.items()}
@@ -196,6 +196,11 @@ class Trainer:
         logger.info("Evaluating before training...")
         metrics = self.evaluate()
         self.best_metric = metrics[self.main_metric]
+        torch.save(self.model.state_dict(), f"{self.output_dir}/best_model.pth")
+        logger.info(
+            f"Saved initial best {self.main_metric}: {self.best_metric:.4f} "
+            f"to {self.output_dir}/best_model.pth"
+        )
         for epoch in range(self.epochs):
             start_time = time.time()
             loss = self.fit(epoch=epoch)

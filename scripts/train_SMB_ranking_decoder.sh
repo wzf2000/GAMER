@@ -9,7 +9,7 @@
 : ${gpu:=0,1,2,3,4,5,6}
 : ${port:=2315}
 : ${backbone:=Qwen3TemporalHierarchicalFactorized}
-: ${epochs:=5}
+: ${epochs:=3}
 : ${learning_rate:=1e-3}
 : ${weight_decay:=0.01}
 : ${patience:=2}
@@ -68,7 +68,7 @@ else
     echo "SMB decoder checkpoint: ${pretrained_model}; freeze_backbone=${freeze_backbone}."
 fi
 echo "Anti-overfit defaults: epochs=${epochs}, lr=${learning_rate}, weight_decay=${weight_decay}, patience=${patience}."
-echo "Sampled train-time CVR AUC: samples=${train_auc_samples}, batch=${train_auc_batch_size}."
+echo "Sampled train-time binary AUC: samples=${train_auc_samples}, batch=${train_auc_batch_size}."
 echo "Eval/save interval: every ${eval_epochs} epoch(s)."
 
 build_extra_cli_args "${SCRIPT_CLI_ARGS[@]}"

@@ -233,7 +233,7 @@ class TrainSMBRec(Task):
                     if show:
                         pbar.set_postfix(show)
         result: dict = {
-            "eval_type": f"CVR {self.target_behavior}",
+            "eval_type": f"{self.ranking_task_name} {self.target_behavior}",
         }
         result.update(accumulator.compute())
         return [result]
@@ -298,11 +298,11 @@ class TrainSMBRec(Task):
         config = config_cls.from_pretrained(base_model)
 
         metrics = ",".join(metric.strip().lower() for metric in metrics.split(",") if metric.strip())
-        is_binary_cvr = backbone in {"DIN", "MeanPooling", "SASRecCVR", "DIENCVR", "BSTCVR", "HSTUCVR", "DSIN"}
-        if is_binary_cvr and not all(m in BINARY_METRICS for m in metrics.split(",")):
+        is_binary_ranking = backbone in {"DIN", "MeanPooling", "SASRecCVR", "DIENCVR", "BSTCVR", "HSTUCVR", "DSIN"}
+        if is_binary_ranking and not all(m in BINARY_METRICS for m in metrics.split(",")):
             metrics = ",".join(DEFAULT_BINARY_METRICS)
-            logger.warning(f"{backbone} is a binary CVR baseline; overriding metrics to {metrics}.")
-        if is_binary_cvr:
+            logger.warning(f"{backbone} is a binary ranking baseline; overriding metrics to {metrics}.")
+        if is_binary_ranking:
             add_uid = True
 
         train_data, valid_data = load_SMBDis_datasets(
@@ -313,7 +313,8 @@ class TrainSMBRec(Task):
             add_uid=add_uid,
         )
         self.target_behavior = valid_data.target_behavior
-        if not is_binary_cvr:
+        self.ranking_task_name = getattr(valid_data, "ranking_task_name", "CVR")
+        if not is_binary_ranking:
             valid_data = valid_data.filter_by_behavior(self.target_behavior)
         first_dataset: SMBDisDataset = train_data.datasets[0]
         num_items = first_dataset.num_items
@@ -400,7 +401,7 @@ class TrainSMBRec(Task):
         self.result_dir = result_dir
         self.test_task = test_task
 
-        if is_binary_cvr:
+        if is_binary_ranking:
             test_loader = DataLoader(
                 test_data,
                 batch_size=batch_size,

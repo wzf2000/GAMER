@@ -5,9 +5,14 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 try:
-    from SeqRec.datasets.session_behavior.ranking import SMBRankingDatasetForDecoder
+    from SeqRec.datasets.loaders.session_behavior import _resolve_smb_train_task
+    from SeqRec.datasets.session_behavior.ranking import (
+        SMBCTRRankingDatasetForDecoder,
+        SMBRankingDatasetForDecoder,
+    )
 except ModuleNotFoundError as exc:
     SMBRankingDatasetForDecoder = None
     DATASET_IMPORT_ERROR = exc
@@ -146,6 +151,16 @@ class SMBRankingDatasetTest(unittest.TestCase):
             train_session=True,
         )
 
+    def _ctr_dataset(self, mode: str):
+        return SMBCTRRankingDatasetForDecoder(
+            dataset="Tiny",
+            data_path=str(self.data_root),
+            max_his_len=20,
+            index_file=".index.json",
+            mode=mode,
+            train_session=True,
+        )
+
     def test_session_split_uses_minus_three_minus_two_minus_one(self):
         train = self._dataset("train")
         valid = self._dataset("valid")
@@ -163,19 +178,55 @@ class SMBRankingDatasetTest(unittest.TestCase):
         self.assertEqual(test[0]["labels"], ["<i6a><i6b>", "<i7a><i7b>"])
         self.assertEqual(test[0]["target_session_id"], 30)
 
-    def test_candidate_input_has_fixed_target_query_and_aligned_relation(self):
+    def test_candidate_input_has_fixed_base_condition_and_aligned_relation(self):
         sample = self._dataset("train")[0]
 
-        self.assertTrue(sample["input_ids"].endswith("<behavior_buy><i3a><i3b>"))
+        self.assertEqual(self._dataset("train").candidate_behavior, "view")
+        self.assertTrue(sample["input_ids"].endswith("<behavior_view><i3a><i3b>"))
         self.assertNotIn("<i3a><i3b><behavior_cart>", sample["input_ids"])
         self.assertNotIn("<behavior_cart><i3a><i3b>", sample["input_ids"])
         self.assertEqual(sample["ranking_labels"], 0.0)
         self.assertEqual(sample["user_id"], 1)
-        self.assertEqual(sample["ranking_query"], "<behavior_buy>")
-        self.assertEqual(sample["ranking_query_action"], 4)
-        self.assertEqual(sample["relation_actions"], [1, 1, 1, 2, 2, 2, 4, 4, 4])
+        self.assertEqual(sample["ranking_query"], "<behavior_view>")
+        self.assertEqual(sample["ranking_query_action"], 1)
+        self.assertEqual(sample["relation_actions"], [1, 1, 1, 2, 2, 2, 1, 1, 1])
         self.assertEqual(sample["actions"], sample["relation_actions"])
         self.assertEqual(len(sample["extended_session_ids"]), len(sample["relation_actions"]))
+
+    def test_ctr_uses_click_threshold_with_same_base_condition_and_separate_cache(self):
+        train = self._ctr_dataset("train")
+        valid = self._ctr_dataset("valid")
+        cvr_train = self._dataset("train")
+
+        self.assertEqual(train.target_behavior, "click")
+        self.assertEqual(train.candidate_behavior, "view")
+        self.assertEqual(train.ranking_task_name, "CTR")
+        self.assertFalse(train.is_positive("view"))
+        self.assertTrue(train.is_positive("click"))
+        self.assertTrue(train.is_positive("buy"))
+        self.assertEqual(train[0]["ranking_labels"], 1.0)
+        self.assertEqual(train[0]["input_ids"], cvr_train[0]["input_ids"])
+        self.assertTrue(train[0]["input_ids"].endswith("<behavior_view><i3a><i3b>"))
+        self.assertEqual(train[0]["ranking_query_action"], 1)
+        self.assertEqual(
+            [sample["ranking_labels"] for sample in valid],
+            [1.0, 0.0],
+        )
+        self.assertIn("ranking-condition-view", train.cached_file_name)
+        self.assertNotEqual(train.cached_file_name, cvr_train.cached_file_name)
+        self.assertIs(
+            _resolve_smb_train_task("smb_ctr_ranking_decoder").dataset_cls,
+            SMBCTRRankingDatasetForDecoder,
+        )
+
+    def test_target_condition_reproduces_original_ctr_query(self):
+        with patch.dict("os.environ", {"SMB_RANKING_CANDIDATE_BEHAVIOR": "target"}):
+            train = self._ctr_dataset("train")
+
+            self.assertEqual(train.candidate_behavior, "click")
+            self.assertTrue(train[0]["input_ids"].endswith("<behavior_click><i3a><i3b>"))
+            self.assertEqual(train[0]["ranking_query_action"], 2)
+            self.assertIn("ranking-condition-click", train.cached_file_name)
 
     def test_collator_uses_ranking_label_and_aligned_query_action(self):
         if TORCH_IMPORT_ERROR is not None:
@@ -189,7 +240,7 @@ class SMBRankingDatasetTest(unittest.TestCase):
         self.assertNotIn("labels", batch)
         self.assertEqual(batch["ranking_labels"].item(), 0.0)
         self.assertEqual(batch["user_id"].item(), 1)
-        self.assertEqual(batch["relation_actions"][0, input_len - 1].item(), 4)
+        self.assertEqual(batch["relation_actions"][0, input_len - 1].item(), 1)
 
     def test_relation_override_helper_preserves_old_path_when_absent(self):
         if TORCH_IMPORT_ERROR is not None:

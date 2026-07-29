@@ -137,7 +137,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
             return {metric: 0.0 for metric in self.metric_list}
         dataset: SMBRankingDatasetForDecoder = loader.dataset
         if behavior != dataset.target_behavior:
-            raise ValueError("The ranking head scores only the target/max-level behavior.")
+            raise ValueError("The ranking head scores only the task's target behavior.")
         item_len = len(self.tokenizer.encode(self.all_items[0], add_special_tokens=False))
         max_k = self._max_metric_k(self.metric_list)
         results: dict[str, float] = {}
@@ -236,7 +236,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
         target_behavior = dataset.target_behavior
         if len(dataset) == 0:
             result = {
-                "eval_type": f"CVR {target_behavior}",
+                "eval_type": f"{dataset.ranking_task_name} {target_behavior}",
                 "positive": 0.0,
                 "negative": 0.0,
                 "num_examples": 0.0,
@@ -247,7 +247,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
         item_len = len(self.tokenizer.encode(dataset[0]["target_item"][0], add_special_tokens=False))
         records = []
         accumulator = BinaryMetricAccumulator(self.metric_list)
-        pbar = get_tqdm(desc=f"CVR AUC {target_behavior}", total=len(loader))
+        pbar = get_tqdm(desc=f"{dataset.ranking_task_name} AUC {target_behavior}", total=len(loader))
 
         for batch in loader:
             for sample in batch:
@@ -256,7 +256,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
                 for start in range(0, len(candidates), candidate_batch_size):
                     chunk_candidates = candidates[start : start + candidate_batch_size]
                     chunk_labels = [
-                        1 if dataset.behavior_level[behavior] == dataset.max_behavior_level else 0
+                        int(dataset.is_positive(behavior))
                         for behavior in behaviors[start : start + candidate_batch_size]
                     ]
                     scores = self._score_candidate_batch(
@@ -291,7 +291,7 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
         labels = [label for label, _score in deduped.values()]
         scores = [score for _label, score in deduped.values()]
         result: dict = {
-            "eval_type": f"CVR {target_behavior}",
+            "eval_type": f"{dataset.ranking_task_name} {target_behavior}",
         }
         final_accumulator = BinaryMetricAccumulator(self.metric_list)
         final_accumulator.update(labels, scores, uid_list)
@@ -357,9 +357,9 @@ class TestSMBRankingDecoder(_BaseDecoderTestTask):
                 self.behaviors = [self.base_dataset.target_behavior]
                 self.datasets = [self.base_dataset]
                 self.info(
-                    "Using fast CVR AUC evaluation: "
-                    f"positive=max behavior level ({self.base_dataset.target_behavior}), "
-                    "negative=other target-session behaviors."
+                    f"Using fast {self.base_dataset.ranking_task_name} AUC evaluation: "
+                    f"positive={self.base_dataset.target_behavior} and higher behavior levels, "
+                    "negative=lower target-session behavior levels."
                 )
             elif behaviors is None:
                 self.behaviors = [self.base_dataset.target_behavior]

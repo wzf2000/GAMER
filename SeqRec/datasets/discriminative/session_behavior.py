@@ -386,7 +386,7 @@ class SMBDisDataset(BaseSMBDisDataset):
 
 class SMBDINDataset(SMBDisDataset):
     """
-    DIN-style binary CVR dataset.
+    DIN-style binary ranking dataset (CVR by default).
 
     For each user with at least 3 sessions:
       train target session = -3, valid = -2, test = -1.
@@ -394,12 +394,37 @@ class SMBDINDataset(SMBDisDataset):
     History contains only interactions before the target session.
     """
 
+    def __init__(self, positive_behavior: str | None = None, **kwargs):
+        self.positive_behavior = positive_behavior
+        super().__init__(**kwargs)
+
+    def _load_data(self):
+        super()._load_data()
+        if self.positive_behavior is None:
+            return
+        if self.positive_behavior not in self.behavior_level:
+            raise ValueError(
+                f"Unknown positive behavior {self.positive_behavior!r}; "
+                f"expected one of {self.behaviors}."
+            )
+        self.target_behavior = self.positive_behavior
+        self.target_behavior_index = self.behaviors.index(self.target_behavior)
+
+    def is_positive(self, behavior: str) -> bool:
+        return self.behavior_level[behavior] >= self.behavior_level[self.target_behavior]
+
+    @property
+    def ranking_task_name(self) -> str:
+        return "CTR" if self.target_behavior == "click" else "CVR"
+
     @property
     def cached_file_name(self) -> str:
         suffix = "adduid." if self.add_uid else ""
+        target_suffix = f".{self.positive_behavior}" if self.positive_behavior else ""
         return os.path.join(
             self.data_path,
-            self.dataset + f".{self.__class__.__name__}.{self.max_his_len}.SMB.item_id.{suffix}{self.mode}.pkl",
+            self.dataset
+            + f".{self.__class__.__name__}.{self.max_his_len}.SMB.item_id{target_suffix}.{suffix}{self.mode}.pkl",
         )
 
     def _target_session_id(self, uid: str) -> int | None:
@@ -446,7 +471,7 @@ class SMBDINDataset(SMBDisDataset):
                     "session_ids": history_session_ids,
                     "seq_len": seq_len,
                     "candidate_item": self.inters[uid][index] + 1,
-                    "label": float(self.behavior_level[behavior] == self.max_behavior_level),
+                    "label": float(self.is_positive(behavior)),
                     "behavior": self.behaviors.index(behavior),
                     "target_session_id": target_sid,
                 }

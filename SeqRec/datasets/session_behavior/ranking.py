@@ -9,9 +9,9 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
     """
     Decoder-only SMB ranking data.
 
-    Input is history interactions plus a fixed target-behavior query and candidate
+    Input is history interactions plus a fixed base-behavior condition and candidate
     item. The candidate's observed behavior is used only to build ranking_labels;
-    relation_actions carries the explicit query action used by relation-bias.
+    relation_actions carries the explicit condition action used by relation-bias.
     """
 
     def __init__(self, **kwargs):
@@ -22,7 +22,7 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
         return os.path.join(
             self.data_path,
             self.dataset
-            + f".{self.__class__.__name__}.{self.max_his_len}.SMB.ranking-query.{self.mode}{self.index_suffix}.pkl",
+            + f".{self.__class__.__name__}.{self.max_his_len}.SMB.ranking-condition-{self.candidate_behavior}.{self.mode}{self.index_suffix}.pkl",
         )
 
     def _behavior_label(self, behavior: str) -> str:
@@ -30,6 +30,27 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
 
     def _relation_action_id(self, behavior: str) -> int:
         return self.behavior_level[behavior] + 1
+
+    def is_positive(self, behavior: str) -> bool:
+        return self.behavior_level[behavior] >= self.behavior_level[self.target_behavior]
+
+    @property
+    def candidate_behavior(self) -> str:
+        configured = os.environ.get("SMB_RANKING_CANDIDATE_BEHAVIOR", "lowest")
+        if configured == "lowest":
+            return min(self.behavior_level, key=lambda behavior: self.behavior_level[behavior])
+        if configured == "target":
+            return self.target_behavior
+        if configured not in self.behavior_level:
+            raise ValueError(
+                f"Unknown candidate behavior {configured!r}; "
+                f"expected 'lowest', 'target', or one of {self.behaviors}."
+            )
+        return configured
+
+    @property
+    def ranking_task_name(self) -> str:
+        return "CVR"
 
     @property
     def num_users(self) -> int:
@@ -152,7 +173,7 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
         behavior: str,
         target_session_id: int,
     ) -> dict:
-        query_behavior = self.target_behavior
+        query_behavior = self.candidate_behavior
         query_token = self._behavior_label(query_behavior)
         input_ids = self._get_inters(history_items, history_behaviors) + query_token + candidate_item
         relation_actions = self._history_relation_actions(history_behaviors)
@@ -168,7 +189,7 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
             "user_id": self._user_id(uid),
             "input_ids": input_ids,
             "labels": self._behavior_label(behavior),
-            "ranking_labels": float(self.behavior_level[behavior] == self.max_behavior_level),
+            "ranking_labels": float(self.is_positive(behavior)),
             "relation_actions": relation_actions + candidate_relation_actions,
             "actions": relation_actions + candidate_relation_actions,
             "session_ids": session_ids + candidate_session_ids,
@@ -193,7 +214,7 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
         target_behaviors: list[str],
         target_session_id: int,
     ) -> dict:
-        query_behavior = self.target_behavior
+        query_behavior = self.candidate_behavior
         return {
             "uid": uid,
             "user_id": self._user_id(uid),
@@ -341,7 +362,19 @@ class SMBRankingDatasetForDecoder(SMBExplicitDataset):
         if "user_id" not in sample and "uid" in sample:
             sample["user_id"] = self._user_id(sample["uid"])
         if "ranking_labels" not in sample and isinstance(sample.get("behavior"), str):
-            sample["ranking_labels"] = float(
-                self.behavior_level[sample["behavior"]] == self.max_behavior_level
-            )
+            sample["ranking_labels"] = float(self.is_positive(sample["behavior"]))
         return sample
+
+
+class SMBCTRRankingDatasetForDecoder(SMBRankingDatasetForDecoder):
+    """CTR labels: click and higher-level behaviors are positive."""
+
+    def _load_data(self):
+        super()._load_data()
+        if "click" not in self.behavior_level:
+            raise ValueError("smb_ctr_ranking_decoder requires a 'click' behavior.")
+        self.target_behavior = "click"
+
+    @property
+    def ranking_task_name(self) -> str:
+        return "CTR"

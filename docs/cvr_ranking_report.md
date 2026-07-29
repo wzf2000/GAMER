@@ -12,15 +12,15 @@
 
 测试数据在缓存中以 session 为单位保存，评估时再将最后一个 session 内的交互逐条展开为候选并打分。这种存储方式避免了在缓存中为每个候选重复保存相同历史，但最终仍采用与训练一致的候选级 0/1 标签定义。样本划分和标签构造的具体实现位于 [`ranking.py`](../SeqRec/datasets/session_behavior/ranking.py)。
 
-**2. Candidate item 如何输入 GAMER？** Candidate item 的 semantic-ID tokens 直接拼接在用户历史之后，与历史共同构成一条输入序列。代码中的核心操作是 `input_ids = history_tokens + candidate_item_tokens`。历史中的每条交互由显式 behavior token 和 item semantic-ID tokens 组成，而 candidate 只包含 item semantic-ID tokens，不包含其真实 behavior token。
+**2. Candidate item 如何输入 GAMER？** Candidate 与历史共同构成一条输入序列。代码中的核心操作是 `input_ids = history_tokens + base_behavior_token + candidate_item_tokens`。历史中的每条交互由真实 behavior token 和 item semantic-ID tokens 组成；candidate 不携带真实 behavior，而是统一加入最低层级行为作为已知条件。ShortVideoAD 的 CTR 和 CVR 都使用 `<behavior_p3s>`。
 
 因此，当前实现不是先用一个独立编码器得到 candidate embedding，再与预先计算的 user embedding 组合，也不是双塔结构。历史和 candidate 只执行一次共享的 backbone forward。由于 candidate 位于序列末尾并使用因果注意力，candidate tokens 可以关注此前的完整用户历史，其 hidden states 已经是融合用户上下文后的候选表示；历史 tokens 则无法看到后续 candidate。
 
-Candidate 的 `relation_actions` 被设置为 0，表示其 behavior 未知。历史中的 `p3s`、`click` 和 `cvr` 分别使用 action index 1、2 和 3，因此 candidate 的 0 不是最低行为层级，而是专门保留的未知状态。这样既能让 Temporal-Hierarchical backbone 使用历史行为层级，也不会把 candidate 的真实 behavior 提前泄漏给模型。
+Candidate query token 和全部 semantic-ID tokens 的 `relation_actions` 都设置为 `p3s` 对应的 action index 1。CTR/CVR 的目标行为只用于构造标签阈值，不改变 candidate 输入，因此相同 candidate 在两个任务中的 backbone 输入保持一致。
 
 虽然历史和 candidate 在同一条序列中完成编码，prediction head 仍会显式提取并组合历史侧与候选侧表示。这种“先联合编码，再在 head 中组合”的方式不同于“历史与候选分别独立编码后再匹配”：前者的 candidate hidden states 在进入 head 之前已经与用户历史发生了多层 attention 交互。
 
-**3. Prediction head 使用什么表示，结构是什么，训练哪些参数？** 当前任务使用 `llm_pair` 打分模式。`history_state` 取 candidate 起始位置前一个 token 的最后一层 hidden state，用于表示 candidate 出现之前的用户历史；`candidate_state` 取 candidate 全部 semantic-ID tokens 的最后一层 hidden states 均值。这里使用的是上下文化 hidden states 的 mean pooling，不是原始 token embeddings 的平均。
+**3. Prediction head 使用什么表示，结构是什么，训练哪些参数？** 当前任务使用 `llm_pair` 打分模式。`history_state` 取 candidate 起始位置前一个 token 的最后一层 hidden state，用于表示 candidate 出现之前的用户历史；`candidate_state` 取 `<behavior_p3s>` 和 candidate 全部 semantic-ID tokens 的最后一层 hidden states 均值。这里使用的是上下文化 hidden states 的 mean pooling，不是原始 token embeddings 的平均。
 
 模型随后计算 `history_state * candidate_state` 作为逐元素交叉特征，并将 `history_state`、`candidate_state` 和交叉特征拼接为一个 `3H` 维向量。当前配置关闭了额外的 user embedding，即 `ranking_use_user_embedding=False`，所以 prediction head 的输入只包含上述三部分，不再拼接独立的 user-ID 表示。
 
@@ -58,4 +58,4 @@ Ranking Decoder 与上述判别式 baseline 只共享任务语义层协议，即
 
 当前打开的 [`HSTUCVR_item_id/result-smb_din.json`](../results/ShortVideoAD/smb_din/HSTUCVR_item_id/result-smb_din.json) 对应上述 HSTUCVR 判别式路径。该结果中的分数来自“带 behavior 的 HSTU 历史表示与 candidate item-ID embedding 点积”，而不是 Ranking Decoder 的“candidate semantic-ID tokens 拼接到历史后，再由 `llm_pair` MLP 打分”。两类结果使用相同的 candidate-level CVR 标签定义，但模型计算路径不同。
 
-综上，当前 Ranking Decoder 使用目标 session 内的真实交互构造 candidate-level CVR 样本，不做随机负采样；candidate semantic-ID tokens 被直接拼接在带 behavior 的用户历史之后，并通过同一个 GAMER backbone 联合编码；prediction head 使用最后一层的 `history_state`、candidate hidden-state mean pooling 以及二者的逐元素乘积，通过两层 MLP 输出候选 CVR 分数，同时对完整 backbone 和 head 进行端到端微调。Prediction head 及损失的实现位于 [`wrappers.py`](../SeqRec/models/generative/common/wrappers.py)，训练配置和正例权重统计位于 [`train_SMB_ranking_decoder.py`](../SeqRec/tasks/training/train_SMB_ranking_decoder.py)；判别式 baseline 的共享样本位于 [`session_behavior.py`](../SeqRec/datasets/discriminative/session_behavior.py)，各模型实现位于 [`discriminative`](../SeqRec/models/discriminative) 目录。
+综上，当前 Ranking Decoder 使用目标 session 内的真实交互构造 candidate-level CVR 样本，不做随机负采样；`<behavior_p3s>` 和 candidate semantic-ID tokens 被拼接在带 behavior 的用户历史之后，并通过同一个 GAMER backbone 联合编码；prediction head 使用最后一层的 `history_state`、candidate hidden-state mean pooling 以及二者的逐元素乘积，通过两层 MLP 输出候选 CVR 分数，同时对完整 backbone 和 head 进行端到端微调。Prediction head 及损失的实现位于 [`wrappers.py`](../SeqRec/models/generative/common/wrappers.py)，训练配置和正例权重统计位于 [`train_SMB_ranking_decoder.py`](../SeqRec/tasks/training/train_SMB_ranking_decoder.py)；判别式 baseline 的共享样本位于 [`session_behavior.py`](../SeqRec/datasets/discriminative/session_behavior.py)，各模型实现位于 [`discriminative`](../SeqRec/models/discriminative) 目录。

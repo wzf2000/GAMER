@@ -97,14 +97,15 @@ session 包含以下三条交互：
 
 ### 3.2 候选 item
 
-候选只包含 item semantic-ID token，不包含其真实 behavior token：
+候选不包含其真实 behavior token，而是统一在 item semantic-ID token 前加入最低层级行为作为
+已知输入条件。ShortVideoAD 的最低层级行为是 `p3s`：
 
 ```text
-[历史 behavior-item 序列] [candidate_token_1 ... candidate_token_4]
+[历史 behavior-item 序列] [<behavior_p3s> candidate_token_1 ... candidate_token_4]
 ```
 
-候选 behavior 是模型需要预测的目标。如果将真实 behavior token 加入候选输入，模型会在打分
-前直接获得标签信息，造成数据泄漏。
+CTR 和 CVR 都使用相同的 `<behavior_p3s>` candidate 条件。候选真实 behavior 仅用于生成
+二分类标签；如果将真实 behavior token 加入候选输入，模型会在打分前直接获得标签信息。
 
 历史与候选被拼接到同一条自回归序列中，而不是分别进入两个独立编码器。因果注意力保证：
 
@@ -118,18 +119,18 @@ session 包含以下三条交互：
 
 ### 4.1 action index 映射
 
-`behavior_level` 与模型实际接收的 action index 并不相同。已知行为的编号统一加 1，将 0
-保留给未知或不适用的情况：
+`behavior_level` 与模型实际接收的 action index 并不相同。行为编号统一加 1，将 0 保留给
+padding、未知或不适用的情况：
 
 | token 类型 | action index |
 | --- | ---: |
-| padding、特殊 token、behavior 未知的候选 | 0 |
-| 历史 `p3s` | 1 |
+| padding、特殊 token、behavior 未知 | 0 |
+| 历史 `p3s`、candidate 条件及其 item tokens | 1 |
 | 历史 `click` | 2 |
 | 历史 `cvr` | 3 |
 
-候选使用 action index 0 表示“behavior 未知”，并不表示候选属于最低层级 `p3s`。这一设计既
-避免泄漏预测目标，也使未知状态与所有已知行为保持独立。
+Candidate 的 query token 和全部 semantic-ID tokens 都使用 `p3s` 对应的 action index 1。
+CTR/CVR 的目标行为只决定标签阈值，不改变 candidate 输入及 relation action。
 
 ### 4.2 Temporal-Hierarchical Attention
 
@@ -137,11 +138,8 @@ session 包含以下三条交互：
 脚本默认选择 `Qwen3TemporalHierarchicalFactorized`，其 `relation_bias` 采用可学习的低秩
 参数化形式。
 
-action index 为 0 的候选仍然具有对应的 behavior embedding，并参与 relation bias 计算；它
-不会被模型忽略。当前配置将 relation bias 的初始输出设为 0，随后由训练数据更新相关参数。
-
-若切换到 `multi_view` 模式，涉及 action index 0 的 token 对不会进入同层、向上或向下的行为
-mask，避免因候选行为未知而受到错误的层级约束。所有模式均继续使用因果 mask。
+Candidate 以 `p3s` 层级参与 relation bias 或 `multi_view` 行为 mask；所有模式继续使用
+因果 mask。
 
 ## 5. 候选打分模型
 
@@ -149,7 +147,7 @@ mask，避免因候选行为未知而受到错误的层级约束。所有模式�
 中提取以下特征：
 
 1. `history_state`：候选起始位置前一个 token 的 hidden state；
-2. `candidate_state`：候选全部 semantic-ID token 的 hidden state 均值；
+2. `candidate_state`：`<behavior_p3s>` 和候选全部 semantic-ID token 的 hidden state 均值；
 3. `interaction_state`：`history_state * candidate_state`，即两者的逐元素乘积。
 
 最终特征为：
@@ -224,8 +222,8 @@ loss 的字段是数值型 `ranking_labels`，因此当前训练不包含 behavi
 
 当前实现可归纳为以下边界：
 
-- 任务是“是否发生最高层级行为”的二分类，不是 `p3s/click/cvr` 三分类；
-- 候选不携带真实 behavior token，action index 统一设为 0；
+- 任务是“是否达到目标行为层级”的二分类，不是 `p3s/click/cvr` 三分类；
+- 候选不携带真实 behavior token，统一使用最低层级 `<behavior_p3s>` 条件和 action index 1；
 - 负例来自目标 session 内的真实非 CVR 交互，不使用随机负采样；
 - `history_state`、`candidate_state` 和交叉特征仅在模型内部使用，不导出独立特征文件；
 - ranking head 直接输出最终候选分数，不存在额外训练的下游排序模型；
@@ -242,3 +240,93 @@ loss 的字段是数值型 `ranking_labels`，因此当前训练不包含 behavi
 | Temporal-Hierarchical Attention | [`temporal_hierarchical.py`](../SeqRec/models/generative/qwen3/temporal_hierarchical.py) |
 | 默认训练参数 | [`train_SMB_ranking_decoder.sh`](../scripts/train_SMB_ranking_decoder.sh) |
 | 默认测试参数与评估入口 | [`test_SMB_ranking_decoder.sh`](../scripts/test_SMB_ranking_decoder.sh) |
+
+## 10. CTR 任务
+
+CTR 版本复用上述 CVR 实验的 session 划分、候选粒度、模型、训练超参数、类别权重和二分类指标，
+仅将正例阈值改为 `click`：
+
+| 候选交互的 behavior | `ranking_label` |
+| --- | ---: |
+| `click` 或 `cvr` | 1 |
+| `p3s` | 0 |
+
+CTR 的任务名为 `smb_ctr_ranking_decoder`。CTR 和 CVR 的候选查询都使用
+`<behavior_p3s>`；缓存和 checkpoint 路径会因任务名及数据集类不同而隔离。训练与测试继续
+使用原脚本：
+
+```bash
+tasks=smb_ctr_ranking_decoder suffix=frozen_probe pretrained_model=/path/to/checkpoint \
+  bash ./scripts/train_SMB_ranking_decoder.sh
+
+tasks=smb_ctr_ranking_decoder test_task=smb_ctr_ranking_decoder suffix=frozen_probe \
+  bash ./scripts/test_SMB_ranking_decoder.sh
+```
+
+也可以使用直接入口对比 P3s condition 与原始 target-behavior condition（base），并分别运行
+`frozen_probe`、`cold_start` 和 `full_finetune`。每组训练结束后都会自动选择各自的 best
+checkpoint 测试：
+
+```bash
+# 默认运行 CTR 的 2 种 condition × 3 种训练策略
+bash ./scripts/train_test_SMB_ranking_decoder.sh
+
+# CVR 的完整对比
+task=cvr bash ./scripts/train_test_SMB_ranking_decoder.sh
+
+# 只运行 base 或 P3s
+conditions=base bash ./scripts/train_test_SMB_ranking_decoder.sh
+conditions=p3s bash ./scripts/train_test_SMB_ranking_decoder.sh
+
+# 也可以限制训练策略
+conditions=base strategies=full_finetune bash ./scripts/train_test_SMB_ranking_decoder.sh
+```
+
+完整 CTR 实验可使用统一入口：
+
+```bash
+# GAMER 三种设置 + 全部判别式 baseline
+bash ./scripts/train_SMB_CTR_all.sh
+
+# 也可以只运行其中一组
+experiments=gamer bash ./scripts/train_SMB_CTR_all.sh
+experiments=baselines bash ./scripts/train_SMB_CTR_all.sh
+```
+
+该入口将 `Qwen3TemporalHierarchicalFixedSoft` 的 `frozen_probe`、`cold_start` 和
+`full_finetune` 依次运行在 GPU 0–3 上。`frozen_probe` 与 `full_finetune` 从指定 decoder
+checkpoint 的 `original/` 模型初始化；按定义，`cold_start` 只使用相同模型配置并随机初始化，
+不加载 checkpoint 权重。
+
+判别式 baseline 包括 MeanPooling、DIN、DIENCVR、BSTCVR、HSTUCVR、SASRecCVR 和 DSIN。
+它们沿用各自 CVR 脚本中的 batch size、epoch 数和二分类指标；MeanPooling 首先建立共享 CTR
+缓存，其余模型随后分配到 GPU 0–3 并行训练。可通过 `checkpoint_root`、`gpu` 环境变量覆盖
+默认 checkpoint 和设备。
+
+为确保 CTR/CVR 可比，统一入口会清空外部 `extra_args` 与 `extra_flags`，并显式固定以下配置：
+
+| 配置 | GAMER 三种设置 | 判别式 baseline |
+| --- | ---: | ---: |
+| seed | 42 | 42 |
+| max history length | 100 | 100 |
+| script batch size | 1024（4 卡时每卡 256） | 1024（单卡） |
+| optimizer | AdamW (`adamw_torch`) | AdamW (`adamw`) |
+| learning rate | 1e-3 | 1e-3 |
+| weight decay | 0.01 | 0.01 |
+| maximum epochs | 3 | 3 |
+| validation interval | 每个 epoch | 每个 epoch |
+| early stopping patience | 2 | 2 |
+| early stopping metric | sampled validation AUC | validation GAUC |
+| checkpoint used for test | best model | best model |
+| metrics | sampled AUC + 完整二分类指标 | 完整二分类指标 |
+
+GAMER 三种设置之间唯一的训练差异是初始化与冻结策略：
+
+| 设置 | decoder 初始化 | 可训练参数 |
+| --- | --- | --- |
+| frozen_probe | 指定 checkpoint | ranking head |
+| cold_start | 随机初始化 | 全模型 |
+| full_finetune | 指定 checkpoint | 全模型 |
+
+CTR 相对 CVR 的任务差异是标签目标从 `cvr` 改为 `click`，以及相应的任务名、缓存和输出路径；
+两者的 candidate 输入条件均为 `p3s`，模型配置与上述实验配置保持不变。

@@ -175,8 +175,8 @@ def load_SMBDis_datasets(
                 diff=True,
                 add_uid=add_uid,
             )
-        elif task.lower() == "smb_din":
-            seq_type = "smb_din"
+        elif task.lower() in {"smb_din", "smb_ctr_din"}:
+            seq_type = task.lower()
             single_dataset = SMBDINDataset(
                 dataset=dataset,
                 data_path=data_path,
@@ -184,9 +184,10 @@ def load_SMBDis_datasets(
                 mode="train",
                 diff=False,
                 add_uid=add_uid,
+                positive_behavior="click" if seq_type == "smb_ctr_din" else None,
             )
-        elif task.lower() == "smb_dsin":
-            seq_type = "smb_dsin"
+        elif task.lower() in {"smb_dsin", "smb_ctr_dsin"}:
+            seq_type = task.lower()
             single_dataset = SMBDSINDataset(
                 dataset=dataset,
                 data_path=data_path,
@@ -194,6 +195,7 @@ def load_SMBDis_datasets(
                 mode="train",
                 diff=False,
                 add_uid=add_uid,
+                positive_behavior="click" if seq_type == "smb_ctr_dsin" else None,
             )
         else:
             raise NotImplementedError
@@ -273,7 +275,7 @@ def load_SMBDis_datasets(
                 diff=True,
                 add_uid=add_uid,
             )
-        elif seq_type == "smb_din":
+        elif seq_type in {"smb_din", "smb_ctr_din"}:
             valid_data = SMBDINDataset(
                 dataset=dataset,
                 data_path=data_path,
@@ -281,8 +283,9 @@ def load_SMBDis_datasets(
                 mode="valid",
                 diff=False,
                 add_uid=add_uid,
+                positive_behavior="click" if seq_type == "smb_ctr_din" else None,
             )
-        elif seq_type == "smb_dsin":
+        elif seq_type in {"smb_dsin", "smb_ctr_dsin"}:
             valid_data = SMBDSINDataset(
                 dataset=dataset,
                 data_path=data_path,
@@ -290,6 +293,7 @@ def load_SMBDis_datasets(
                 mode="valid",
                 diff=False,
                 add_uid=add_uid,
+                positive_behavior="click" if seq_type == "smb_ctr_dsin" else None,
             )
     else:
         raise NotImplementedError("No multi-behavior type specified for validation dataset.")
@@ -340,7 +344,7 @@ def load_SMBDis_test_dataset(
             diff=True,
             add_uid=add_uid,
         )
-    elif test_task.lower() == "smb_din":
+    elif test_task.lower() in {"smb_din", "smb_ctr_din"}:
         test_data = SMBDINDataset(
             dataset=dataset,
             data_path=data_path,
@@ -348,8 +352,9 @@ def load_SMBDis_test_dataset(
             mode="test",
             diff=False,
             add_uid=add_uid,
+            positive_behavior="click" if test_task.lower() == "smb_ctr_din" else None,
         )
-    elif test_task.lower() == "smb_dsin":
+    elif test_task.lower() in {"smb_dsin", "smb_ctr_dsin"}:
         test_data = SMBDSINDataset(
             dataset=dataset,
             data_path=data_path,
@@ -357,6 +362,7 @@ def load_SMBDis_test_dataset(
             mode="test",
             diff=False,
             add_uid=add_uid,
+            positive_behavior="click" if test_task.lower() == "smb_ctr_dsin" else None,
         )
     else:
         raise NotImplementedError

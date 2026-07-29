@@ -50,22 +50,18 @@ class _EveryNEpochSaveEvalCallback(TrainerCallback):
         return control
 
 
-class _SampledCvrAucCallback(TrainerCallback):
+class _SampledBinaryAucCallback(TrainerCallback):
     def __init__(
         self,
         *,
         valid_data: Any,
         tokenizer: Any,
-        behavior_level: dict[str, int],
-        max_behavior_level: int,
         sample_count: int,
         candidate_batch_size: int,
         patience: int,
     ):
         self.valid_data = valid_data
         self.tokenizer = tokenizer
-        self.behavior_level = behavior_level
-        self.max_behavior_level = max_behavior_level
         self.sample_count = sample_count
         self.candidate_batch_size = candidate_batch_size
         self.patience = patience
@@ -158,7 +154,7 @@ class _SampledCvrAucCallback(TrainerCallback):
                     ).tolist()
                 )
                 labels.extend(
-                    1 if self.behavior_level[sample["behavior"]] == self.max_behavior_level else 0
+                    int(self.valid_data.is_positive(sample["behavior"]))
                     for sample in batch
                 )
         if was_training:
@@ -230,8 +226,8 @@ class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
         return f"Training SMB ranking decoder on {data_args.data_path} with model {model_source}"
 
     def prepare_training_context(self, first_dataset, tokenizer):
-        self._ranking_behavior_level = first_dataset.behavior_level
-        self._ranking_max_behavior_level = first_dataset.max_behavior_level
+        self._ranking_task_name = first_dataset.ranking_task_name
+        self._ranking_target_behavior = first_dataset.target_behavior
         return {
             "behavior_tokens": get_behavior_token_ids(first_dataset, tokenizer),
         }
@@ -318,11 +314,9 @@ class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
         from transformers import EarlyStoppingCallback
 
         trainer.remove_callback(EarlyStoppingCallback)
-        callback = _SampledCvrAucCallback(
+        callback = _SampledBinaryAucCallback(
             valid_data=self._ranking_valid_data,
             tokenizer=trainer.processing_class,
-            behavior_level=self._ranking_behavior_level,
-            max_behavior_level=self._ranking_max_behavior_level,
             sample_count=sample_count,
             candidate_batch_size=max(1, int(os.environ.get("SMB_RANKING_TRAIN_AUC_BATCH_SIZE", str(trainer.args.per_device_eval_batch_size)))),
             patience=getattr(self, "_ranking_patience", 0),
@@ -330,7 +324,8 @@ class TrainSMBRankingDecoder(BaseGenerativeTrainTask):
         callback.trainer = trainer
         trainer.add_callback(callback)
         self.info(
-            "Enabled sampled train-time CVR AUC: "
+            f"Enabled sampled train-time {self._ranking_task_name} AUC "
+            f"(positive={self._ranking_target_behavior}+): "
             f"{callback.sample_count} valid samples, "
             f"batch size {callback.candidate_batch_size}."
         )
