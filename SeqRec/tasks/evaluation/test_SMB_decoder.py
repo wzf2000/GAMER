@@ -51,6 +51,7 @@ class TestSMBDecoder(_BaseDecoderTestTask):
             include_behaviors=True,
             include_valid_loss=True,
         )
+        parser.add_argument('--export_user_targets', action='store_true', help='Export UID-aligned original target item IDs without modifying dataset caches.')
 
     def check_collision_items(self) -> list[dict[str, int | float]]:
         ret_list = []
@@ -174,6 +175,9 @@ class TestSMBDecoder(_BaseDecoderTestTask):
             dataset_len=len(loader.dataset),
             save_path=save_path,
         )
+        if getattr(self, 'export_user_targets', False) and self.local_rank == 0:
+            from SeqRec.evaluation.smb_targets import export_user_targets
+            self.target_export_files.append(export_user_targets(loader.dataset, behavior, save_path))
         results["Avg. Duplicate Ratio"] = np.mean(duplicate_ratios)
         return results
 
@@ -218,6 +222,7 @@ class TestSMBDecoder(_BaseDecoderTestTask):
         test_task: str,
         behaviors: list[str] | None,
         valid_loss: bool,
+        export_user_targets: bool = False,
         *args,
         **kwargs
     ):
@@ -225,6 +230,10 @@ class TestSMBDecoder(_BaseDecoderTestTask):
         Test the SMB decoder using the provided arguments.
         """
         self.init(seed, False)
+        self.export_user_targets = export_user_targets
+        self.target_export_files = []
+        if export_user_targets and valid_loss:
+            raise ValueError('--export_user_targets requires ranking evaluation, not --valid_loss.')
         self._load_model_via_registry(backbone, ckpt_path)
         # output the parameters of the model
         total_params = sum(p.numel() for p in self.model.parameters())
@@ -248,6 +257,9 @@ class TestSMBDecoder(_BaseDecoderTestTask):
                 index_file,
                 test_task,
             )
+            if export_user_targets:
+                from SeqRec.evaluation.smb_targets import with_verified_eval_uids
+                self.base_dataset = with_verified_eval_uids(self.base_dataset)
             self.datasets: list[BaseSMBDataset] = []
             if behaviors is None:
                 self.behaviors = self.base_dataset.behaviors
@@ -336,5 +348,25 @@ class TestSMBDecoder(_BaseDecoderTestTask):
         else:
             results = self.test(num_beams)
             self._save_results_and_log(results, self.results_file, multiple=True)
+            if self.local_rank == 0:
+                import json
+                from pathlib import Path
+                from SeqRec.utils.rebuttal import file_sha256, git_state
+
+                training_manifest = Path(ckpt_path) / 'run_manifest.start.json'
+                record = {
+                    'schema_version': 1, **git_state(), 'split': self.base_dataset.mode, 'test_task': test_task,
+                    'seed': seed, 'backbone': backbone, 'dataset': dataset, 'data_path': str(Path(data_path).resolve()),
+                    'max_his_len': max_his_len, 'index_file': index_file, 'behaviors': self.behaviors,
+                    'test_batch_size': test_batch_size, 'num_beams': num_beams,
+                    'index_sha256': file_sha256(Path(data_path) / dataset / f'{dataset}{index_file}'),
+                    'checkpoint': str(Path(ckpt_path).resolve()), 'effective_model_config': self.config.to_dict(),
+                    'attention_backend': self.config._attn_implementation,
+                    'training_manifest_sha256': file_sha256(training_manifest) if training_manifest.exists() else None,
+                    'result_sha256': file_sha256(self.results_file),
+                }
+                if export_user_targets:
+                    record['target_exports'] = [{'path': str(path.resolve()), 'sha256': file_sha256(path)} for path in self.target_export_files]
+                Path(self.results_file).with_suffix('.run.json').write_text(json.dumps(record, indent=2) + '\n')
 
         self.finish(False)

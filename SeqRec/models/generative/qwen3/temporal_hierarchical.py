@@ -1,3 +1,4 @@
+import math
 from typing import Callable, Optional, Tuple, Unpack
 
 import torch
@@ -41,6 +42,8 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
         self.is_causal = True
         self.is_temporal_hierarchical = is_temporal_hierarchical
         self.th_attention_mode = getattr(config, "th_attention_mode", "relation_bias")
+        self.th_use_behavior_qkv = bool(getattr(config, "th_use_behavior_qkv", True))
+        self.th_use_output_gate = bool(getattr(config, "th_use_output_gate", True))
 
         self.q_proj = nn.Linear(
             config.hidden_size, config.num_attention_heads * self.head_dim, bias=config.attention_bias
@@ -66,18 +69,19 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
 
         if self.is_temporal_hierarchical:
             self.behavior_embedding_dim = config.head_dim
-            self.q_behavior_embedding = nn.Embedding(
-                config.num_behavior + 1,
-                config.num_attention_heads * self.behavior_embedding_dim,
-            )
-            self.k_behavior_embedding = nn.Embedding(
-                config.num_behavior + 1,
-                config.num_key_value_heads * self.behavior_embedding_dim,
-            )
-            self.v_behavior_embedding = nn.Embedding(
-                config.num_behavior + 1,
-                config.num_key_value_heads * self.behavior_embedding_dim,
-            )
+            if self.th_use_behavior_qkv:
+                self.q_behavior_embedding = nn.Embedding(
+                    config.num_behavior + 1,
+                    config.num_attention_heads * self.behavior_embedding_dim,
+                )
+                self.k_behavior_embedding = nn.Embedding(
+                    config.num_behavior + 1,
+                    config.num_key_value_heads * self.behavior_embedding_dim,
+                )
+                self.v_behavior_embedding = nn.Embedding(
+                    config.num_behavior + 1,
+                    config.num_key_value_heads * self.behavior_embedding_dim,
+                )
             if self.th_attention_mode not in ("relation_bias", "multi_view"):
                 raise ValueError("th_attention_mode must be 'relation_bias' or 'multi_view'.")
             self.use_relation_bias = self.th_attention_mode == "relation_bias" or bool(
@@ -92,6 +96,11 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
                 self.th_relation_bias_type = getattr(config, "th_relation_bias_type", "table")
                 if self.th_relation_bias_type not in ("table", "factorized"):
                     raise ValueError("th_relation_bias_type must be 'table' or 'factorized'.")
+                if getattr(config, 'th_prior_behavior_ranks', None) is not None:
+                    if self.th_relation_bias_type != 'table' or bool(getattr(config, 'th_relation_bias_trainable', True)):
+                        raise ValueError('th_prior_behavior_ranks requires a frozen relation table.')
+                    if getattr(config, 'th_relation_bias_init', 'zero') != 'soft':
+                        raise ValueError('th_prior_behavior_ranks requires soft prior initialization.')
                 if self.th_relation_bias_type == "table":
                     bias = torch.zeros(config.num_behavior + 1, config.num_behavior + 1, config.num_attention_heads)
                     if bool(getattr(config, "th_relation_bias_trainable", True)):
@@ -108,8 +117,9 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
                     self.level_key_bias_factor = nn.Parameter(
                         torch.empty(config.num_behavior + 1, config.num_attention_heads, self.th_relation_bias_rank)
                     )
-            self.gating = nn.Linear(config.hidden_size, config.hidden_size, bias=config.attention_bias)
-            self.act_fn = ACT2FN[config.hidden_act]
+            if self.th_use_output_gate:
+                self.gating = nn.Linear(config.hidden_size, config.hidden_size, bias=config.attention_bias)
+                self.act_fn = ACT2FN[config.hidden_act]
             if self.use_relation_bias:
                 self._init_level_pair_bias()
             if self.th_attention_mode == "multi_view":
@@ -147,6 +157,15 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
             levels = torch.arange(self.config.num_behavior + 1, dtype=self.level_pair_bias.dtype)
             level_diff = levels[:, None] - levels[None, :]
             bias = level_diff.clamp(max=0.0) * scale
+            ranks = getattr(self.config, 'th_prior_behavior_ranks', None)
+            if ranks is not None:
+                if not isinstance(ranks, (list, tuple)) or len(ranks) != self.config.num_behavior:
+                    raise ValueError('th_prior_behavior_ranks must have one rank per behavior identity.')
+                if any(isinstance(rank, bool) or not isinstance(rank, (int, float)) or not math.isfinite(rank) or rank < 0 for rank in ranks):
+                    raise ValueError('Prior behavior ranks must be finite nonnegative numbers.')
+                ranks = torch.tensor(ranks, dtype=bias.dtype, device=bias.device)
+                # Keep special ID 0 unchanged; only intervene on behavior-to-behavior priors.
+                bias[1:, 1:] = (ranks[:, None] - ranks[None, :]).clamp(max=0.0) * scale
             self.level_pair_bias.copy_(bias[:, :, None].expand_as(self.level_pair_bias))
 
     def _init_factorized_level_pair_bias(self, init_type: str):
@@ -375,6 +394,7 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
         if self.is_temporal_hierarchical:
             if action_index is None or key_action_index is None:
                 raise ValueError("Temporal-hierarchical attention requires action_index and key_action_index.")
+        if self.is_temporal_hierarchical and self.th_use_behavior_qkv:
             behavior_embedding_shape = (*input_shape, -1, self.behavior_embedding_dim)
             q_behavior_embedding = self.q_behavior_embedding(action_index).view(behavior_embedding_shape)
             k_behavior_embedding = self.k_behavior_embedding(action_index).view(behavior_embedding_shape)
@@ -439,7 +459,7 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
 
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
         attn_output = self.o_proj(attn_output)
-        if self.is_temporal_hierarchical:
+        if self.is_temporal_hierarchical and self.th_use_output_gate:
             attn_output = attn_output * self.act_fn(self.gating(hidden_states))
         return attn_output, attn_weights
 

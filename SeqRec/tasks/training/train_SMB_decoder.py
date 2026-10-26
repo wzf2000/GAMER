@@ -66,6 +66,7 @@ class TrainSMBDecoder(BaseGenerativeTrainTask):
             tasks=data_args.tasks,
             train_session=data_args.train_session,
             sequence_augmentation_config=augmentation_config,
+            validation_behavior=data_args.validation_behavior,
         )
 
     def get_train_notes(self, data_args, model_args) -> str:

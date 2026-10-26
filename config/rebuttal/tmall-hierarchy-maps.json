@@ -1,0 +1,5 @@
+{
+  "weak_auxiliary": {"click": 0, "collect": 1, "cart": 1, "alipay": 2},
+  "reverse_auxiliary": {"click": 2, "collect": 1, "cart": 0, "alipay": 3},
+  "flat_auxiliary": {"click": 0, "collect": 0, "cart": 0, "alipay": 1}
+}

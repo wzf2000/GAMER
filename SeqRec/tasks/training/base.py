@@ -17,6 +17,7 @@ from SeqRec.tasks.training.helpers import (
 from SeqRec.tasks.multi_gpu import MultiGPUTask
 from SeqRec.utils.fs import ensure_dir
 from SeqRec.utils.logging import replace_progress_callback
+from SeqRec.utils.runtime import set_seed
 from SeqRec.utils.args import SubParsersAction, build_generative_training_args, parse_dataset_args, parse_global_args, parse_training_args
 
 
@@ -132,6 +133,8 @@ class BaseGenerativeTrainTask(MultiGPUTask):
             **self.get_collator_kwargs(first_dataset, tokenizer, context),
         )
 
+        # Dataset preprocessing may use its own fixed augmentation seed.
+        set_seed(model_args.seed)
         model = prepare_generative_model_for_training(
             backbone=model_args.backbone,
             train_profile=train_profile,
@@ -167,6 +170,9 @@ class BaseGenerativeTrainTask(MultiGPUTask):
         )
         self.after_trainer_created(trainer)
         model.config.use_cache = False
+        if script_args.record_run_manifest and self.local_rank == 0:
+            from SeqRec.utils.rebuttal import record_training_manifest
+            record_training_manifest(parsed_args, model, hf_training_args, self.world_size, [('train', first_dataset), ('validation', valid_data)])
 
         trainer.train(resume_from_checkpoint=script_args.resume_from_checkpoint)
 

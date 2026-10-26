@@ -25,6 +25,7 @@ class DatasetArgs:
     index_file: str = ".index.json"
     max_his_len: int = 20
     train_session: bool = True
+    validation_behavior: str | None = None
     sequence_augmentation: str = "time_decay"
     augmentation_views: int = 1
     augmentation_seed: int = 42
@@ -90,6 +91,7 @@ class ScriptTrainingArgs:
     find_unused_parameters: bool = False
     wandb_run_name: str = "default"
     debug: bool = False
+    record_run_manifest: bool = False
 
 
 @dataclass

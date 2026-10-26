@@ -193,15 +193,24 @@ class _BaseDecoderTestTask(MultiGPUTask):
         if len(user_metric_dict[self.metric_list[0]]) == 0:
             return
         ensure_dir(os.path.dirname(save_path))
+        sorted_uids = sorted(user_metric_dict[self.metric_list[0]])
         user_metric_list: dict[str, list[float]] = {}
         for m in user_metric_dict:
-            sorted_uids = sorted(user_metric_dict[m].keys())
+            if sorted(user_metric_dict[m]) != sorted_uids:
+                raise ValueError('Per-user metric UID sets must agree.')
             user_metric_list[m] = [user_metric_dict[m][uid] for uid in sorted_uids]
             assert len(user_metric_list[m]) == dataset_len, "User-level metric length should match dataset length."
             results[m] = np.mean(user_metric_list[m])
         if self.local_rank == 0:
             with open(save_path, "w", encoding="utf-8") as f:
                 json.dump(user_metric_list, f, indent=4)
+            from SeqRec.utils.rebuttal import file_sha256
+            context = {}
+            if getattr(self, 'datasets', None):
+                dataset = self.datasets[0]
+                context = {'split': dataset.mode, 'dataset': dataset.dataset, 'max_his_len': dataset.max_his_len, 'index_file': dataset.index_file}
+            with open(os.path.splitext(save_path)[0] + '.uids.json', 'w', encoding='utf-8') as file:
+                json.dump({'schema_version': 1, 'uids': sorted_uids, 'metric_sha256': file_sha256(save_path), **context}, file, indent=2)
         self.info(f"Saved user-level metrics to {save_path}.")
 
     def _save_results_and_log(self, results, results_file: str, *, multiple: bool):

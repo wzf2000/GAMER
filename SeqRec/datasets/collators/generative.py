@@ -55,7 +55,7 @@ def _add_left_padded_decoder_test_fields(
         session_ids = [d["session_ids"] for d in batch]
         max_length = max(len(sub) for sub in session_ids)
         if add_behavior_token:
-            max_session_ids = [max(sub) for sub in session_ids]
+            max_session_ids = [max(sub, default=-1) for sub in session_ids]
             session_ids = [[0] * (max_length - len(session)) + session for session in session_ids]
             session_ids = [
                 session_id + [max_session_id + 1]
@@ -66,7 +66,7 @@ def _add_left_padded_decoder_test_fields(
         inputs["session_ids"] = torch.tensor(session_ids, dtype=torch.long)
     if "extended_session_ids" in batch[0]:
         extended_session_ids = [d["extended_session_ids"] for d in batch]
-        max_extended_session_ids = [max(sub) for sub in extended_session_ids]
+        max_extended_session_ids = [max(sub, default=-1) for sub in extended_session_ids]
         max_length = max(len(sub) for sub in extended_session_ids)
         if add_behavior_token:
             extended_session_ids = [

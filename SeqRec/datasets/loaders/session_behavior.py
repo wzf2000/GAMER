@@ -249,6 +249,7 @@ def load_SMB_datasets(
     tasks: str,
     train_session: bool = True,
     sequence_augmentation_config: dict[str, Any] | None = None,
+    validation_behavior: str | None = None,
 ) -> tuple[ConcatDataset, SMBDataset | SMBExplicitDataset]:
     task_names: list[str] = tasks.split(",")
     common_kwargs = _common_kwargs(dataset, data_path, max_his_len, index_file, train_session)
@@ -284,6 +285,12 @@ def load_SMB_datasets(
         "valid",
         train_resolution.valid_kwargs,
     )
+    if validation_behavior is not None:
+        if validation_behavior not in valid_data.behaviors:
+            raise ValueError(f'Unknown validation behavior: {validation_behavior}')
+        valid_data = valid_data.filter_by_behavior(validation_behavior)
+        if not len(valid_data):
+            raise ValueError(f'No validation targets for behavior {validation_behavior}.')
     return train_data, valid_data
 
 
