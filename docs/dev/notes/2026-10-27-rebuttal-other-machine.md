@@ -28,6 +28,8 @@ Use the repository's existing installation instructions for dependencies; no ins
 
 ## Regenerate a local plan
 
+It is normal for a new machine to have no `results/` or old `plan.json`. After obtaining data, the recommended `python scripts/prepare_remaining_rebuttal.py --gpu 2,5 --port 24567 --prepare_cache` creates local `remaining-p0` and `remaining-seeds` plans and prepares caches, without training. See the [remaining runbook](2026-10-27-remaining-experiment-commands.md) for allocation; do not also run the manual plan generation below.
+
 Run from the repository root with the target machine's GAMER Python environment active. This command only generates configuration/commands:
 
 ```bash

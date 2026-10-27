@@ -18,6 +18,18 @@
 git lfs pull --include='data/ShortVideoAD/**' --exclude=''
 ```
 
+**推荐的快速准备**：新机器不需要先有 `results/`，用下面一条命令在当前机器生成 P0 和 seed 清单，并单进程准备缓存；此命令不启动训练。它代替本节后面的手动生成／预热步骤，两种方式选择其一：
+
+```bash
+export WANDB_MODE=offline
+python scripts/prepare_remaining_rebuttal.py \
+  --gpu 2,5 --port 24567 --prepare_cache
+```
+
+生成 `results/rebuttal/remaining-p0/plan.json` 和 `results/rebuttal/remaining-seeds/plan.json`，绑定目标机 Python、配置／数据路径及指纹。默认有效 batch=2048，每卡 train batch=128；双卡累积自动为 8，四卡为 4，单卡为 16。不能整除的卡数／batch 组合会报错。可用 `--data_path`、`--output_root` 指定目录，已有清单不会覆盖；省略 `--prepare_cache` 则只生成清单。输入缺失或仍是 LFS pointer 时先报错，不下载数据、不生成假清单。`WANDB_MODE=offline` 用于后续运行，避免未登录的新机器出现交互提示。
+
+Tmall 输入与 CID 索引到位后，可单独执行 `python scripts/prepare_remaining_rebuttal.py --groups tmall --gpu 2,5 --port 24567 --prepare_cache`，生成 `remaining-tmall/plan.json`。不要直接复制服务器上的旧 plan；其中绝对路径和解释器属于原机器。以下保留可自行调整配方的手动准备命令。
+
 生成本地配置；此处不启动训练。示例按两张 80GB GPU，卡号为 `0,1`，端口 `2314`；可替换卡号/端口。训练 per-device batch=128、累积=8，有效 batch=2048；FP32、history=100、model length=1024、random factor4、seed=42。小显存机器需另行调整 microbatch/累积并保持有效 batch。Ranking 统一每卡 batch=8、beam=20，以降低推理显存压力；它不是 GPU 吞吐实测保证。原服务器后续补测也用相同 ranking batch。
 
 ```bash
@@ -211,3 +223,5 @@ Tmall 三组齐全后可去掉 `--allow_partial`，替换 plan 和 `--behavior a
 ## 命令验证
 
 相关 CPU 测试共 27 项通过，包括 FixedBias zero init 与 FixedSoft λ=0 的权重和 logits 完全一致。另在临时 Toy 数据上实际执行一次 train → validation → test 的完整 runner 链路，生成 JSON、UID/目标和阶段 receipt；仅测试时注入 CPU device，不改生产训练路径。本轮未启动生产训练或 GPU 评测，已有三组训练继续运行。双语命令块保持一致，并执行 Bash 语法、嵌入 Python 语法及规定 flake8 检查。
+
+新增本地准备入口另通过 16 项相关检查（包含重叠回归），验证无 results 目录生成、单进程冷缓存、GPU/累积匹配、LFS pointer 拒绝、缺失 Tmall 输入和已有输出保护。

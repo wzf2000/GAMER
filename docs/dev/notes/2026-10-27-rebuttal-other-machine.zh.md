@@ -28,6 +28,8 @@ git lfs pull --include='data/ShortVideoAD/**' --exclude=''
 
 ## 在目标机重新生成清单
 
+新机器没有 `results/` 或旧 `plan.json` 是正常情况。已有数据后，推荐执行 `python scripts/prepare_remaining_rebuttal.py --gpu 2,5 --port 24567 --prepare_cache`，一次生成本地 `remaining-p0` 和 `remaining-seeds` 清单并准备缓存；它不训练模型。详细分工见[剩余实验清单](2026-10-27-remaining-experiment-commands.zh.md)，不要再重复执行下面的手动生成步骤。
+
 在目标机 GAMER Python 环境中，从仓库根目录执行；此命令只生成配置／命令：
 
 ```bash

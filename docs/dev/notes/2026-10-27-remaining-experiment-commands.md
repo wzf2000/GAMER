@@ -18,6 +18,18 @@ Use Bash, activate the GAMER Python environment and run from the repository root
 git lfs pull --include='data/ShortVideoAD/**' --exclude=''
 ```
 
+**Recommended quick preparation**: no existing `results/` directory is needed. This single command creates local P0/repeat-seed plans and sequentially prepares CPU caches, without training. It replaces the manual generation/cache commands later in this section; choose one approach:
+
+```bash
+export WANDB_MODE=offline
+python scripts/prepare_remaining_rebuttal.py \
+  --gpu 2,5 --port 24567 --prepare_cache
+```
+
+It writes `results/rebuttal/remaining-p0/plan.json` and `results/rebuttal/remaining-seeds/plan.json`, bound to the target Python, config/data paths and fingerprints. With effective batch 2048 and train microbatch 128, accumulation is 8 for two GPUs, 4 for four and 16 for one. Nondivisible combinations fail. Use `--data_path`/`--output_root` to change locations; existing plans are never overwritten. Omit `--prepare_cache` for plan-only preparation. Missing inputs/LFS pointers fail before plan generation; no downloads or fabricated inputs occur. `WANDB_MODE=offline` avoids later interactive login prompts on an unconfigured target machine.
+
+Once Tmall inputs and its CID index exist, separately run `python scripts/prepare_remaining_rebuttal.py --groups tmall --gpu 2,5 --port 24567 --prepare_cache` to create `remaining-tmall/plan.json`. Do not copy server plans unchanged: their absolute paths/interpreter belong to the original machine. The manual preparation below remains available for custom recipes.
+
 Generate local configurations only. Examples assume two 80GB GPUs 0/1 and port 2314. Training per-device batch=128 and accumulation=8 give effective batch=2048, with FP32, history=100, model length=1024, random factor4 and seed 42. Smaller-memory devices need a separately adjusted microbatch/accumulation preserving the effective batch. Ranking uses per-device batch=8, beam=20 to reduce inference memory pressure; this is not a measured GPU-throughput guarantee. Later evaluation of the server baselines should use the same ranking batch.
 
 ```bash
@@ -211,3 +223,5 @@ Once all Tmall results exist, omit `--allow_partial`, select its plan and behavi
 ## Command verification
 
 All 27 relevant CPU tests passed, including exact weight/logit equality between FixedBias zero initialization and FixedSoft lambda 0. An actual temporary Toy pipeline completed train, validation and test with JSON, UID/target exports and phase receipts. The CPU device override was test-only; no production training path changed. No production training or GPU evaluation was launched, and the three existing jobs continued running. Bilingual command blocks match and underwent Bash/embedded-Python syntax checks plus the prescribed flake8 check.
+
+The local preparation entry point separately passed 16 relevant checks (including overlapping regressions), covering missing results directories, sequential cold caches, GPU/accumulation matching, LFS pointer rejection, missing Tmall inputs and existing-output protection.
