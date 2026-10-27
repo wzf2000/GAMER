@@ -18,7 +18,7 @@ def main():
     parser.add_argument('--plan', required=True)
     parser.add_argument('--phase', choices=['train', 'validation', 'test'], default='train')
     parser.add_argument('--stage', choices=['P0-A', 'P0-B'])
-    parser.add_argument('--gpu', help='GPU IDs, with the same device count as the prepared training recipe.')
+    parser.add_argument('--gpu', '--gpus', dest='gpu', help='Comma-separated GPU IDs, e.g. 2,5; preserve the prepared training device count.')
     parser.add_argument('--port', type=int)
     parser.add_argument('--output_file', help='Optional new JSON status snapshot.')
     parser.add_argument('--output_script', help='Optional new executable shell text for the single next job; not executed.')

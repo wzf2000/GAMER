@@ -1,10 +1,12 @@
+import io
 import json
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
-from scripts.run_rebuttal_experiment import run_experiments
+from scripts.run_rebuttal_experiment import main, run_experiments
 from SeqRec.utils.rebuttal import file_sha256
 
 
@@ -25,6 +27,28 @@ def make_plan(root):
 
 
 class RebuttalPipelineTest(unittest.TestCase):
+    def test_gpu_override_remaps_all_phases_and_preserves_saved_plan(self):
+        with TemporaryDirectory() as directory:
+            plan, runs = make_plan(Path(directory))
+            original = plan.read_bytes()
+            output = io.StringIO()
+            with patch('sys.stdout', output):
+                run_experiments(plan, ['no_gate'], [42], gpu='2,5', port=24567)
+            commands = output.getvalue().splitlines()
+            self.assertEqual(len(commands), 3)
+            for command in commands:
+                self.assertIn('CUDA_VISIBLE_DEVICES=2,5', command)
+                self.assertIn('--nproc_per_node=2', command)
+                self.assertIn('--master_port=24567', command)
+            self.assertEqual(plan.read_bytes(), original)
+
+    def test_gpu_cli_aliases_forward_selected_devices_and_port(self):
+        for flag in ('--gpu', '--gpus'):
+            with self.subTest(flag=flag), patch('sys.argv', ['runner', '--plan', 'plan.json', '--variants', 'no_gate', flag, '2,5', '--port', '24567']):
+                with patch('scripts.run_rebuttal_experiment.run_experiments') as runner:
+                    main()
+                self.assertEqual(runner.call_args.args[4:6], ('2,5', 24567))
+
     def test_dry_run_does_not_create_job_outputs_and_missing_selection_fails(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

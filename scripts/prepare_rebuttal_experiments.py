@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument('--model_max_length', type=int, default=1024)
     parser.add_argument('--seeds', type=int, nargs='+')
     parser.add_argument('--key_seeds_only', action='store_true', help='For components: use all seeds for full/plain_matched and only the first seed for the four remaining ablations.')
-    parser.add_argument('--gpu', default='0,1,2,3')
+    parser.add_argument('--gpu', '--gpus', dest='gpu', default='0,1,2,3', help='Comma-separated GPU IDs, e.g. 2,5.')
     parser.add_argument('--port', type=int, default=2314)
     parser.add_argument('--num_train_epochs', type=int, default=200)
     parser.add_argument('--per_device_train_batch_size', type=int, default=128)

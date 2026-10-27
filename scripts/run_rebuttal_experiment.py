@@ -97,7 +97,7 @@ def main():
     parser.add_argument('--variants', nargs='+', required=True, help='Exact variant names, executed in the given order.')
     parser.add_argument('--seeds', nargs='+', type=int, default=[42])
     parser.add_argument('--phases', nargs='+', choices=['train', 'validation', 'test'], default=['train', 'validation', 'test'])
-    parser.add_argument('--gpu', help='Override GPU IDs. Training device count must match the plan.')
+    parser.add_argument('--gpu', '--gpus', dest='gpu', help='Comma-separated GPU IDs, e.g. 2,5. Applied to training and ranking; training device count must match the plan.')
     parser.add_argument('--port', type=int)
     parser.add_argument('--execute', action='store_true', help='Actually run the selected jobs; otherwise only validate and print commands.')
     args = parser.parse_args()
