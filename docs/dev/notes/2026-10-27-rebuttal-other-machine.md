@@ -2,6 +2,8 @@
 
 Date: 2026-10-27. Chinese counterpart: `.zh.md`. Published branch: `codex/rebuttal-fixedsoft-experiments-20261027`.
 
+For the latest priority-ordered commands that finish training and validation/test in one invocation, see [remaining experiments](2026-10-27-remaining-experiment-commands.md). That runbook avoids duplicating the server's started jobs, audits historical FixedBias before rerunning lambda 0, and uses per-device ranking batch 8.
+
 The remote `dev` contains the separate V3 behavior-hierarchy change `eadc431`. This experiment branch preserves the tested FixedSoft implementation used by the current ShortVideoAD jobs. Use this branch consistently for the new controlled series. No branch switch, remote history rewrite or V3 integration was performed in the active workspace.
 
 The functional commit is `aaf63c2`. A clean export of that commit passed all 23 focused CPU tests, the prescribed flake8 check on 30 Python files and compileall, using only exported source/configuration/Toy data rather than ignored runtime files. Production GPU training on another machine has not been measured by this check.

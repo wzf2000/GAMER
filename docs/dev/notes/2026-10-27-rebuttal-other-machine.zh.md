@@ -2,6 +2,8 @@
 
 日期：2026-10-27。英文对应同名 `.md`。发布分支：`codex/rebuttal-fixedsoft-experiments-20261027`。
 
+按优先级补齐剩余实验、一次完成训练和 validation/test 的最新指令，见[剩余实验命令清单](2026-10-27-remaining-experiment-commands.zh.md)。该清单默认复用本机已启动组，λ=0 先核验旧 FixedBias；ranking batch 统一为每卡 8。
+
 远端 `dev` 包含另一项 V3 行为层级改动 `eadc431`。本实验分支保留当前 ShortVideoAD 任务对应、已验证的 FixedSoft 实现，新受控实验系列应统一使用此分支。本轮没有切换活动工作区分支、改写远端历史或合入 V3。
 
 功能提交为 `aaf63c2`。从该提交干净导出的目录，仅使用导出的源码／配置／Toy 数据，通过了 23 项相关 CPU 测试、30 个 Python 文件的规定 flake8 和 compileall，不依赖本机忽略的运行文件。此检查不代表已实测目标机的生产 GPU 训练。
