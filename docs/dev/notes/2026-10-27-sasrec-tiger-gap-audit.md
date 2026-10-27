@@ -2,6 +2,8 @@
 
 Chinese counterpart: `2026-10-27-sasrec-tiger-gap-audit.zh.md`. Audit checkout: `ca0d931`; no model/training source code was changed and no production training was launched.
 
+**Subsequent correction:** The user authorized the fix and prioritized both Tmall SASRec reruns. Commit `d8d06c3` corrects the residual condition; CPU tests, required lint, and full-vocabulary GPU-step validation passed. Two fresh jobs were launched on GPUs 1 and 5, retaining the existing protocols. See `2026-10-27-sasrec-ffn-fix-reruns.md`. The observations below describe the pre-fix audit snapshot, not the current corrected forward.
+
 ## What the result gap establishes
 
 The recovered Tmall alipay rows give TIGER/SASRec ratios of **7.5658× HR@10** and **8.7901× NDCG@10**. Both identified tasks ignore explicit behavior identity, but this does not establish matched architectures, objectives, training samples, selection protocols, or historical hyperparameters. These results alone cannot attribute the gap to generative recommendation.

@@ -6,6 +6,8 @@
 
 **SASRec 正确性补充：** CPU 探针确认当前两个 SASRec 变体的 FFN 残差条件反向，由 `7aae2a3` 引入，默认跳过 FFN 残差／dropout／LayerNorm。这是 baseline 实现缺陷，但对历史分数的影响尚未测量。应优先纠正并受控重训，再将 TIGER/SASRec 大幅差距解释为模型能力。详见 `2026-10-27-sasrec-tiger-gap-audit.zh.md`。
 
+**修复／重训更新：** FFN 随后已在 `d8d06c3` 修复并验证。按用户授权，Tmall SASRec／SASRec_B 已在 GPU 1／5 启动新训练，使用独立输出，保留现有采样／选模／test 流程。最终结果待完成；明确设置、缓存等价性检查、命令及来源记录见 `2026-10-27-sasrec-ffn-fix-reruns.zh.md`。
+
 1. **ShortVideoAD 数据口径尚不能从实验仓库确定。** 当前代码读取已经处理好的 `ShortVideoAD.SMB.time.json`，将时间字符串减去用户首次交互时间并除以 1800，得到半小时单位。这个归一化不代表归因窗口。仓库没有可确认时间戳业务含义、归因窗口、延迟转化截断/补偿或点击回填规则的上游实现。需数据生产方提供字段与归因/快照说明，或生成这些 JSON 的脚本；目前不能声称“使用转化发生时间”“窗口为某个长度”或“没有回填”。证据：`SeqRec/datasets/session_behavior/base.py:77`、`:126`。
 
 2. **公开数据只能确认下游切分，不能确认上游行为链合并。** 未找到 Tmall/JData 原始日志到最深行为状态序列的预处理脚本。代码加载既有 session，再将倒数第二个 session 留作 validation、最后一个 session 留作 test，之后构造训练前缀、增强与截断。合并窗口、是否跨 session、合并与 session 划分先后顺序仍需原始预处理脚本或记录。不能从 `Tmall-24-0.25` 的命名推断 24 小时合并窗口。V2 数据文件主要链接到此前处理后文件，不证明保留了 raw。证据：`SeqRec/datasets/session_behavior/base.py:98`；`data/Tmall-24-0.25-V2/`、`data/JData-V2/`。
