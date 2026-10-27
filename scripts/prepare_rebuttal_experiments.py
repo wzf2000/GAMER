@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from SeqRec.utils.rebuttal import prepare_plan  # noqa: E402
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--suite', choices=['components', 'seeds', 'hierarchy', 'lambda', 'handoff'], required=True)
     parser.add_argument('--output_dir', required=True)
@@ -45,7 +45,7 @@ def parse_args():
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--reuse_plans', nargs='+', default=[], help='Handoff only: verified compatible source plans whose paths should be reused.')
     parser.add_argument('--export_user_targets', action='store_true', help='Enable original target-ID export in generated ranking commands (automatic for handoff).')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.seeds is None:
         args.seeds = [42, 43, 44] if args.suite == 'seeds' else [42]
     if args.key_seeds_only and args.suite != 'components':
