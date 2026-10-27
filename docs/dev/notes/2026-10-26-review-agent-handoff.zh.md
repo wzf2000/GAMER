@@ -2,6 +2,8 @@
 
 核查日期：2026-10-26；依据版本：`dev` / `38a90d2`。核查对象为投稿版 **TH-FixedSoft**。以下内容可直接转交；它记录工程事实与待补证据，不代写审稿回应。
 
+**2026-10-27 补充：** 用户提供的两个 results 压缩包已恢复 Tmall 表格三行的结果来源。`results_wzf.zip` 中 SASRec=`smb_dis_sample/SASRec`、SASRec_B=`smb_dis_sample_diff/SASRec`、TIGER=`smb/TIGER`，均取 alipay 行，六个四位小数与截图完全匹配。TIGER 结果标记 CID-shuffle-64，未显式编码行为；另一个 `smb_explicit/TIGER` 是不同结果。仍缺历史 checkpoint/config/命令、调参和运行 manifest，不能确认最终超参。详见 `2026-10-27-tmall-baseline-provenance.zh.md`；下文“未找到 baseline 结果”的旧快照应结合这次更新阅读。
+
 1. **ShortVideoAD 数据口径尚不能从实验仓库确定。** 当前代码读取已经处理好的 `ShortVideoAD.SMB.time.json`，将时间字符串减去用户首次交互时间并除以 1800，得到半小时单位。这个归一化不代表归因窗口。仓库没有可确认时间戳业务含义、归因窗口、延迟转化截断/补偿或点击回填规则的上游实现。需数据生产方提供字段与归因/快照说明，或生成这些 JSON 的脚本；目前不能声称“使用转化发生时间”“窗口为某个长度”或“没有回填”。证据：`SeqRec/datasets/session_behavior/base.py:77`、`:126`。
 
 2. **公开数据只能确认下游切分，不能确认上游行为链合并。** 未找到 Tmall/JData 原始日志到最深行为状态序列的预处理脚本。代码加载既有 session，再将倒数第二个 session 留作 validation、最后一个 session 留作 test，之后构造训练前缀、增强与截断。合并窗口、是否跨 session、合并与 session 划分先后顺序仍需原始预处理脚本或记录。不能从 `Tmall-24-0.25` 的命名推断 24 小时合并窗口。V2 数据文件主要链接到此前处理后文件，不证明保留了 raw。证据：`SeqRec/datasets/session_behavior/base.py:98`；`data/Tmall-24-0.25-V2/`、`data/JData-V2/`。
