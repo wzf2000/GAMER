@@ -1,0 +1,4 @@
+{
+  "weak_auxiliary": {"click": 0, "collect": 1, "cart": 1, "alipay": 2},
+  "random_auxiliary_seed42": {"click": 2, "collect": 0, "cart": 1, "alipay": 3}
+}

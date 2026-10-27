@@ -24,6 +24,17 @@ def tiny_config(**updates):
 
 
 class RebuttalAblationTest(unittest.TestCase):
+    def test_fixed_bias_zero_init_matches_fixed_soft_lambda_zero(self):
+        torch.manual_seed(42)
+        fixed_bias = Qwen3TemporalHierarchicalWithTemperature(tiny_config(th_relation_bias_init='zero', th_relation_bias_soft_scale=0.1)).eval()
+        torch.manual_seed(42)
+        lambda_zero = Qwen3TemporalHierarchicalWithTemperature(tiny_config(th_relation_bias_init='soft', th_relation_bias_soft_scale=0.0)).eval()
+        for name, value in fixed_bias.state_dict().items():
+            self.assertTrue(torch.equal(value, lambda_zero.state_dict()[name]), name)
+        ids = torch.tensor([[10, 12, 13, 11, 14, 15]])
+        with torch.no_grad():
+            self.assertTrue(torch.equal(fixed_bias(input_ids=ids).logits, lambda_zero(input_ids=ids).logits))
+
     def test_missing_options_preserve_default_weights_and_logits(self):
         torch.manual_seed(7)
         old_defaults = Qwen3TemporalHierarchicalWithTemperature(tiny_config()).eval()
