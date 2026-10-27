@@ -2,6 +2,8 @@
 
 Chinese counterpart: `2026-10-27-tmall-baseline-provenance.zh.md`. Audit date: 2026-10-27; implementation checkout: `6013055`. Historical training revisions are not recorded in the supplied archives.
 
+**Subsequent correctness audit:** `2026-10-27-sasrec-tiger-gap-audit.md` verifies an inverted FFN residual condition in the current SASRec path, plus training-sample and selection differences. The provenance matches below do not establish that the reported scores represent a correctly implemented, controlled SASRec baseline; historical impact still requires the original checkout and corrected training.
+
 ## Exact matches to the paper table
 
 All three paper rows match **Behavior alipay**, not Merged Behavior, in the user-supplied `results_wzf.zip`. Paths below are relative to that archive's `results/Tmall-24-0.25/` directory.

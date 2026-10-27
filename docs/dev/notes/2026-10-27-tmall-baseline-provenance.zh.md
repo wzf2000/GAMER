@@ -2,6 +2,8 @@
 
 英文对应：`2026-10-27-tmall-baseline-provenance.md`。核查日期：2026-10-27；实现 checkout：`6013055`。所给压缩包未记录历史训练代码版本。
 
+**后续正确性核查：** `2026-10-27-sasrec-tiger-gap-audit.zh.md` 已验证当前 SASRec 路径存在 FFN 残差条件反向，以及训练样本／选模方式差异。下面的来源匹配不代表这些分数已经构成正确实现、条件对齐的 SASRec baseline；历史影响仍需原 checkout 和修正后训练核验。
+
 ## 与论文表格精确匹配的结果
 
 论文三行均匹配用户提供的 `results_wzf.zip` 中的 **Behavior alipay**，不是 Merged Behavior。下列路径相对于包内 `results/Tmall-24-0.25/`。
