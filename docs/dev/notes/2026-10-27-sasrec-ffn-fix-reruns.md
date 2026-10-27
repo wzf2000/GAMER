@@ -159,4 +159,27 @@ python main.py train_SMB_rec \
   --wandb_run_name rebuttal/tmall-ffn-fixed-history50-patience10/sasrec_b/seed_42
 ```
 
-The detached supervisor records the complete exit status. After training, the task automatically loads `checkpoint/best_model.pth` and performs full-sort test for all four behaviors. Expected aggregate: `results/result-smb_dis_diff.json`, target row **Behavior alipay**; per-user metrics: `results/result-smb_dis_diff/user_level_metrics_behavior_alipay.json`. Final metrics are pending. Exact commands/config/data/source/cache/GPU identities and the prior-run reference are in `run_manifest.start.json`; progress is in `train.log`; completion is recorded in `run_manifest.finish.json`.
+The detached supervisor records the complete exit status. After training, the task automatically loads `checkpoint/best_model.pth` and performs full-sort test for all four behaviors. Aggregate: `results/result-smb_dis_diff.json`, target row **Behavior alipay**; per-user metrics: `results/result-smb_dis_diff/user_level_metrics_behavior_alipay.json`. This run has now completed successfully; results follow. Exact commands/config/data/source/cache/GPU identities and the prior-run reference are in `run_manifest.start.json`; progress is in `train.log`; completion is recorded in `run_manifest.finish.json`.
+
+## Completed SASRec_B history/patience comparison
+
+The new SASRec_B run finished training and full-sort test at **2026-10-28 02:44:40 Asia/Shanghai**, exit code **0**, with saved best weights and all four behavior rows plus merged. GPU 5 was released. The best checkpoint was selected at epoch **14** by sampled validation NDCG@10 (rounded log value **0.0231**); training stopped at epoch **24**. The old history-20/patience-20 run selected epoch **19** and stopped at **39**.
+
+The following are **test / Behavior alipay**, with the same **6,329 users**, not sampled validation or merged metrics. Relative change uses history-20/patience-20 as the denominator.
+
+| Metric | History 20 / patience 20 | History 50 / patience 10 | Relative change |
+| --- | ---: | ---: | ---: |
+| HR@1 | 0.008848159 | 0.007742139 | -12.50% |
+| HR@5 | 0.011692210 | 0.010744193 | -8.11% |
+| HR@10 | 0.012166219 | 0.011376205 | -6.49% |
+| Recall@1 | 0.008321483 | 0.007478801 | -10.13% |
+| Recall@5 | 0.010783694 | 0.010204350 | -5.37% |
+| Recall@10 | 0.011257703 | 0.010731026 | -4.68% |
+| NDCG@5 | 0.009836097 | 0.009148696 | -6.99% |
+| NDCG@10 | 0.009992610 | 0.009331325 | -6.62% |
+
+HR@10 changes by **-0.0007900142202559648** and NDCG@10 by **-0.0006612857786188545**. Both recipes use corrected FFN code `d8d06c3`, the same config/data fingerprints, joint behavior-item IDs, seed 42, FP32, batch 4096, allocator, optimizer, learning rate and evaluation protocol. Current source/config/data hashes and cache sizes/mtimes were also checked. Test UID sidecars match exactly; all eight per-user metric arrays are finite, length 6,329, and their means agree with their aggregate values within 1e-12.
+
+The new 50/10 recipe is lower on all reported alipay metrics in this seed. History length and patience both changed, so this does not isolate a history-length effect or establish multi-seed significance. No further training or ranking was launched for this completion check.
+
+Evidence: the new run's `run_manifest.finish.json`, `results/result-smb_dis_diff.json`, per-user JSON and `verified-test-comparison.json`; old comparator: `results/rebuttal/2026-10-27-sasrec-ffn-fixed/sasrec_b/seed_42/retry-expandable/results/result-smb_dis_diff.json`. New result SHA256: `a0e0bd79a28bf44a4544c5a78e7ac6652a95f57c9a6c576a6613be6d332eee1f`; new best-weight SHA256: `3a5bc0acc39cd3ba2714a2bf3c5059627070521ed26251a215e4418f47545b90`.

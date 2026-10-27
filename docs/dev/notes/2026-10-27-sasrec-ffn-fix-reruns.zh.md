@@ -159,4 +159,27 @@ python main.py train_SMB_rec \
   --wandb_run_name rebuttal/tmall-ffn-fixed-history50-patience10/sasrec_b/seed_42
 ```
 
-独立 supervisor 保留完整退出状态。训练后，任务会自动加载 `checkpoint/best_model.pth`，对四种行为执行全候选 test。预期汇总为 `results/result-smb_dis_diff.json`，目标行 **Behavior alipay**；逐用户文件为 `results/result-smb_dis_diff/user_level_metrics_behavior_alipay.json`。最终指标待完成。`run_manifest.start.json` 包含准确命令、config／数据／源码／缓存／GPU 身份及上一轮引用；进度保存在 `train.log`，完整退出状态保存在 `run_manifest.finish.json`。
+独立 supervisor 保留完整退出状态。训练后，任务会自动加载 `checkpoint/best_model.pth`，对四种行为执行全候选 test。汇总为 `results/result-smb_dis_diff.json`，目标行 **Behavior alipay**；逐用户文件为 `results/result-smb_dis_diff/user_level_metrics_behavior_alipay.json`。本次运行现已成功完成，结果见下文。`run_manifest.start.json` 包含准确命令、config／数据／源码／缓存／GPU 身份及上一轮引用；进度保存在 `train.log`，完整退出状态保存在 `run_manifest.finish.json`。
+
+## SASRec_B 历史长度／patience 完成对比
+
+新 SASRec_B 已于 **2026-10-28 02:44:40 Asia/Shanghai** 完成训练及全候选 test，退出码 **0**，最佳权重及四种行为加 merged 的汇总均已保存，GPU 5 已释放。按采样 validation NDCG@10 选择的最佳 checkpoint 为 epoch **14**（日志四位值 **0.0231**），epoch **24** 早停。旧 history-20／patience-20 运行的最佳 epoch 为 **19**，epoch **39** 早停。
+
+下表为 **test／Behavior alipay**，两组均为相同的 **6,329 个用户**，不是采样 validation 或 merged 指标。相对变化以 history-20／patience-20 为分母。
+
+| 指标 | 历史 20／patience 20 | 历史 50／patience 10 | 相对变化 |
+| --- | ---: | ---: | ---: |
+| HR@1 | 0.008848159 | 0.007742139 | -12.50% |
+| HR@5 | 0.011692210 | 0.010744193 | -8.11% |
+| HR@10 | 0.012166219 | 0.011376205 | -6.49% |
+| Recall@1 | 0.008321483 | 0.007478801 | -10.13% |
+| Recall@5 | 0.010783694 | 0.010204350 | -5.37% |
+| Recall@10 | 0.011257703 | 0.010731026 | -4.68% |
+| NDCG@5 | 0.009836097 | 0.009148696 | -6.99% |
+| NDCG@10 | 0.009992610 | 0.009331325 | -6.62% |
+
+HR@10 绝对变化 **-0.0007900142202559648**，NDCG@10 绝对变化 **-0.0006612857786188545**。两组均使用修复后的 FFN 代码 `d8d06c3`，config／数据指纹、行为–item 联合 ID、seed 42、FP32、batch 4096、显存分配器、优化器、学习率及评测协议一致。也核验了当前源码／config／数据 hash 与缓存大小／mtime。两组 test UID sidecar 完全相同；八项逐用户指标数组均有限、长度均为 6,329，均值与对应汇总的绝对差小于 1e-12。
+
+该 seed 下，新的 50／10 配方在全部已报告的 alipay 指标上略低。历史长度与 patience 同时改变，不能隔离为历史长度单因素效应，也没有多 seed 显著性结论。本次完成核查未新增训练或 ranking。
+
+证据为新运行的 `run_manifest.finish.json`、`results/result-smb_dis_diff.json`、逐用户 JSON 及 `verified-test-comparison.json`；旧对照为 `results/rebuttal/2026-10-27-sasrec-ffn-fixed/sasrec_b/seed_42/retry-expandable/results/result-smb_dis_diff.json`。新结果 SHA256：`a0e0bd79a28bf44a4544c5a78e7ac6652a95f57c9a6c576a6613be6d332eee1f`；新最佳权重 SHA256：`3a5bc0acc39cd3ba2714a2bf3c5059627070521ed26251a215e4418f47545b90`。
