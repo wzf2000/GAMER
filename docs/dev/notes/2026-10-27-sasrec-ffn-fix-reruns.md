@@ -81,3 +81,20 @@ Verified: successful exit, saved weights, unchanged source/config/raw-data/cache
 Evidence: `sasrec/seed_42/results/result-smb_dis.json`, its `result-smb_dis/user_level_metrics_behavior_alipay.json`, `run_manifest.finish.json`, and `verified-test-comparison.json` under the run root. The old reference is the matched `results_wzf.zip` artifact documented in `2026-10-27-tmall-baseline-provenance.md`.
 
 This is a numerical comparison of the corrected fresh run against the paper's archived result. Missing historical hyperparameters/training revision prevent a strict FFN-only causal attribution; missing old UID-aligned metrics prevent a paired significance claim.
+
+## Historical command recovered after the first rerun
+
+The user subsequently supplied the original ordinary-SASRec command. It explicitly used history **50** and patience **10**, whereas the completed corrected run used **20 / 20**. The dataset, backbone, training/test tasks, batch 4096, lr=0.001, and maximum 200 epochs match. The current SASRec_B rerun also uses 20 / 20; the supplied historical command identifies only the ordinary SASRec run.
+
+| Setting | Supplied historical command | Completed corrected run |
+| --- | --- | --- |
+| `max_his_len` | 50 | 20 |
+| `patience` | 10 | 20 |
+| `add_uid` | Absent / false | True, metadata only |
+| FFN computation | Historical training checkout still unverified | Corrected in `d8d06c3` |
+
+The config snapshot is byte-for-byte identical to the tracked SASRec config at `1c941cc` (2025-10-04), SHA256 `5d113d2c49cb06f47cdc72377f6c0b09ac6905af5e56901d363a920b87ee667a`. This supports the user's report that the config was unchanged, but is not a direct copy from the original machine. That historical parser confirms omitted defaults of seed 42, AdamW, weight decay 0.01, logging step 30, and the same metric list/default NDCG@10 selection.
+
+History length changes both visible input and the learned position-embedding length, even when the JSON config is identical. Replaying this run's recorded best-update events with patience 10 would stop at epoch **27** and retain the same epoch-17 checkpoint; this is an inference about the observed history-20 trajectory, not a prediction for history 50.
+
+Accordingly, **0.216621899 / 0.178387853 must remain labeled as the corrected history-20/patience-20 run**. A comparison matching the supplied historical recipe requires a fresh history-50/patience-10 training run; no such additional training was launched during this command audit. Original dataset/cache hashes, runtime environment, and exact training revision are still missing. Runtime evidence: `sasrec/seed_42/historical-command-comparison.json`.

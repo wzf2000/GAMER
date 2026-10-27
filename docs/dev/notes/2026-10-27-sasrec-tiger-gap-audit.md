@@ -6,6 +6,8 @@ Chinese counterpart: `2026-10-27-sasrec-tiger-gap-audit.zh.md`. Audit checkout: 
 
 **First completed result:** The corrected ordinary SASRec run completed full test on 2026-10-27, with alipay HR@10 **0.216621899** and NDCG@10 **0.178387853**, versus archived **0.076789382 / 0.053329522**. This is 2.82099× / 3.34501×, without isolating all historical confounds. See the rerun note for evidence and limits; SASRec_B remains in progress at this snapshot.
 
+**Recovered-command clarification:** The historical ordinary-SASRec command uses history 50 and patience 10; the completed corrected run uses history 20 and patience 20. Its score change is consequently not a strict FFN-only contrast. The model config matches the tracked 2025-10-04 config; see the rerun note for the full command comparison.
+
 ## What the result gap establishes
 
 The recovered Tmall alipay rows give TIGER/SASRec ratios of **7.5658× HR@10** and **8.7901× NDCG@10**. Both identified tasks ignore explicit behavior identity, but this does not establish matched architectures, objectives, training samples, selection protocols, or historical hyperparameters. These results alone cannot attribute the gap to generative recommendation.

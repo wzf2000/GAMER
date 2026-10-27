@@ -81,3 +81,20 @@ HR@10 达到归档值的 **2.82099 倍**，绝对增加 0.139832517；NDCG@10 �
 证据为运行根目录下的 `sasrec/seed_42/results/result-smb_dis.json`、其 `result-smb_dis/user_level_metrics_behavior_alipay.json`、`run_manifest.finish.json` 和 `verified-test-comparison.json`。旧对照为 `2026-10-27-tmall-baseline-provenance.zh.md` 中已匹配的 `results_wzf.zip` 文件。
 
 这是修复后新运行与论文归档结果的数值比较。历史超参／训练版本缺失，不能严格将所有提升归因于 FFN 单一因素；旧结果缺少 UID 对齐的逐用户指标，不能据此给出配对显著性结论。
+
+## 首轮重训后补齐的历史命令
+
+用户随后提供了普通 SASRec 原始命令，明确使用历史长度 **50**、patience **10**；本次已完成修复重训使用 **20／20**。数据集、backbone、训练／test 任务、batch 4096、lr=0.001、最多 200 epoch 一致。当前 SASRec_B 重训也使用 20／20，但所给历史命令只直接对应普通 SASRec。
+
+| 设置 | 用户提供的历史命令 | 已完成修复重训 |
+| --- | --- | --- |
+| `max_his_len` | 50 | 20 |
+| `patience` | 10 | 20 |
+| `add_uid` | 未传，false | true，仅元数据 |
+| FFN 计算 | 历史训练 checkout 仍未核验 | `d8d06c3` 修正后的实现 |
+
+本次 config 快照与 `1c941cc`（2025-10-04）中的受版本管理 SASRec config 逐字节一致，SHA256 均为 `5d113d2c49cb06f47cdc72377f6c0b09ac6905af5e56901d363a920b87ee667a`。这支持用户“config 未改”的说明，但不是从原机器直接取回的文件。该历史 parser 也确认，原命令省略的默认值为 seed 42、AdamW、weight decay 0.01、logging step 30，以及相同指标列表／默认 NDCG@10 选模。
+
+即使 JSON config 一样，历史长度仍会改变模型可见输入及可学习 position embedding 的长度。按本次已记录的 best 更新事件回放，patience 10 会在 epoch **27** 停止、仍保留 epoch 17 的 checkpoint；这是针对本次历史 20 轨迹的推算，不是对历史 50 的预测。
+
+因此，**0.216621899／0.178387853 必须继续标为修复后 history-20／patience-20 的新运行**。与所给历史配方匹配的比较，需要重新训练 history-50／patience-10；本次命令核查没有启动这项额外训练。原数据／缓存 hash、运行环境、准确训练版本仍缺失。运行证据：`sasrec/seed_42/historical-command-comparison.json`。
