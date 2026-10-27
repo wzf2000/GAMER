@@ -101,7 +101,7 @@ HR@10 达到归档值的 **2.82099 倍**，绝对增加 0.139832517；NDCG@10 �
 
 ## 新增 history-50／patience-10 运行
 
-用户随后明确要求重训，普通 SASRec 已于 **2026-10-27 22:08:46 Asia/Shanghai** 在物理 **GPU 1（A100-SXM4-80GB）** 启动。supervisor PID：**2669289**；训练 PID：**2669290**。FFN 实现为 `d8d06c3`；准备时仓库 HEAD 为 `d65d7d6`。模型从头初始化，seed 42，SASRec JSON config 和数据指纹与上文一致。新结果待完成，不能用已完成的历史 20 分数代替。
+用户随后明确要求重训，普通 SASRec 已于 **2026-10-27 22:08:46 Asia/Shanghai** 在物理 **GPU 1（A100-SXM4-80GB）** 启动。supervisor PID：**2669289**；训练 PID：**2669290**。FFN 实现为 `d8d06c3`；准备时仓库 HEAD 为 `d65d7d6`。模型从头初始化，seed 42，SASRec JSON config 和数据指纹与上文一致。该运行随后于 **2026-10-27 23:05:39 Asia/Shanghai** 以退出码 0 完成训练及全候选 test；最佳 checkpoint 为 epoch **11**，epoch **21** 早停。
 
 独立运行根目录：`results/rebuttal/2026-10-27-sasrec-ffn-fixed-history50-patience10/`；普通模型产物位于其 `sasrec/seed_42/`。保留已有历史 20 产物及 SASRec_B 进程。历史 50 的 train／validation／test 缓存使用独立 `.50.` 文件名。缓存准备在 105 组样例上验证进程内采样加速路径的候选和 RNG 状态与原实现相同，保留 1,057,649 条训练样本、6,917 个 alipay validation 用户和 6,329 个 alipay test 用户。本次未修改生产 Python 源码；运行辅助脚本通过 compileall 及规定的 flake8 检查。
 
@@ -122,3 +122,41 @@ python main.py train_SMB_rec \
 ```
 
 `run_manifest.start.json` 保留准确命令、config／数据／源码／缓存指纹及 GPU 身份；`train.log` 记录进度。选模仍使用采样 **validation／alipay／NDCG@10**。早停或达到 200 轮后，任务自动加载 `checkpoint/best_model.pth`，对所有行为执行全候选 **test**。预期汇总文件：`results/result-smb_dis.json`，目标行 **Behavior alipay**。逐用户指标位于 `results/result-smb_dis/`；完整进程结束后 supervisor 写入 `run_manifest.finish.json`。UID 仅用于元数据导出，不使用 SID／CID 索引。匹配已找回的超参仍不代表找回历史训练 checkout、数据／缓存指纹或环境，历史比较的这些限制仍然存在。
+
+## 2026-10-28 完成核查
+
+上述三组修复后的 Tmall 实验均成功退出，保留最佳权重及五行汇总结果（四种行为加 merged），已完成全候选 test。**test／alipay** 结果如下：
+
+| 模型 | 历史长度／patience | HR@10 | NDCG@10 |
+| --- | --- | ---: | ---: |
+| SASRec | 20／20 | 0.2166218991941855 | 0.17838785251618217 |
+| SASRec_B | 20／20 | 0.012166218991941855 | 0.009992610300676929 |
+| SASRec | 50／10 | 0.21535787644177595 | 0.17751063055090913 |
+
+三组每项指标均有 6,329 个有限的 alipay 逐用户数值，均值与汇总结果的绝对差小于 1e-12。SASRec_B 的显存分配器重试运行于 **2026-10-27 23:02:29 Asia/Shanghai** 完成，最佳 epoch **19**，epoch **39** 早停。证据为各运行的 `run_manifest.finish.json`、普通模型的 `results/result-smb_dis.json` 或 SASRec_B 的 `results/result-smb_dis_diff.json`，以及对应的 `user_level_metrics_behavior_alipay.json`。本 seed 下普通模型历史 50 与历史 20 的分数接近，不能由此认定跨 seed 等价或隔离历史 FFN 单因素影响。SASRec_B 的 history-50／patience-10 后续实验作为独立新运行处理。
+
+## SASRec_B history-50／patience-10 后续运行
+
+用户要求 SASRec_B 使用相同的新历史长度／patience 设置。该从头训练于 **2026-10-28 00:37:36 Asia/Shanghai** 在物理 **GPU 5（A100-SXM4-80GB）** 启动，supervisor PID **2772948**，训练 PID **2772949**。独立根目录为 `results/rebuttal/2026-10-28-sasrec-b-ffn-fixed-history50-patience10/`，模型运行位于 `sasrec_b/seed_42/`。FFN 代码为 `d8d06c3`，准备时 HEAD 为 `9110dcf`；未修改生产源码。已有历史 20 及普通模型历史 50 产物均保留。
+
+与上一轮修复后的 SASRec_B 相比，仅改变统计设置 `max_his_len: 20 -> 50`、`patience: 20 -> 10`。config 校验和、数据指纹、行为–item 联合表示、seed 42、batch 4096、FP32、AdamW lr=0.001、weight decay 0.01、dropout 0.5、最多 200 轮，以及采样 alipay validation NDCG@10 选模均一致。这是本次要求的新配方，不表示已找回历史 SASRec_B 命令。不使用 SID／CID 索引，UID 元数据导出不参与模型 loss。
+
+历史 50 的 `.diff.adduid` 缓存包含 1,057,649 条训练样本、6,917 个 alipay validation 用户和 6,329 个 alipay test 用户；联合词表有 1,447,728 个 ID，不含 padding。进程内缓存采样加速再次通过 105 组候选／RNG 一致性检查。独立合成模型 GPU 预检覆盖 validation batch 4096／2821、训练 batch 4096／881、再次 validation 及训练 batch 4096，loss／梯度有限，优化器更新正常。使用 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` 时，峰值分配／保留显存为 **73,090.4／73,532 MiB**。运行辅助脚本通过 compileall 和规定的 flake8 检查。
+
+激活 GAMER 环境后、从仓库根目录运行的等价命令如下（这些路径已分配给正在运行的任务）：
+
+```bash
+run=./results/rebuttal/2026-10-28-sasrec-b-ffn-fixed-history50-patience10/sasrec_b/seed_42
+CUDA_VISIBLE_DEVICES=5 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+WANDB_MODE=offline PYTHONUNBUFFERED=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+python main.py train_SMB_rec \
+  --backbone SASRec --dataset Tmall-24-0.25 --data_path ./data \
+  --base_model "$run/config" --output_dir "$run/checkpoint" --result_dir "$run/results" \
+  --tasks smb_dis_sample_diff --test_task smb_dis_diff --seed 42 --max_his_len 50 --add_uid \
+  --epochs 200 --batch_size 4096 --learning_rate 0.001 --weight_decay 0.01 \
+  --optim adamw --patience 10 --logging_step 30 \
+  --metrics hit@1,hit@5,hit@10,recall@1,recall@5,recall@10,ndcg@5,ndcg@10 \
+  --wandb_run_name rebuttal/tmall-ffn-fixed-history50-patience10/sasrec_b/seed_42
+```
+
+独立 supervisor 保留完整退出状态。训练后，任务会自动加载 `checkpoint/best_model.pth`，对四种行为执行全候选 test。预期汇总为 `results/result-smb_dis_diff.json`，目标行 **Behavior alipay**；逐用户文件为 `results/result-smb_dis_diff/user_level_metrics_behavior_alipay.json`。最终指标待完成。`run_manifest.start.json` 包含准确命令、config／数据／源码／缓存／GPU 身份及上一轮引用；进度保存在 `train.log`，完整退出状态保存在 `run_manifest.finish.json`。
