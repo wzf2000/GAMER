@@ -98,3 +98,27 @@ The config snapshot is byte-for-byte identical to the tracked SASRec config at `
 History length changes both visible input and the learned position-embedding length, even when the JSON config is identical. Replaying this run's recorded best-update events with patience 10 would stop at epoch **27** and retain the same epoch-17 checkpoint; this is an inference about the observed history-20 trajectory, not a prediction for history 50.
 
 Accordingly, **0.216621899 / 0.178387853 must remain labeled as the corrected history-20/patience-20 run**. A comparison matching the supplied historical recipe requires a fresh history-50/patience-10 training run; no such additional training was launched during this command audit. Original dataset/cache hashes, runtime environment, and exact training revision are still missing. Runtime evidence: `sasrec/seed_42/historical-command-comparison.json`.
+
+## Additional history-50/patience-10 run
+
+At the user's subsequent request, ordinary SASRec was launched at **2026-10-27 22:08:46 Asia/Shanghai** on physical **GPU 1 (A100-SXM4-80GB)**. Supervisor PID: **2669289**; training PID: **2669290**. FFN implementation is `d8d06c3`; repository HEAD at preparation was `d65d7d6`. This is a fresh initialization, seed 42, with the same SASRec JSON config and dataset fingerprints recorded above. Its results are pending and must not be substituted with the completed history-20 scores.
+
+Independent run root: `results/rebuttal/2026-10-27-sasrec-ffn-fixed-history50-patience10/`; ordinary model outputs are under `sasrec/seed_42/`. Existing history-20 outputs and SASRec_B processes are retained. History-50 train/validation/test caches have distinct `.50.` names. Cache preparation verified the process-local sampler on 105 cases with identical sampled IDs and RNG states, and retained 1,057,649 training samples, 6,917 alipay validation users, and 6,329 alipay test users. No production Python source was changed; the runtime helpers passed compileall and the prescribed flake8 check.
+
+Equivalent command from the repository root, after activating the GAMER environment (the allocated output paths are already in use):
+
+```bash
+run=./results/rebuttal/2026-10-27-sasrec-ffn-fixed-history50-patience10/sasrec/seed_42
+CUDA_VISIBLE_DEVICES=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+WANDB_MODE=offline PYTHONUNBUFFERED=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+python main.py train_SMB_rec \
+  --backbone SASRec --dataset Tmall-24-0.25 --data_path ./data \
+  --base_model "$run/config" --output_dir "$run/checkpoint" --result_dir "$run/results" \
+  --tasks smb_dis_sample --test_task smb_dis --seed 42 --max_his_len 50 --add_uid \
+  --epochs 200 --batch_size 4096 --learning_rate 0.001 --weight_decay 0.01 \
+  --optim adamw --patience 10 --logging_step 30 \
+  --metrics hit@1,hit@5,hit@10,recall@1,recall@5,recall@10,ndcg@5,ndcg@10 \
+  --wandb_run_name rebuttal/tmall-ffn-fixed-history50-patience10/sasrec/seed_42
+```
+
+`run_manifest.start.json` contains the exact command, config/data/source/cache fingerprints and GPU identity; `train.log` captures progress. Selection remains sampled **validation / alipay / NDCG@10**. After early stopping or 200 epochs, the task reloads `checkpoint/best_model.pth` and automatically runs full-sort **test** for all behaviors. Expected aggregate: `results/result-smb_dis.json`; target row: **Behavior alipay**. Per-user metrics are under `results/result-smb_dis/`; the supervisor writes `run_manifest.finish.json` after the complete process exits. UID export is metadata only; no SID/CID index is used. Matching recovered hyperparameters does not recover the old training checkout, data/cache hashes or environment, so those historical limits remain.
