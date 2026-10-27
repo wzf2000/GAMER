@@ -117,7 +117,7 @@ class FeedForward(nn.Module):
         hidden_states = self.intermediate_act_fn(hidden_states)
 
         hidden_states = self.dense_2(hidden_states)
-        if not self.residual:
+        if self.residual:
             hidden_states = self.dropout(hidden_states)
             hidden_states = self.LayerNorm(hidden_states + input_tensor)
 
