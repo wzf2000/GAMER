@@ -4,6 +4,8 @@ Chinese counterpart: `2026-10-27-sasrec-tiger-gap-audit.zh.md`. Audit checkout: 
 
 **Subsequent correction:** The user authorized the fix and prioritized both Tmall SASRec reruns. Commit `d8d06c3` corrects the residual condition; CPU tests, required lint, and full-vocabulary GPU-step validation passed. Two fresh jobs were launched on GPUs 1 and 5, retaining the existing protocols. See `2026-10-27-sasrec-ffn-fix-reruns.md`. The observations below describe the pre-fix audit snapshot, not the current corrected forward.
 
+**First completed result:** The corrected ordinary SASRec run completed full test on 2026-10-27, with alipay HR@10 **0.216621899** and NDCG@10 **0.178387853**, versus archived **0.076789382 / 0.053329522**. This is 2.82099× / 3.34501×, without isolating all historical confounds. See the rerun note for evidence and limits; SASRec_B remains in progress at this snapshot.
+
 ## What the result gap establishes
 
 The recovered Tmall alipay rows give TIGER/SASRec ratios of **7.5658× HR@10** and **8.7901× NDCG@10**. Both identified tasks ignore explicit behavior identity, but this does not establish matched architectures, objectives, training samples, selection protocols, or historical hyperparameters. These results alone cannot attribute the gap to generative recommendation.
@@ -46,6 +48,6 @@ Current test code uses essentially the same item catalogue for ordinary SASRec a
 
 ## Interpretation and next verification
 
-Prioritize correcting and independently verifying the SASRec FFN, then align mixed-history input, nonempty-history training targets, history length, full-catalogue alipay validation/test, model selection, and tuning budget. Retrain SASRec and SASRec_B under an explicitly identified corrected implementation before attributing their low paper scores to model limitations. Measure the correction's effect rather than assuming it recovers a particular score. No corrected-score or significance claim is currently available.
+The original audit recommended correcting and independently verifying the SASRec FFN, then aligning mixed-history input, nonempty-history training targets, history length, full-catalogue alipay validation/test, model selection, and tuning budget. Corrected reruns were subsequently authorized, with other protocol changes deferred. Their observed results are reported in the update above; the original audit itself did not establish a corrected score or significance claim.
 
 Diagnostic output: `results/rebuttal/2026-10-27-sasrec-tiger-gap-audit/diagnostics.json`. Original result provenance is documented in `2026-10-27-tmall-baseline-provenance.md`. Runtime artifacts are not committed.

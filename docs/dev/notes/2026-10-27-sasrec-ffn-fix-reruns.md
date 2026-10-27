@@ -58,3 +58,26 @@ CUDA_VISIBLE_DEVICES=5 OMP_NUM_THREADS=1 WANDB_MODE=offline PYTORCH_CUDA_ALLOC_C
 ```
 
 These paths are allocated to the running jobs: do not rerun these commands over them. Final JSON paths are `sasrec/seed_42/results/result-smb_dis.json` and `sasrec_b/seed_42/retry-expandable/results/result-smb_dis_diff.json` below the run root. Use the **Behavior alipay** row for the paper comparison. Runtime data, weights, logs, cache helpers, and manifests are not committed.
+
+## Completed SASRec result
+
+The ordinary SASRec process exited with code 0 at **2026-10-27 21:25:10 Asia/Shanghai**, including final full-sort test. Training stopped after epoch **37**; the saved best checkpoint was selected at epoch **17** by sampled-validation NDCG@10 (log-rounded **0.3514**, not a test score). The full train/validation/test process took 3,759.075 seconds. GPU 1 was released. At the subsequent check, SASRec_B was still training around epoch 37 and had no final test JSON.
+
+Full-catalogue **test / Behavior alipay**, 6,329 users:
+
+| Metric | Archived paper SASRec | Corrected fresh run | Relative increase |
+| --- | ---: | ---: | ---: |
+| HR@1 | 0.036182651 | 0.159424870 | +340.61% |
+| HR@5 | 0.065887186 | 0.205719703 | +212.23% |
+| HR@10 | 0.076789382 | 0.216621899 | +182.10% |
+| Recall@10 | 0.072005407 | 0.202203450 | +180.82% |
+| NDCG@5 | 0.049573397 | 0.174461469 | +251.93% |
+| NDCG@10 | 0.053329522 | 0.178387853 | +234.50% |
+
+HR@10 is **2.82099×** the archived value, an absolute increase of 0.139832517; NDCG@10 is **3.34501×**, an absolute increase of 0.125058330. Both remain below the archived TIGER row (0.580976458 / 0.468769537). Click, collect, and cart HR@10/NDCG@10 also increased; these auxiliary results are retained in the JSON.
+
+Verified: successful exit, saved weights, unchanged source/config/raw-data/cache fingerprints, 6,329 finite per-user metric entries matching the aggregate means, and four learned FFN LayerNorm weight/bias tensors differing from initialization. Best-weight SHA256: `f2c79abe19f577f7fd5220457d8c26ae1cfb5dbd8c6ca8e5542ed0ed59e2810b`; result SHA256: `9c42b397f085f0baa180931e9863f31e9d221e3b0d4dd46f5d169997e81ca1f6`.
+
+Evidence: `sasrec/seed_42/results/result-smb_dis.json`, its `result-smb_dis/user_level_metrics_behavior_alipay.json`, `run_manifest.finish.json`, and `verified-test-comparison.json` under the run root. The old reference is the matched `results_wzf.zip` artifact documented in `2026-10-27-tmall-baseline-provenance.md`.
+
+This is a numerical comparison of the corrected fresh run against the paper's archived result. Missing historical hyperparameters/training revision prevent a strict FFN-only causal attribution; missing old UID-aligned metrics prevent a paired significance claim.

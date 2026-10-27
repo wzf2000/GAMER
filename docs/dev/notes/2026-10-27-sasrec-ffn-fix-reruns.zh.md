@@ -58,3 +58,26 @@ CUDA_VISIBLE_DEVICES=5 OMP_NUM_THREADS=1 WANDB_MODE=offline PYTORCH_CUDA_ALLOC_C
 ```
 
 这些路径已分配给当前任务，不要再次执行命令覆盖。最终 JSON 为运行根目录下的 `sasrec/seed_42/results/result-smb_dis.json` 和 `sasrec_b/seed_42/retry-expandable/results/result-smb_dis_diff.json`。与论文比较时取 **Behavior alipay** 行。运行数据、权重、日志、缓存工具及 manifest 不纳入 Git。
+
+## 普通 SASRec 已完成结果
+
+普通 SASRec 于 **2026-10-27 21:25:10，Asia/Shanghai** 以退出码 0 完成，包括最终全量排序 test。训练在 epoch **37** 后早停，保存的最佳 checkpoint 在 epoch **17** 按采样 validation NDCG@10 选出（日志保留四位为 **0.3514**，不是 test 分数）。完整训练／validation／test 流程耗时 3,759.075 秒，GPU 1 已释放。后续检查时 SASRec_B 仍在约第 37 轮训练，尚无最终 test JSON。
+
+全候选 **test / Behavior alipay**，6,329 个用户：
+
+| 指标 | 论文归档 SASRec | 修复后新运行 | 相对增加 |
+| --- | ---: | ---: | ---: |
+| HR@1 | 0.036182651 | 0.159424870 | +340.61% |
+| HR@5 | 0.065887186 | 0.205719703 | +212.23% |
+| HR@10 | 0.076789382 | 0.216621899 | +182.10% |
+| Recall@10 | 0.072005407 | 0.202203450 | +180.82% |
+| NDCG@5 | 0.049573397 | 0.174461469 | +251.93% |
+| NDCG@10 | 0.053329522 | 0.178387853 | +234.50% |
+
+HR@10 达到归档值的 **2.82099 倍**，绝对增加 0.139832517；NDCG@10 达到 **3.34501 倍**，绝对增加 0.125058330。两者仍低于归档 TIGER 的 0.580976458／0.468769537。click、collect、cart 的 HR@10／NDCG@10 也均提高，辅助结果保留在 JSON 中。
+
+已核验：退出成功、权重已保存、源码／config／原始数据／缓存指纹未改变、6,329 条逐用户指标有限且均值与汇总一致、四个 FFN LayerNorm weight/bias 张量均偏离初始化值并实际学到参数。最佳权重 SHA256 为 `f2c79abe19f577f7fd5220457d8c26ae1cfb5dbd8c6ca8e5542ed0ed59e2810b`；结果 SHA256 为 `9c42b397f085f0baa180931e9863f31e9d221e3b0d4dd46f5d169997e81ca1f6`。
+
+证据为运行根目录下的 `sasrec/seed_42/results/result-smb_dis.json`、其 `result-smb_dis/user_level_metrics_behavior_alipay.json`、`run_manifest.finish.json` 和 `verified-test-comparison.json`。旧对照为 `2026-10-27-tmall-baseline-provenance.zh.md` 中已匹配的 `results_wzf.zip` 文件。
+
+这是修复后新运行与论文归档结果的数值比较。历史超参／训练版本缺失，不能严格将所有提升归因于 FFN 单一因素；旧结果缺少 UID 对齐的逐用户指标，不能据此给出配对显著性结论。
