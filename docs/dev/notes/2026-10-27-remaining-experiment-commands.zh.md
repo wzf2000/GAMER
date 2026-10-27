@@ -58,12 +58,15 @@ PY
 
 两个 plan 均包含未执行的候选配置，不代表会自动训练其中所有组。以下 runner 只执行明确指定的变体；去掉 `--execute` 即为 dry-run。每组依次执行 train → validation ranking → test ranking，训练内部按 validation loss 保存 best model；失败即停止，已有输出即拒绝，不自动覆盖或续训。它不会推断本服务器或其他机器的任务状态，阶段顺序由用户按下列清单安排。
 
+下列运行命令均显式列出 `--gpu 0,1 --port 2314`；直接换成 `--gpu 2,5 --port 24567` 即可在指定卡上完成训练和评测，无需修改同卡数的 plan。`--gpus` 是 `--gpu` 的别名；工具不会自动选择或占用其他卡，也不保证所选卡空闲。
+
 单卡要重新生成 plan 为 `--gpu 0 --gradient_accumulation_steps 16`；四卡为 `--gpu 0,1,2,3 --gradient_accumulation_steps 4`，保持有效 batch=2048。不要只在 runner 中改变训练卡数。同一优先级可用不同两卡组合/不同端口并行，但先完成缓存预热，且同一配置仅分配一台机器。
 
 ## 1. P0-A：no-gate 和 shared-FFN
 
 ```bash
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-p0/plan.json \
   --variants no_gate shared_ffn --seeds 42 --execute
 ```
@@ -76,6 +79,7 @@ python scripts/run_rebuttal_experiment.py \
 
 ```bash
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-p0/plan.json \
   --variants lambda_0.01 lambda_0.1 --seeds 42 --execute
 ```
@@ -84,6 +88,7 @@ python scripts/run_rebuttal_experiment.py \
 
 ```bash
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-p0/plan.json \
   --variants zero_prior --seeds 42 --execute
 ```
@@ -120,6 +125,7 @@ for task in ('smb_explicit_valid', 'smb_explicit'):
     load_SMB_test_dataset(**settings, test_task=task)
 PY
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-tmall/plan.json \
   --variants full weak_auxiliary random_auxiliary_seed42 --seeds 42 --execute
 ```
@@ -132,6 +138,7 @@ python scripts/run_rebuttal_experiment.py \
 
 ```bash
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-seeds/plan.json \
   --variants full no_qkv --seeds 43 44 --execute
 ```
@@ -140,6 +147,7 @@ python scripts/run_rebuttal_experiment.py \
 
 ```bash
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-seeds/plan.json \
   --variants no_gate shared_ffn zero_prior --seeds 43 44 --execute
 ```
@@ -150,6 +158,7 @@ python scripts/run_rebuttal_experiment.py \
 
 ```bash
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-seeds/plan.json \
   --variants plain_matched --seeds 43 44 --execute
 ```

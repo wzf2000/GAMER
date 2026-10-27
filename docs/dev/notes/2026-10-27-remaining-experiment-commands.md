@@ -58,12 +58,15 @@ PY
 
 The plans contain candidates, not automatically scheduled runs. The runner executes only the selected entries. Remove `--execute` to validate/print commands. Each entry runs training, validation ranking and test ranking in order; training selects the best model by validation loss. Existing outputs are refused, and failure stops later phases/jobs. It neither infers other machines' state nor automatically enforces global stage completion.
 
+Every runner command below explicitly includes `--gpu 0,1 --port 2314`. Replace it with, for example, `--gpu 2,5 --port 24567` to use that pair for training and ranking without changing a same-device-count plan. `--gpus` is an alias for `--gpu`. The tools do not automatically select other cards or establish that the specified cards are free.
+
 For one GPU regenerate the plan with `--gpu 0 --gradient_accumulation_steps 16`; for four use `--gpu 0,1,2,3 --gradient_accumulation_steps 4`, preserving effective batch 2048. Do not change only the training GPU count at execution. Same-priority jobs can run on distinct GPU pairs and ports after cache warming; allocate each configuration to only one machine.
 
 ## 1. P0-A: no-gate and shared-FFN
 
 ```bash
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-p0/plan.json \
   --variants no_gate shared_ffn --seeds 42 --execute
 ```
@@ -76,6 +79,7 @@ After the component stage:
 
 ```bash
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-p0/plan.json \
   --variants lambda_0.01 lambda_0.1 --seeds 42 --execute
 ```
@@ -84,6 +88,7 @@ Lambda 0.05 is the existing Full. Only if historical FixedBias cannot be reused 
 
 ```bash
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-p0/plan.json \
   --variants zero_prior --seeds 42 --execute
 ```
@@ -120,6 +125,7 @@ for task in ('smb_explicit_valid', 'smb_explicit'):
     load_SMB_test_dataset(**settings, test_task=task)
 PY
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-tmall/plan.json \
   --variants full weak_auxiliary random_auxiliary_seed42 --seeds 42 --execute
 ```
@@ -132,6 +138,7 @@ Predeclare Full versus no-QKV as the key repeat comparison, rather than choosing
 
 ```bash
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-seeds/plan.json \
   --variants full no_qkv --seeds 43 44 --execute
 ```
@@ -140,6 +147,7 @@ If the final claim needs other component repeats, additionally run the relevant 
 
 ```bash
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-seeds/plan.json \
   --variants no_gate shared_ffn zero_prior --seeds 43 44 --execute
 ```
@@ -150,6 +158,7 @@ The server already runs plain_matched seed 42. For the full three-seed capacity 
 
 ```bash
 python scripts/run_rebuttal_experiment.py \
+  --gpu 0,1 --port 2314 \
   --plan ./results/rebuttal/remaining-seeds/plan.json \
   --variants plain_matched --seeds 43 44 --execute
 ```
