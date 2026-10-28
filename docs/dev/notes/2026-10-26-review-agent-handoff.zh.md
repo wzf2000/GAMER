@@ -18,6 +18,8 @@
 
 click／p3s 及 merged 也均已完成。Merged HR@10／NDCG@10 为 Full **0.208987251／0.073674579**、普通 decoder **0.212072800／0.074915730**、no-QKV **0.212652320／0.075616105**。已独立核验逐用户均值、各行为 UID／target 一致性及 merged 加权值。该单 seed 下 no-QKV 的 cvr HR@10／NDCG@10 高于 Full，Full 与普通 decoder 的这两项指标接近，没有多 seed 显著性结论。完整事实、协议、复用来源及路径见 `2026-10-28-p0-final-test.zh.md`。汇总文件为 `results/rebuttal/2026-10-26-p0/{full,plain_matched,no_qkv}/seed_42/test-ranking.json`；完整 CSV 和核验文件位于 `results/rebuttal/2026-10-28-final-test/`。
 
+**找回投稿命令后的配方对照：** 用户提供了原 TH-FixedSoft 训练命令，显式 lr=5e-4、每卡 batch 128、梯度累积 8、warmup 0.04、patience 20、temperature 0.7、最多 200 epoch、历史 100、任务及 original SID 名称均与新 Full 一致。结合作者此前的四卡 A800 资源记录，旧有效 batch 为 **4096**，新双卡 A100 的 Full／plain／no-QKV 系列为 **2048**。模型模板未变，在当前输入上解析后与新 Full 配置完全一致。因此本轮受控系列与投稿的 optimizer batch 不同，不能说 lambda、QKV／gate／FFN 或学习率改变了。旧 launcher／最终 checkpoint／数据 hash／测试命令仍缺失，旧 test 与 validation 结果文件应继续区分。详见 `2026-10-28-full-submission-recipe-comparison.zh.md`。
+
 1. **ShortVideoAD 数据口径尚不能从实验仓库确定。** 当前代码读取已经处理好的 `ShortVideoAD.SMB.time.json`，将时间字符串减去用户首次交互时间并除以 1800，得到半小时单位。这个归一化不代表归因窗口。仓库没有可确认时间戳业务含义、归因窗口、延迟转化截断/补偿或点击回填规则的上游实现。需数据生产方提供字段与归因/快照说明，或生成这些 JSON 的脚本；目前不能声称“使用转化发生时间”“窗口为某个长度”或“没有回填”。证据：`SeqRec/datasets/session_behavior/base.py:77`、`:126`。
 
 2. **公开数据只能确认下游切分，不能确认上游行为链合并。** 未找到 Tmall/JData 原始日志到最深行为状态序列的预处理脚本。代码加载既有 session，再将倒数第二个 session 留作 validation、最后一个 session 留作 test，之后构造训练前缀、增强与截断。合并窗口、是否跨 session、合并与 session 划分先后顺序仍需原始预处理脚本或记录。不能从 `Tmall-24-0.25` 的命名推断 24 小时合并窗口。V2 数据文件主要链接到此前处理后文件，不证明保留了 raw。证据：`SeqRec/datasets/session_behavior/base.py:98`；`data/Tmall-24-0.25-V2/`、`data/JData-V2/`。

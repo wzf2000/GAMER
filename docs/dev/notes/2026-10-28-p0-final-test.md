@@ -4,7 +4,7 @@ Chinese counterpart: `2026-10-28-p0-final-test.zh.md`. This evaluation follows t
 
 ## Checkpoint selection and comparability
 
-All runs use ShortVideoAD, original SID `.index.json`, seed 42, `smb_explicit_decoder_4`, and the recorded effective training batch 2048. Training manifests identify the training checkout and its dirty-workspace flag. Model selection uses **all-behavior validation loss**, not test ranking.
+All runs use ShortVideoAD, original SID `.index.json`, seed 42, `smb_explicit_decoder_4`, and the recorded effective training batch 2048. Training manifests identify the training checkout and its dirty-workspace flag. The subsequently recovered submission command has the same per-device batch 128 and accumulation 8, but the author-reported four-rank A800 run implies effective batch 4096, versus 2048 here; see `2026-10-28-full-submission-recipe-comparison.md`. This controlled new series is consequently not an exact reproduction of that historical optimizer-batch recipe. Model selection uses **all-behavior validation loss**, not test ranking.
 
 | Variant | Parameters | Best epoch / step | Best validation loss | Final epoch |
 | --- | ---: | --- | ---: | ---: |

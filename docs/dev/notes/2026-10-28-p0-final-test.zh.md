@@ -4,7 +4,7 @@
 
 ## 选模与可比性
 
-三组均使用 ShortVideoAD、original SID `.index.json`、seed 42、`smb_explicit_decoder_4`，记录的有效训练 batch 为 2048。训练 manifest 标明训练 checkout 及其工作区修改标志。按**全行为 validation loss** 选模，不按 test ranking 选模。
+三组均使用 ShortVideoAD、original SID `.index.json`、seed 42、`smb_explicit_decoder_4`，记录的有效训练 batch 为 2048。训练 manifest 标明训练 checkout 及其工作区修改标志。随后找回的投稿命令每卡 batch 128、梯度累积 8 与本次一致，但作者记录的旧四卡 A800 对应有效 batch 4096，本次为 2048；详见 `2026-10-28-full-submission-recipe-comparison.zh.md`。因此本轮受控系列不等于严格复现该历史 optimizer batch 配方。按**全行为 validation loss** 选模，不按 test ranking 选模。
 
 | 变体 | 参数量 | 最佳 epoch／step | 最佳 validation loss | 最终 epoch |
 | --- | ---: | --- | ---: | ---: |
