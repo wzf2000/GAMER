@@ -47,7 +47,7 @@ The author recovered the main-method command: `dataset=JData-V3 cid=1 shuffle=1 
 
 The script divides batch 512 by four GPUs, so **microbatch 128 × four GPUs × accumulation 8 = effective batch 4096**. The new run matches those explicit settings. Weight decay 0.01, cosine, AdamW, seed42, FP32 and maximum length1024 are resolved defaults; the old command does not prove those defaults were unchanged on its original checkout. `CUDA_LAUNCH_BLOCKING=1` is retained from the training shell; W&B is offline for this run. Ranking uses four GPUs, per-device batch32, beam20, all five behaviors and UID/original-target export.
 
-The sole authorized variant started at **2026-10-31 19:59:13**, on GPU **0,1,2,3**, four **A100-SXM4-80GB** cards, port **24631**. Supervisor PID at launch: **2440452**. The start manifest confirms **20,381,184 trainable parameters**, SDPA, FP32, the intended five identities/four levels, ranks `[2,1,0,0,3]`, both cache counts and the effective batch. This document records launch and initial verification, not training completion.
+The sole authorized variant started at **2026-10-31 19:59:13**, on GPU **0,1,2,3**, four **A100-SXM4-80GB** cards, port **24631**. Supervisor PID at launch: **2440452**. The start manifest confirms **20,381,184 trainable parameters**, SDPA, FP32, the intended five identities/four levels, ranks `[2,1,0,0,3]`, both cache counts and the effective batch. Completion and final results are recorded below.
 
 Runtime root: `results/rebuttal/2026-10-31-jdata-v3-hierarchy/`.
 
@@ -69,7 +69,32 @@ python scripts/run_rebuttal_experiment.py \
   --gpu 0,1,2,3 --port 24631 --execute
 ```
 
-It is already running; do not launch a duplicate. It selects final weights by **all-behavior validation loss**, then runs standalone validation ranking and test ranking automatically. Failures stop subsequent phases. The supervisor exports the final verified CSV; no result is claimed before those phases finish. The obsolete V2 draft at `results/rebuttal/2026-10-31-jdata-random/` was never launched.
+This pipeline has completed; do not rerun it into the existing output directory. It selected final weights by **all-behavior validation loss**, then ran standalone validation ranking and test ranking automatically. The obsolete V2 draft at `results/rebuttal/2026-10-31-jdata-random/` was never launched.
+
+## Completed test and main-method comparison
+
+Training, validation ranking and test ranking all returned **0**. Training ended at **2026-10-31 21:12:22** after **35 epochs / 455 steps**. The selected checkpoint is **epoch15 / step195**, all-behavior validation loss **2.279292345**. Root weights match `checkpoint-195` byte-for-byte, SHA256 `328b51cabd9f0ef1fc0401a0987a40e7b06c6499e223f87bd489f964668a195b`. Final test/verification completed at **21:17:03**; GPU0–3 are released.
+
+Training including periodic validation took **4,389.52 s (1h13m09.52s)**; standalone all-five-behavior validation ranking took **141.98 s**, test ranking **137.49 s**. The complete supervised process took approximately **1h17m50s**. These wall times include setup/export overhead and are not isolated training/inference efficiency measurements. The author subsequently supplied the historical V3 W&B final log: it also stopped at epoch35, with `train_runtime=18325.9655s` and final validation loss2.436602116. That excerpt does not recover the historical best epoch or checkpoint; do not substitute the new best epoch15 for the old unknown value.
+
+**Test / buy, 230 users:** the reference below is the author-supplied JData-V3 main-method archive, not validation.
+
+| Metric | Archived main method | Prescribed Random | Random minus main |
+| --- | ---: | ---: | ---: |
+| HR@1 | 0.395652174 | 0.395652174 | 0 |
+| HR@5 | 0.652173913 | 0.656521739 | +0.004347826 |
+| HR@10 | 0.726086957 | 0.726086957 | 0 |
+| Recall@1 | 0.385403727 | 0.385403727 | 0 |
+| Recall@5 | 0.633022774 | 0.637370600 | +0.004347826 |
+| Recall@10 | 0.709834369 | 0.709834369 | 0 |
+| NDCG@5 | 0.525383480 | 0.527333302 | +0.001949822 |
+| NDCG@10 | 0.550338765 | 0.550869572 | +0.000530807 |
+
+HR@10 is **167/230** in both runs; HR@5 is **150/230 → 151/230**. NDCG@10 increases **0.09645% relative**, or **0.05308 percentage points**. These point estimates are essentially unchanged and do not show a buy-ranking advantage for the natural auxiliary ordering over this prescribed reversal. This is not a significance or general hierarchy-necessity conclusion.
+
+The completed checkpoint was independently loaded on CPU: all four TH layers resolve the requested lookup `[0,3,2,1,1,4]`. Replacing that lookup with the natural mapping in memory, while retaining the exact same weights, changes logits on a constructed five-behavior input (maximum absolute change **0.01322937**). The intervention is therefore active. Buy remains the highest level in both maps, so its query row has **zero direct soft-prior bias to every behavior** in both cases. Changes reach buy prediction through historical representations and training; this is narrower than scrambling all hierarchy relations or removing behavior conditioning.
+
+Independent verification rechecked phase receipts, actual `test` metadata, root/best weights, unchanged raw/index/cache/archive hashes, all five per-user metric means/UID/target-export bindings, and merged weighted values for validation and test. The audit script passed prescribed flake8 and compileall; no production source or checkpoint was changed. Provenance and full eight-metric comparison: `results/rebuttal/2026-10-31-jdata-v3-hierarchy/verified-test-buy-comparison.json` and `test-buy-comparison.csv`. Actual test result: `random_auxiliary_reversed/seed_42/test-ranking.json` under the same root. Complete validation/test metrics are in `metrics.csv`.
 
 ## Remaining comparability limits
 

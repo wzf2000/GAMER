@@ -47,7 +47,7 @@ JData-V3 元数据及输入链接沿用历史 V3 定义，复用本机 JData 的
 
 脚本将 batch512 除以四张卡，因此 **每卡128 × 四卡 × 累积8 = 有效 batch4096**。本次按这些显式参数对齐。Weight decay0.01、cosine、AdamW、seed42、FP32、最大长度1024 来自解析后的默认值，原命令本身不能证明旧 checkout 上这些默认值没有变过。保留训练 shell 的 `CUDA_LAUNCH_BLOCKING=1`，本次 W&B 使用 offline。Ranking 使用四卡、每卡 batch32、beam20，评测全部五种行为并导出 UID／原始 target。
 
-本次唯一启动的变体于 **2026-10-31 19:59:13** 在 GPU **0,1,2,3**（四张 **A100-SXM4-80GB**）启动，端口 **24631**，启动时 supervisor PID 为 **2440452**。实际 start manifest 确认 **20,381,184 个可训练参数**、SDPA、FP32、五身份／四层级、ranks `[2,1,0,0,3]`、两种缓存样本数及有效 batch。本文记录启动与初步核验，不表示训练已经完成。
+本次唯一启动的变体于 **2026-10-31 19:59:13** 在 GPU **0,1,2,3**（四张 **A100-SXM4-80GB**）启动，端口 **24631**，启动时 supervisor PID 为 **2440452**。实际 start manifest 确认 **20,381,184 个可训练参数**、SDPA、FP32、五身份／四层级、ranks `[2,1,0,0,3]`、两种缓存样本数及有效 batch。完成状态与最终结果见下文。
 
 运行根目录：`results/rebuttal/2026-10-31-jdata-v3-hierarchy/`。
 
@@ -69,7 +69,32 @@ python scripts/run_rebuttal_experiment.py \
   --gpu 0,1,2,3 --port 24631 --execute
 ```
 
-该任务已经启动，请勿重复执行。它按 **全行为 validation loss** 选择最终权重，再自动进行独立 validation ranking 和 test ranking；任一阶段失败即停止后续阶段。Supervisor 会导出最终核验 CSV；在相关阶段结束前不报告最终结果。此前的 V2 草稿 `results/rebuttal/2026-10-31-jdata-random/` 从未启动。
+该任务已经完成，请勿在既有输出目录重复执行。它按 **全行为 validation loss** 选择最终权重，再自动进行独立 validation ranking 和 test ranking。此前的 V2 草稿 `results/rebuttal/2026-10-31-jdata-random/` 从未启动。
+
+## 完成后的 test 与主方法对照
+
+训练、validation ranking、test ranking 的退出码均为 **0**。训练于 **2026-10-31 21:12:22** 在 **epoch35／step455** 结束；选定 checkpoint 为 **epoch15／step195**，全行为 validation loss **2.279292345**。Root 权重与 `checkpoint-195` 逐字节相同，SHA256 为 `328b51cabd9f0ef1fc0401a0987a40e7b06c6499e223f87bd489f964668a195b`。最终 test／核验于 **21:17:03** 完成，GPU0–3 已释放。
+
+包含周期 validation 的训练耗时 **4,389.52 秒（1小时13分09.52秒）**，全部五行为的独立 validation ranking 耗时 **141.98 秒**，test ranking **137.49 秒**；完整 supervised 流程约 **1小时17分50秒**。这些 wall time 包含初始化／导出开销，不是独立纯训练／推理效率测量。作者随后补充了历史 V3 W&B 末尾日志：同样在 epoch35 结束，`train_runtime=18325.9655s`，最后 validation loss2.436602116；该片段没有恢复历史 best epoch／checkpoint，不能把本次 best epoch15 代填成旧值。
+
+**Test／buy，230 个用户：** 下表对照为用户提供的 JData-V3 主方法归档，不是 validation。
+
+| 指标 | 归档主方法 | 本次指定 Random | Random 减主方法 |
+| --- | ---: | ---: | ---: |
+| HR@1 | 0.395652174 | 0.395652174 | 0 |
+| HR@5 | 0.652173913 | 0.656521739 | +0.004347826 |
+| HR@10 | 0.726086957 | 0.726086957 | 0 |
+| Recall@1 | 0.385403727 | 0.385403727 | 0 |
+| Recall@5 | 0.633022774 | 0.637370600 | +0.004347826 |
+| Recall@10 | 0.709834369 | 0.709834369 | 0 |
+| NDCG@5 | 0.525383480 | 0.527333302 | +0.001949822 |
+| NDCG@10 | 0.550338765 | 0.550869572 | +0.000530807 |
+
+HR@10 均为 **167/230**，HR@5 为 **150/230 → 151/230**。NDCG@10 相对增加 **0.09645%**，即绝对 **0.05308 个百分点**。这些点估计基本不变，没有显示自然辅助层级在 buy ranking 上优于本次指定反转；这不是显著性或一般性的“层级是否必要”结论。
+
+已在 CPU 独立加载真实完成 checkpoint，四个 TH 层均解析出指定 lookup `[0,3,2,1,1,4]`；固定相同权重，仅在内存中换回自然 lookup，在一个包含五行为的构造输入上 logits 最大绝对变化为 **0.01322937**，确认干预实际生效。由于两种映射中 buy 都最高，buy query 对所有行为的直接 soft-prior bias **均为零**，变化主要经历史表示和训练过程影响 buy 预测。因此本实验的范围小于打乱全部层级关系或去掉行为条件化。
+
+已独立复核阶段退出记录、实际 `test` metadata、root／best 权重、raw／index／cache／归档 hash 未变、五行为逐用户均值／UID／target 导出绑定，以及 validation/test 的 merged 加权值。核验脚本通过规定 flake8 和 compileall，没有修改生产源码或 checkpoint。来源核验及八指标对照位于 `results/rebuttal/2026-10-31-jdata-v3-hierarchy/verified-test-buy-comparison.json` 和 `test-buy-comparison.csv`；实际 test 文件为同根目录下的 `random_auxiliary_reversed/seed_42/test-ranking.json`；完整 validation/test 指标为 `metrics.csv`。
 
 ## 尚需核实的可比性
 

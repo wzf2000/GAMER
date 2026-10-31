@@ -4,6 +4,8 @@
 
 **2026-10-31 层级纠正与启动：** 作者明确论文 Tmall 主方法采用弱辅助层级，而不是早期实验清单的 legacy identity-order 对照。Tmall 层级干预暂缓，改做 JData-V3。所给主方法结果压缩包的名义 test buy HR@10／NDCG@10 为 **0.726086957／0.550338765**，230 个用户。补充命令为四卡、每卡128、累积8，即有效 batch4096。按要求预先指定 **pv=2、click=1、cart=collect=0、buy=3**，已于 **2026-10-31 19:59:13 Asia/Shanghai** 在四张 A100 启动，后续自动进行 validation／test ranking。`389c99a` 增加 V3 显式启用支持，保持 legacy 默认兼容，并与历史 V3 实现通过权重／logits／loss／梯度／cache 一致性测试。启动时尚无最终结果；历史数据／索引／checkpoint／评测来源仍需核对。详见 `2026-10-31-jdata-v3-hierarchy-intervention.zh.md`。
 
+**JData 干预已完成：** 训练及两个 ranking split 已于 **2026-10-31 21:17:03 Asia/Shanghai** 成功完成；按 validation loss2.279292345 选择 epoch15／step195，在 epoch35 早停。Test／buy HR@10 **0.726086957**，与归档主方法完全一致；NDCG@10 **0.550869572**，主方法 **0.550338765**，相对 **+0.09645%**；HR@5 从150/230增加到151/230。该指定反转／seed42 下 buy 基本持平，没有显示自然排序优势，也没有显著性结论。已确认 checkpoint 的 rank lookup 实际生效；但 buy 始终最高，两种映射对 buy query 的直接 prior 均为零。完整指标、适用范围、hash 及独立核验见 JData 记录及 `results/rebuttal/2026-10-31-jdata-v3-hierarchy/verified-test-buy-comparison.json`；旧 checkpoint／索引／UID／评测来源仍未补齐。
+
 **2026-10-27 补充：** 用户提供的两个 results 压缩包已恢复 Tmall 表格三行的结果来源。`results_wzf.zip` 中 SASRec=`smb_dis_sample/SASRec`、SASRec_B=`smb_dis_sample_diff/SASRec`、TIGER=`smb/TIGER`，均取 alipay 行，六个四位小数与截图完全匹配。TIGER 结果标记 CID-shuffle-64，未显式编码行为；另一个 `smb_explicit/TIGER` 是不同结果。仍缺历史 checkpoint/config/命令、调参和运行 manifest，不能确认最终超参。详见 `2026-10-27-tmall-baseline-provenance.zh.md`；下文“未找到 baseline 结果”的旧快照应结合这次更新阅读。
 
 **SASRec 正确性补充：** CPU 探针确认当前两个 SASRec 变体的 FFN 残差条件反向，由 `7aae2a3` 引入，默认跳过 FFN 残差／dropout／LayerNorm。这是 baseline 实现缺陷，但对历史分数的影响尚未测量。应优先纠正并受控重训，再将 TIGER/SASRec 大幅差距解释为模型能力。详见 `2026-10-27-sasrec-tiger-gap-audit.zh.md`。
