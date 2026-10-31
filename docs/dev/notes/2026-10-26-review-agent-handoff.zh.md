@@ -6,6 +6,8 @@
 
 **JData 干预已完成：** 训练及两个 ranking split 已于 **2026-10-31 21:17:03 Asia/Shanghai** 成功完成；按 validation loss2.279292345 选择 epoch15／step195，在 epoch35 早停。Test／buy HR@10 **0.726086957**，与归档主方法完全一致；NDCG@10 **0.550869572**，主方法 **0.550338765**，相对 **+0.09645%**；HR@5 从150/230增加到151/230。该指定反转／seed42 下 buy 基本持平，没有显示自然排序优势，也没有显著性结论。已确认 checkpoint 的 rank lookup 实际生效；但 buy 始终最高，两种映射对 buy query 的直接 prior 均为零。完整指标、适用范围、hash 及独立核验见 JData 记录及 `results/rebuttal/2026-10-31-jdata-v3-hierarchy/verified-test-buy-comparison.json`；旧 checkpoint／索引／UID／评测来源仍未补齐。
 
+**八张A100计时估算：** ShortVideoAD完整TH-FixedSoft、original SID／factor4，在八张A100-SXM4-80GB上使用每卡128、累积4，保持有效batch4096。首轮已完成，约 **Training228秒＋validation-loss Evaluation136.9415秒≈365秒**。按作者明确要求采用此阶段计时，排除checkpoint后收尾等待；再按作者指定的 **94轮** 外推，Training＋每轮Evaluation约 **9.53小时（9小时32分）**，不是实测94轮耗时。不包含初始化、checkpoint保存／加载及独立ranking；首轮单次测量不等于稳定阶段均值，学习率／warmup仍保留200轮计划。证据、精度限制及已单独修复验证的首次checkpoint DDP同步问题见 `2026-10-31-shortvideoad-eight-a100-timing.zh.md` 和忽略的运行产物 `accepted-epoch-summary.json`。
+
 **2026-10-27 补充：** 用户提供的两个 results 压缩包已恢复 Tmall 表格三行的结果来源。`results_wzf.zip` 中 SASRec=`smb_dis_sample/SASRec`、SASRec_B=`smb_dis_sample_diff/SASRec`、TIGER=`smb/TIGER`，均取 alipay 行，六个四位小数与截图完全匹配。TIGER 结果标记 CID-shuffle-64，未显式编码行为；另一个 `smb_explicit/TIGER` 是不同结果。仍缺历史 checkpoint/config/命令、调参和运行 manifest，不能确认最终超参。详见 `2026-10-27-tmall-baseline-provenance.zh.md`；下文“未找到 baseline 结果”的旧快照应结合这次更新阅读。
 
 **SASRec 正确性补充：** CPU 探针确认当前两个 SASRec 变体的 FFN 残差条件反向，由 `7aae2a3` 引入，默认跳过 FFN 残差／dropout／LayerNorm。这是 baseline 实现缺陷，但对历史分数的影响尚未测量。应优先纠正并受控重训，再将 TIGER/SASRec 大幅差距解释为模型能力。详见 `2026-10-27-sasrec-tiger-gap-audit.zh.md`。
