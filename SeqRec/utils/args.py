@@ -92,6 +92,7 @@ class ScriptTrainingArgs:
     wandb_run_name: str = "default"
     debug: bool = False
     record_run_manifest: bool = False
+    benchmark_epochs: int = 0
 
 
 @dataclass
@@ -181,6 +182,7 @@ ARGUMENT_HELP = {
     "find_unused_parameters": "Find unused parameters",
     "wandb_run_name": "Name for the Weights & Biases run",
     "debug": "Enable debug mode without logging to WandB",
+    "benchmark_epochs": "Stop after this many complete epochs and record CUDA-synchronized phase times; 0 disables benchmarking without changing the planned scheduler.",
 }
 
 

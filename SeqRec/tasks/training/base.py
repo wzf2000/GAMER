@@ -92,6 +92,8 @@ class BaseGenerativeTrainTask(MultiGPUTask):
         model_args = parsed_args.model
         data_args = parsed_args.dataset
         script_args = parsed_args.training
+        if script_args.benchmark_epochs < 0:
+            raise ValueError('benchmark_epochs must be nonnegative.')
         run_name = self.get_run_name(model_args, script_args)
 
         self.init(
@@ -169,6 +171,9 @@ class BaseGenerativeTrainTask(MultiGPUTask):
             patience=script_args.patience,
         )
         self.after_trainer_created(trainer)
+        if script_args.benchmark_epochs:
+            from SeqRec.trainers.epoch_timing import EpochTimingCallback
+            trainer.add_callback(EpochTimingCallback(script_args.benchmark_epochs, model_args.output_dir))
         model.config.use_cache = False
         if script_args.record_run_manifest and self.local_rank == 0:
             from SeqRec.utils.rebuttal import record_training_manifest
