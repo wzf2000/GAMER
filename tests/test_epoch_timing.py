@@ -72,6 +72,21 @@ class EpochTimingTest(unittest.TestCase):
             for field in ('train_seconds', 'validation_seconds', 'checkpoint_seconds'):
                 self.assertGreaterEqual(report['epochs_max_across_ranks'][0][field], 0)
 
+    def test_first_checkpoint_identity_is_synchronized_before_loading_best(self):
+        with TemporaryDirectory() as directory:
+            (Path(directory) / 'checkpoint-2').mkdir()
+            callback = EpochTimingCallback(1, directory)
+            callback.current = {}
+            callback.epoch_start, callback.evaluation_end = 1.0, 2.0
+            args = SimpleNamespace(load_best_model_at_end=True)
+            state = SimpleNamespace(best_global_step=2, best_model_checkpoint=None)
+            with patch('SeqRec.trainers.epoch_timing.synchronize_device'), patch('torch.cuda.is_available', return_value=False), \
+                    patch('SeqRec.trainers.epoch_timing.dist.is_initialized', return_value=True), \
+                    patch('SeqRec.trainers.epoch_timing.dist.barrier') as barrier:
+                callback.on_save(args, state, None)
+            barrier.assert_called_once()
+            self.assertEqual(state.best_model_checkpoint, str(Path(directory) / 'checkpoint-2'))
+
 
 if __name__ == '__main__':
     unittest.main()

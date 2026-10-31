@@ -58,6 +58,15 @@ class EpochTimingCallback(TrainerCallback):
                             eval_loss=(metrics or {}).get('eval_loss'))
 
     def on_save(self, args, state, control, **kwargs):
+        if dist.is_initialized():
+            dist.barrier()
+        if getattr(args, 'load_best_model_at_end', False) and state.best_global_step is not None:
+            # HF 4.51 can check this directory before rank0 creates it. An immediate
+            # first-epoch stop must give every rank the same load-best barrier path.
+            best = self.output_dir / f'checkpoint-{state.best_global_step}'
+            if not best.is_dir():
+                raise RuntimeError(f'The benchmark best checkpoint was not saved: {best}')
+            state.best_model_checkpoint = str(best)
         synchronize_device()
         self.checkpoint_end = time.perf_counter()
         self.current.update(checkpoint_seconds=self.checkpoint_end - self.evaluation_end,
