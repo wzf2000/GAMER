@@ -9,6 +9,8 @@ import shlex
 import subprocess
 import sys
 
+from SeqRec.utils.behavior_hierarchy import configure_behavior_hierarchy, load_behavior_schema
+
 
 def file_sha256(path):
     digest = hashlib.sha256()
@@ -39,6 +41,9 @@ def dataset_fingerprints(data_path, dataset, index_file):
     fingerprints = {}
     for path in [root / f'{dataset}{index_file}', root / f'{dataset}.behavior_level.json']:
         fingerprints[path.name] = {'path': str(path.resolve()), 'sha256': file_sha256(path)}
+    schema = root / f'{dataset}.behavior_schema.json'
+    if schema.exists():
+        fingerprints[schema.name] = {'path': str(schema.resolve()), 'sha256': file_sha256(schema)}
     for suffix in ('inter', 'behavior', 'session', 'time'):
         path = root / f'{dataset}.SMB.{suffix}.json'
         stat = path.stat()
@@ -96,6 +101,9 @@ def effective_config(base_model, data_path, dataset, index_file, max_his_len, mo
     values.update(vocab_size=len(tokenizer), num_behavior=len(levels), behavior_maps={ids[0]: index for index, ids in enumerate(behavior_ids)},
                   num_positions=num_positions, num_experts=2 if config.Moe_behavior_only else num_positions + 1,
                   n_positions=max_his_len + 1, model_max_length=model_max_length, use_user_token=False, use_behavior_token=True)
+    if load_behavior_schema(root, dataset, levels).get('separate_behavior_identity_and_level', False):
+        configure_behavior_hierarchy(config, values['behavior_maps'], levels)
+        values.update(separate_behavior_identity_and_level=True, behavior_level_maps=config.behavior_level_maps, num_behavior_levels=config.num_behavior_levels)
     if values.get('th_relation_bias_type') != 'table' or values.get('th_relation_bias_trainable', True):
         raise ValueError('This experiment planner requires a frozen relation table.')
     if values.get('th_relation_bias_init') != 'soft':

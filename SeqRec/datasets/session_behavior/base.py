@@ -8,6 +8,7 @@ from loguru import logger
 from torch.utils.data import Dataset
 
 from SeqRec.utils.runtime import get_tqdm
+from SeqRec.utils.behavior_hierarchy import load_behavior_schema
 
 
 class BaseSMBDataset(Dataset):
@@ -15,7 +16,7 @@ class BaseSMBDataset(Dataset):
     Base class for session-wise multi-behavior sequential recommendation datasets.
     """
 
-    def __init__(self, dataset: str, data_path: str, max_his_len: int, index_file: str, mode: str, train_session: bool=True):
+    def __init__(self, dataset: str, data_path: str, max_his_len: int, index_file: str, mode: str, train_session: bool = True):
         super().__init__()
 
         self.dataset: str = dataset
@@ -140,6 +141,8 @@ class BaseSMBDataset(Dataset):
         )
         with open(os.path.join(self.data_path, self.dataset + '.behavior_level.json'), 'r') as f:
             self.behavior_level: dict[str, int] = json.load(f)
+        self.behavior_schema = load_behavior_schema(self.data_path, self.dataset, self.behavior_level)
+        self.separate_behavior_identity_and_level = self.behavior_schema.get('separate_behavior_identity_and_level', False)
         # get the max level of behaviors
         self.max_behavior_level = max(self.behavior_level.values())
         # get the target behavior
@@ -284,10 +287,10 @@ class BaseSMBDataset(Dataset):
                     inter_data.append({
                         "item": self.get_behavior_item(items[i], behaviors[i]),
                         "inters": self._get_inters(items[:i], behaviors[:i]),
-                        "session_ids": self._generate_session_ids(sids[:i+1]),
-                        "extended_session_ids": self._generate_extended_session_ids(sids[:i+1]),
-                        "actions": self._generate_actions(behaviors[:i+1]),
-                        "time": self._generate_times(times[:i+1]),
+                        "session_ids": self._generate_session_ids(sids[:i + 1]),
+                        "extended_session_ids": self._generate_extended_session_ids(sids[:i + 1]),
+                        "actions": self._generate_actions(behaviors[:i + 1]),
+                        "time": self._generate_times(times[:i + 1]),
                         "behavior": behaviors[i],
                     })
 

@@ -1,0 +1,4 @@
+{
+  "weak_auxiliary": {"pv": 0, "click": 1, "cart": 2, "collect": 2, "buy": 3},
+  "random_auxiliary_reversed": {"pv": 2, "click": 1, "cart": 0, "collect": 0, "buy": 3}
+}

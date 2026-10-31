@@ -28,6 +28,7 @@ from SeqRec.models.generative.common.cache import prepare_cache_position_and_pos
 from SeqRec.models.generative.common.decoder_loop import prepare_decoder_forward_state, run_temporal_hierarchical_decoder_layers
 from SeqRec.models.generative.common.wrappers import CustomCausalLMWrapperMixin
 from SeqRec.models.generative.common.session_masks import apply_attention_padding_mask, build_mask_context, build_in_item_self_mask, build_incremental_causal_mask
+from SeqRec.utils.behavior_hierarchy import behavior_level_lookup
 
 
 class Qwen3TemporalHierarchicalAttention(nn.Module):
@@ -44,6 +45,7 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
         self.th_attention_mode = getattr(config, "th_attention_mode", "relation_bias")
         self.th_use_behavior_qkv = bool(getattr(config, "th_use_behavior_qkv", True))
         self.th_use_output_gate = bool(getattr(config, "th_use_output_gate", True))
+        self.num_behavior_levels = int(getattr(config, 'num_behavior_levels', config.num_behavior))
 
         self.q_proj = nn.Linear(
             config.hidden_size, config.num_attention_heads * self.head_dim, bias=config.attention_bias
@@ -68,6 +70,8 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
             self.sliding_window = None
 
         if self.is_temporal_hierarchical:
+            level_lookup = behavior_level_lookup(config)
+            self.register_buffer('behavior_level_indices', torch.tensor(level_lookup, dtype=torch.long) if level_lookup is not None else None, persistent=False)
             self.behavior_embedding_dim = config.head_dim
             if self.th_use_behavior_qkv:
                 self.q_behavior_embedding = nn.Embedding(
@@ -102,7 +106,7 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
                     if getattr(config, 'th_relation_bias_init', 'zero') != 'soft':
                         raise ValueError('th_prior_behavior_ranks requires soft prior initialization.')
                 if self.th_relation_bias_type == "table":
-                    bias = torch.zeros(config.num_behavior + 1, config.num_behavior + 1, config.num_attention_heads)
+                    bias = torch.zeros(self.num_behavior_levels + 1, self.num_behavior_levels + 1, config.num_attention_heads)
                     if bool(getattr(config, "th_relation_bias_trainable", True)):
                         self.level_pair_bias = nn.Parameter(bias)
                     else:
@@ -112,10 +116,10 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
                     if self.th_relation_bias_rank <= 0:
                         raise ValueError("th_relation_bias_rank must be positive.")
                     self.level_query_bias_factor = nn.Parameter(
-                        torch.empty(config.num_behavior + 1, config.num_attention_heads, self.th_relation_bias_rank)
+                        torch.empty(self.num_behavior_levels + 1, config.num_attention_heads, self.th_relation_bias_rank)
                     )
                     self.level_key_bias_factor = nn.Parameter(
-                        torch.empty(config.num_behavior + 1, config.num_attention_heads, self.th_relation_bias_rank)
+                        torch.empty(self.num_behavior_levels + 1, config.num_attention_heads, self.th_relation_bias_rank)
                     )
             if self.th_use_output_gate:
                 self.gating = nn.Linear(config.hidden_size, config.hidden_size, bias=config.attention_bias)
@@ -154,11 +158,11 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
             raise ValueError("th_relation_bias_init must be 'zero' or 'soft'.")
         scale = float(getattr(self.config, "th_relation_bias_soft_scale", 0.1))
         with torch.no_grad():
-            levels = torch.arange(self.config.num_behavior + 1, dtype=self.level_pair_bias.dtype)
+            levels = torch.arange(self.num_behavior_levels + 1, dtype=self.level_pair_bias.dtype)
             level_diff = levels[:, None] - levels[None, :]
             bias = level_diff.clamp(max=0.0) * scale
             ranks = getattr(self.config, 'th_prior_behavior_ranks', None)
-            if ranks is not None:
+            if ranks is not None and self.behavior_level_indices is None:
                 if not isinstance(ranks, (list, tuple)) or len(ranks) != self.config.num_behavior:
                     raise ValueError('th_prior_behavior_ranks must have one rank per behavior identity.')
                 if any(isinstance(rank, bool) or not isinstance(rank, (int, float)) or not math.isfinite(rank) or rank < 0 for rank in ranks):
@@ -179,7 +183,7 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
                 return
 
             scale = float(getattr(self.config, "th_relation_bias_soft_scale", 0.1))
-            levels = torch.arange(self.config.num_behavior + 1, dtype=self.level_query_bias_factor.dtype)
+            levels = torch.arange(self.num_behavior_levels + 1, dtype=self.level_query_bias_factor.dtype)
             target = (levels[:, None] - levels[None, :]).clamp(max=0.0) * scale
             u, s, vh = torch.linalg.svd(target.to(torch.float32), full_matrices=False)
             rank = min(self.th_relation_bias_rank, s.numel())
@@ -197,8 +201,8 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
         key_action_index: torch.Tensor,
         dtype: torch.dtype,
     ) -> torch.Tensor:
-        query_action_index = query_action_index.clamp(min=0, max=self.config.num_behavior)
-        key_action_index = key_action_index.clamp(min=0, max=self.config.num_behavior)
+        query_action_index = query_action_index.clamp(min=0, max=self.num_behavior_levels)
+        key_action_index = key_action_index.clamp(min=0, max=self.num_behavior_levels)
         if getattr(self, "th_relation_bias_type", "table") == "factorized":
             query_factor = self.level_query_bias_factor[query_action_index]
             key_factor = self.level_key_bias_factor[key_action_index]
@@ -356,7 +360,7 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
             getattr(self.config, "th_relation_bias_soft_scale", 0.1),
         ))
         levels = torch.arange(
-            self.config.num_behavior + 1,
+            self.num_behavior_levels + 1,
             dtype=pair_bias.dtype,
             device=pair_bias.device,
         )
@@ -415,21 +419,25 @@ class Qwen3TemporalHierarchicalAttention(nn.Module):
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
         if self.is_temporal_hierarchical:
+            query_level_index, key_level_index = action_index, key_action_index
+            if self.behavior_level_indices is not None:
+                query_level_index = self.behavior_level_indices[action_index]
+                key_level_index = self.behavior_level_indices[key_action_index]
             extra_bias = None
             if self.th_attention_mode == "relation_bias":
                 extra_bias = self._apply_relation_bias_scale(
-                    self._compute_level_pair_bias(action_index, key_action_index, hidden_states.dtype)
+                    self._compute_level_pair_bias(query_level_index, key_level_index, hidden_states.dtype)
                 )
             elif self.th_attention_mode == "multi_view":
                 if self.th_multi_view_mode == "hard":
-                    extra_bias = self._compute_multi_view_bias(action_index, key_action_index, hidden_states.dtype)
+                    extra_bias = self._compute_multi_view_bias(query_level_index, key_level_index, hidden_states.dtype)
                 else:
-                    extra_bias = self._compute_soft_multi_view_bias(action_index, key_action_index, hidden_states.dtype)
+                    extra_bias = self._compute_soft_multi_view_bias(query_level_index, key_level_index, hidden_states.dtype)
                 if self.use_relation_bias:
                     extra_bias = extra_bias + self._apply_relation_bias_scale(
                         self._compute_level_pair_bias(
-                            action_index,
-                            key_action_index,
+                            query_level_index,
+                            key_level_index,
                             hidden_states.dtype,
                         )
                     )
@@ -751,7 +759,7 @@ class Qwen3TemporalHierarchicalWithTemperature(CustomCausalLMWrapperMixin, Qwen3
         if self.use_th_level_auxiliary:
             self.level_head = nn.Linear(
                 config.hidden_size,
-                config.num_behavior + 1,
+                getattr(config, 'num_behavior_levels', config.num_behavior) + 1,
                 bias=self.th_level_auxiliary_head_bias,
             )
 
@@ -767,7 +775,8 @@ class Qwen3TemporalHierarchicalWithTemperature(CustomCausalLMWrapperMixin, Qwen3
             dtype=torch.long,
             device=input_ids.device,
         )
-        for behavior_token, behavior_index in self.config.behavior_maps.items():
+        level_maps = getattr(self.config, 'behavior_level_maps', self.config.behavior_maps)
+        for behavior_token, behavior_index in level_maps.items():
             level_labels[shifted_input_ids == int(behavior_token)] = (
                 int(behavior_index) + 1
             )

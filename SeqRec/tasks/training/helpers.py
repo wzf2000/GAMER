@@ -4,6 +4,7 @@ from typing import Any
 from SeqRec.datasets.collators.generative import DecoderOnlyCollator, EncoderDecoderCollator
 from SeqRec.models.generative.registry import instantiate_generative_model, is_decoder_only_backbone
 from SeqRec.utils.fs import ensure_dir
+from SeqRec.utils.behavior_hierarchy import configure_behavior_hierarchy
 
 
 def prepare_tokenizer_and_config(
@@ -66,6 +67,8 @@ def _configure_behavior_tokens(
     }
     config.num_behavior = len(behavior_maps)
     config.behavior_maps = behavior_maps
+    if getattr(first_dataset, 'separate_behavior_identity_and_level', False):
+        configure_behavior_hierarchy(config, behavior_maps, first_dataset.behavior_level)
     config.use_behavior_token = (
         len(first_dataset.get_behavior_tokens(first_dataset.target_behavior)) > 0
     )
